@@ -1,0 +1,108 @@
+<%- include('../partials/admin-top', { title }) %>
+
+<h1><%= customer.username %>
+  <span class="badge <%= customer.active ? 'badge-ok' : 'badge-dim' %>"><%= customer.active ? 'active' : 'disabled' %></span>
+  <% if (customer.expires_at && customer.expires_at < nowTs) { %><span class="badge badge-bad">expired</span><% } %>
+</h1>
+<p class="sub">Created <%= formatDate(customer.created_at) %> by <%= customer.created_by || '—' %> · <a href="/admin/customers">← all customers</a></p>
+
+<% if (newPassword) { %>
+<div class="card" style="border-color:var(--good)">
+  <h2>New password (shown once)</h2>
+  <p><code style="font-size:16px"><%= newPassword %></code></p>
+</div>
+<% } %>
+
+<div class="row">
+  <div class="card">
+    <h2>Details</h2>
+    <form method="post" action="/admin/customers/<%= customer.id %>/update">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <label>Display name</label>
+      <input name="display_name" type="text" maxlength="100" value="<%= customer.display_name || '' %>">
+      <label>Private notes</label>
+      <textarea name="notes" rows="2" maxlength="500"><%= customer.notes || '' %></textarea>
+      <p><button class="btn-sm">Save</button></p>
+    </form>
+    <hr style="border-color:var(--border)">
+    <form method="post" action="/admin/customers/<%= customer.id %>/reset-password" style="display:inline">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <button class="btn-ghost btn-sm">Reset password</button>
+    </form>
+    <form method="post" action="/admin/customers/<%= customer.id %>/toggle" style="display:inline">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <button class="btn-ghost btn-sm"><%= customer.active ? 'Disable account' : 'Enable account' %></button>
+    </form>
+    <form method="post" action="/admin/customers/<%= customer.id %>/delete" style="display:inline">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <button class="btn-danger btn-sm">Delete</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Access expiry</h2>
+    <p>Currently: <strong><%= customer.expires_at ? formatDate(customer.expires_at) : 'never expires' %></strong></p>
+    <form method="post" action="/admin/customers/<%= customer.id %>/extend" class="toolbar">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <button class="btn-sm" name="days" value="30">+30 days</button>
+      <button class="btn-sm" name="days" value="90">+90 days</button>
+      <button class="btn-sm" name="days" value="365">+1 year</button>
+      <button class="btn-ghost btn-sm" name="days" value="never">Never expire</button>
+    </form>
+    <form method="post" action="/admin/customers/<%= customer.id %>/extend" class="toolbar">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <input type="date" name="date" style="max-width:180px" required>
+      <button class="btn-ghost btn-sm">Set exact date</button>
+    </form>
+    <p class="hint">Linked customers get a reminder DM before expiry (configure in Reports &amp; status).</p>
+  </div>
+</div>
+
+<div class="row">
+  <div class="card">
+    <h2>Telegram link</h2>
+    <% if (customer.telegram_user_id) { %>
+      <p>Linked to Telegram user ID <code><%= customer.telegram_user_id %></code>. They can use /myaccount, /download and /ticket in a DM with the bot, and get expiry reminders.</p>
+      <form method="post" action="/admin/customers/<%= customer.id %>/unlink">
+        <input type="hidden" name="_csrf" value="<%= csrf %>">
+        <button class="btn-ghost btn-sm">Unlink</button>
+      </form>
+    <% } else { %>
+      <% if (linkCode) { %>
+        <p>Pending code (48h): tell them to DM the bot:</p>
+        <p><code style="font-size:16px">/link <%= linkCode.code %></code></p>
+      <% } else { %>
+        <p class="hint">Not linked. Generate a one-time code and the customer sends it to the bot in a private message to connect their Telegram account.</p>
+      <% } %>
+      <form method="post" action="/admin/customers/<%= customer.id %>/link-code">
+        <input type="hidden" name="_csrf" value="<%= csrf %>">
+        <button class="btn-sm"><%= linkCode ? 'Regenerate code' : 'Generate link code' %></button>
+      </form>
+    <% } %>
+  </div>
+
+  <div class="card">
+    <h2>Tickets</h2>
+    <% if (!tickets.length) { %><p class="hint">No tickets from this customer.</p><% } else { %>
+    <table class="list">
+      <% for (const t of tickets) { %>
+      <tr><td><a href="/admin/tickets/<%= t.id %>">#<%= t.id %> <%= t.subject || '(no subject)' %></a></td>
+        <td><span class="badge <%= t.status === 'closed' ? 'badge-dim' : 'badge-warn' %>"><%= t.status %></span></td></tr>
+      <% } %>
+    </table>
+    <% } %>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Download history</h2>
+  <table class="list">
+    <tr><th>File</th><th>Via</th><th>IP</th><th>When</th></tr>
+    <% for (const d of downloadHistory) { %>
+    <tr><td><%= d.display_name %></td><td><%= d.via %></td><td class="hint"><%= d.ip || '—' %></td><td class="hint"><%= formatDate(d.ts) %></td></tr>
+    <% } %>
+    <% if (!downloadHistory.length) { %><tr><td colspan="4" class="hint">No downloads yet.</td></tr><% } %>
+  </table>
+</div>
+
+<%- include('../partials/admin-bottom') %>

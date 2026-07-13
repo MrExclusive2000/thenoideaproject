@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><%= title %> · <%= appName %></title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <style>:root { --accent: <%= accentColor %>; }</style>
+</head>
+<body class="portal-page">
+<div class="portal-shell">
+  <div class="portal-head"><div class="title"><%= appName %></div></div>
+  <div class="portal-note">
+    <h1 style="font-size:20px;margin:0 0 8px"><%= title %></h1>
+    <p><%= message %></p>
+    <p><a class="btn" href="/">Home</a></p>
+  </div>
+</div>
+</body>
+</html>

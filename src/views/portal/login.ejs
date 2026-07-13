@@ -1,0 +1,16 @@
+<%- include('../partials/portal-top', { title: 'Sign in', subtitle: 'Customer area' }) %>
+
+<div class="portal-note" style="max-width:420px;margin:0 auto;text-align:left">
+  <% if (error) { %><div class="flash flash-err"><%= error %></div><% } %>
+  <form method="post" action="/login">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <label for="username">Username</label>
+    <input id="username" name="username" type="text" autocomplete="username" required autofocus>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <p style="margin-top:20px"><button type="submit" style="width:100%;padding:13px;font-size:16px">Sign in</button></p>
+  </form>
+  <p class="hint" style="text-align:center">No account? Ask in our Telegram group.</p>
+</div>
+
+<%- include('../partials/portal-bottom') %>

@@ -1,0 +1,59 @@
+<%- include('../partials/admin-top', { title }) %>
+
+<h1>Branding &amp; backup</h1>
+<p class="sub">Make the portal yours, and keep your data safe.</p>
+
+<div class="row">
+  <div class="card">
+    <h2>Branding</h2>
+    <form method="post" action="/admin/system/branding">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <label for="appName">App / panel name</label>
+      <input id="appName" name="appName" type="text" maxlength="60" value="<%= s.appName %>">
+      <label for="accentColor">Accent color</label>
+      <input id="accentColor" name="accentColor" type="text" maxlength="7" value="<%= s.accentColor %>" placeholder="#6366f1">
+      <p class="hint">Hex color, e.g. <code>#e11d48</code> (red), <code>#06b6d4</code> (cyan), <code>#f59e0b</code> (amber).</p>
+      <p><button type="submit">Save branding</button></p>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Logo</h2>
+    <% if (s.logoFile) { %>
+      <p><img src="/admin/branding/logo" alt="logo" style="width:64px;height:64px;border-radius:12px"></p>
+      <form method="post" action="/admin/system/logo/remove" style="display:inline">
+        <input type="hidden" name="_csrf" value="<%= csrf %>">
+        <button class="btn-ghost btn-sm">Remove logo</button>
+      </form>
+    <% } else { %>
+      <p class="hint">No logo yet — square PNG or JPG up to 2 MB works best.</p>
+    <% } %>
+    <form method="post" action="/admin/system/logo" enctype="multipart/form-data">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <label for="logo">Upload logo</label>
+      <input id="logo" type="file" name="logo" accept=".png,.jpg,.jpeg">
+      <p><button class="btn-sm" type="submit">Upload</button></p>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Backup</h2>
+  <p>Database: <strong><%= dbSizeMb %> MB</strong> · Uploaded files: <strong><%= uploadsSizeMb %> MB</strong></p>
+  <form method="post" action="/admin/system/backup">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <button type="submit">Download database backup</button>
+  </form>
+  <p class="hint">This is a consistent snapshot of everything except the uploaded files themselves (customers, FAQs, guides, settings, tickets, logs). To back up the uploaded APKs too, download the <code>data/uploads</code> folder from the Pelican file manager. To restore: stop the server, replace <code>data/app.db</code> with the backup, start again.</p>
+</div>
+
+<div class="card">
+  <h2>Public address</h2>
+  <% if (publicUrl) { %>
+    <p>Customers reach the portal at: <code><%= publicUrl %></code> (login) and <code><%= publicUrl %>/d/CODE</code> (download codes).</p>
+  <% } else { %>
+    <p class="hint">The <code>PUBLIC_URL</code> variable is not set — download-code links shown around the panel can't include your address. Set it in the Pelican server's Startup tab (e.g. <code>http://your-ip:port</code>).</p>
+  <% } %>
+</div>
+
+<%- include('../partials/admin-bottom') %>

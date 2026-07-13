@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Admin login · <%= appName %></title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <style>:root { --accent: <%= accentColor %>; }</style>
+</head>
+<body class="admin">
+<% if (httpWarning) { %>
+  <div class="http-warn">⚠ Plain HTTP — this login is not encrypted. Use HTTPS if this panel is reachable from the internet.</div>
+<% } %>
+<div class="login-box">
+  <h1><%= appName %></h1>
+  <div class="sub">Admin panel sign in</div>
+  <% if (error) { %><div class="flash flash-err"><%= error %></div><% } %>
+  <form method="post" action="/admin/login">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <label for="username">Username</label>
+    <input id="username" name="username" type="text" autocomplete="username" required autofocus>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <label for="totp">2FA code <span style="font-weight:400">(only if enabled)</span></label>
+    <input id="totp" name="totp" type="text" inputmode="numeric" autocomplete="one-time-code">
+    <button type="submit">Sign in</button>
+  </form>
+</div>
+</body>
+</html>

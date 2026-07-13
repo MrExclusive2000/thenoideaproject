@@ -1,0 +1,30 @@
+import { Router } from 'express';
+import { requireAdmin } from '../../middleware.js';
+import { dashboardRouter } from './dashboard.js';
+import { accountRouter } from './account.js';
+import { settingsRouter } from './settings.js';
+import { faqsRouter } from './faqs.js';
+import { filesRouter } from './files.js';
+import { guidesRouter } from './guides.js';
+import { customersRouter } from './customers.js';
+import { adminsRouter } from './admins.js';
+import { broadcastsRouter } from './broadcasts.js';
+import { ticketsRouter } from './tickets.js';
+import { reportsRouter } from './reports.js';
+import { systemRouter } from './system.js';
+
+export const adminRouter = Router();
+
+adminRouter.use(requireAdmin);
+adminRouter.use(accountRouter);
+adminRouter.use(dashboardRouter);
+adminRouter.use(settingsRouter);
+adminRouter.use(faqsRouter);
+adminRouter.use(filesRouter);
+adminRouter.use(guidesRouter);
+adminRouter.use(customersRouter);
+adminRouter.use(adminsRouter);
+adminRouter.use(broadcastsRouter);
+adminRouter.use(ticketsRouter);
+adminRouter.use(reportsRouter);
+adminRouter.use(systemRouter);

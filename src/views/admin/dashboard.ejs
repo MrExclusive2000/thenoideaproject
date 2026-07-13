@@ -1,0 +1,90 @@
+<%- include('../partials/admin-top', { title }) %>
+
+<h1>Dashboard</h1>
+<p class="sub">What your bot and portal have been up to.</p>
+
+<div class="cards">
+  <div class="stat">
+    <div class="num">
+      <% if (bot.status === 'online') { %><span class="badge badge-ok">online</span>
+      <% } else if (bot.status === 'conflict') { %><span class="badge badge-bad">conflict</span>
+      <% } else if (bot.status === 'error') { %><span class="badge badge-bad">error</span>
+      <% } else if (bot.status === 'disabled') { %><span class="badge badge-dim">no token</span>
+      <% } else { %><span class="badge badge-warn"><%= bot.status %></span><% } %>
+    </div>
+    <div class="lbl">Bot <%= bot.username ? '@' + bot.username : '' %> · up <%= uptimeHours %>h</div>
+  </div>
+  <div class="stat"><div class="num"><%= stats.messages24h %></div><div class="lbl">messages seen (24h)</div></div>
+  <div class="stat"><div class="num"><%= stats.answered24h %></div><div class="lbl">answered (24h)</div></div>
+  <div class="stat"><div class="num"><%= stats.ai.calls %><% if (aiBudget) { %><span style="font-size:13px;color:var(--text-dim)">/<%= aiBudget %></span><% } %></div><div class="lbl">AI calls today</div></div>
+  <div class="stat"><div class="num"><%= stats.customers %></div><div class="lbl">active customers</div></div>
+  <div class="stat"><div class="num"><%= stats.downloads7d %></div><div class="lbl">downloads (7d)</div></div>
+</div>
+
+<% if (!setupDone) { %>
+<div class="card">
+  <h2>Setup checklist</h2>
+  <table class="list">
+    <tr><td><%= checklist.botToken ? '✅' : '⬜' %></td><td>Bot token set (TELEGRAM_BOT_TOKEN variable)</td></tr>
+    <tr><td><%= checklist.botOnline ? '✅' : '⬜' %></td><td>Bot connected to Telegram
+      <% if (bot.status === 'conflict') { %> — <strong>another instance of this bot is running somewhere else (409 conflict). Stop it.</strong><% } %>
+      <% if (bot.lastError && bot.status === 'error') { %> — <code><%= bot.lastError %></code><% } %>
+    </td></tr>
+    <tr><td><%= checklist.groupAdded ? '✅' : '⬜' %></td><td>Bot added to your group — add the bot in Telegram, then send <code>/adopt</code> in the group as one of the admin Telegram IDs (set those in <a href="/admin/reports">Reports &amp; status</a>)</td></tr>
+    <% if (checklist.privacyHint) { %>
+    <tr><td>⚠️</td><td><strong>The bot sees no group messages.</strong> Group Privacy is probably ON — open @BotFather → /mybots → Bot Settings → Group Privacy → <strong>Turn off</strong>, then remove and re-add the bot to the group.</td></tr>
+    <% } %>
+    <tr><td><%= checklist.hasFaqs ? '✅' : '⬜' %></td><td><a href="/admin/faqs">Add FAQ entries</a> so common questions get instant answers</td></tr>
+    <tr><td><%= checklist.aiConfigured ? '✅' : '⬜' %></td><td><a href="/admin/ai">Point the AI at your Llama endpoint</a> and test the connection</td></tr>
+    <tr><td><%= checklist.hasFile ? '✅' : '⬜' %></td><td><a href="/admin/files">Upload your first APK</a> for the customer portal</td></tr>
+    <tr><td><%= checklist.adminIds ? '✅' : '⬜' %></td><td><a href="/admin/reports">Set your admin Telegram ID</a> to receive alerts and digests</td></tr>
+  </table>
+</div>
+<% } %>
+
+<div class="row">
+  <div class="card">
+    <h2>Needs attention</h2>
+    <table class="list">
+      <tr><td><a href="/admin/tickets">Open tickets</a></td><td style="text-align:right"><span class="badge <%= stats.openTickets ? 'badge-warn' : 'badge-dim' %>"><%= stats.openTickets %></span></td></tr>
+      <tr><td><a href="/admin/unanswered">Unanswered questions</a></td><td style="text-align:right"><span class="badge <%= stats.unanswered ? 'badge-warn' : 'badge-dim' %>"><%= stats.unanswered %></span></td></tr>
+      <tr><td><a href="/admin/customers?filter=expiring">Customers expiring within 7 days</a></td><td style="text-align:right"><span class="badge <%= stats.expiringSoon ? 'badge-warn' : 'badge-dim' %>"><%= stats.expiringSoon %></span></td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h2>Top FAQs</h2>
+    <table class="list">
+      <% if (!topFaqs.length) { %><tr><td class="hint">No FAQ hits yet.</td></tr><% } %>
+      <% for (const f of topFaqs) { %>
+      <tr><td><%= f.question %></td><td style="text-align:right"><%= f.hit_count %></td></tr>
+      <% } %>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Connected chats</h2>
+  <% if (!allowedChats.length) { %><p class="hint">None yet. Add the bot to your Telegram group and send <code>/adopt</code> in it (from an admin Telegram ID).</p><% } %>
+  <% if (allowedChats.length) { %>
+  <table class="list">
+    <tr><th>Chat</th><th>ID</th><th>Status</th></tr>
+    <% for (const c of allowedChats) { %>
+    <tr><td><%= c.title || '—' %></td><td><code><%= c.chat_id %></code></td>
+      <td><span class="badge <%= c.enabled ? 'badge-ok' : 'badge-dim' %>"><%= c.enabled ? 'enabled' : 'muted' %></span></td></tr>
+    <% } %>
+  </table>
+  <% } %>
+</div>
+
+<div class="card">
+  <h2>Recent activity</h2>
+  <table class="list">
+    <% for (const a of recentActivity) { %>
+    <tr><td style="white-space:nowrap;color:var(--text-dim)"><%= new Date(a.ts * 1000).toISOString().slice(5, 16).replace('T', ' ') %></td>
+      <td><%= a.actor %></td><td><%= a.action %></td><td class="hint"><%= a.detail %></td></tr>
+    <% } %>
+    <% if (!recentActivity.length) { %><tr><td class="hint">Nothing yet.</td></tr><% } %>
+  </table>
+</div>
+
+<%- include('../partials/admin-bottom') %>

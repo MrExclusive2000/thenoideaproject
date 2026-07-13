@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title><%= title %> · <%= appName %></title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <style>:root { --accent: <%= accentColor %>; }</style>
+</head>
+<body class="portal-page">
+<div class="portal-shell">
+  <div class="portal-head">
+    <% if (hasLogo) { %><img src="/logo" alt=""><% } %>
+    <div class="title"><%= appName %></div>
+    <% if (typeof subtitle !== 'undefined' && subtitle) { %><div class="subtitle"><%= subtitle %></div><% } %>
+  </div>
+  <% if (typeof customer !== 'undefined' && customer) { %>
+  <div class="portal-nav">
+    <a href="/portal" class="<%= path === '/portal' ? 'active' : '' %>">Downloads</a>
+    <a href="/portal/guides" class="<%= path.startsWith('/portal/guides') ? 'active' : '' %>">Guides</a>
+    <a href="/portal/account" class="<%= path.startsWith('/portal/account') ? 'active' : '' %>">Account</a>
+  </div>
+  <% } %>
+  <% if (flash) { %><div class="flash flash-<%= flash.type %>"><%= flash.message %></div><% } %>

@@ -1,0 +1,32 @@
+<%- include('../partials/admin-top', { title }) %>
+
+<h1>Guides</h1>
+<p class="sub">Setup and troubleshooting guides. Visible guides appear in the customer portal and are used as AI knowledge.</p>
+
+<div class="toolbar">
+  <a class="btn" href="/admin/guides/new">＋ New guide</a>
+</div>
+
+<div class="card">
+  <table class="list">
+    <tr><th>Title</th><th>Order</th><th>Status</th><th>Updated</th><th></th></tr>
+    <% for (const g of guides) { %>
+    <tr>
+      <td><a href="/admin/guides/<%= g.id %>"><strong><%= g.title %></strong></a><div class="hint">/portal/guides/<%= g.slug %></div></td>
+      <td><%= g.sort %></td>
+      <td><span class="badge <%= g.visible ? 'badge-ok' : 'badge-dim' %>"><%= g.visible ? 'visible' : 'hidden' %></span></td>
+      <td class="hint"><%= new Date(g.updated_at * 1000).toISOString().slice(0, 10) %></td>
+      <td class="actions">
+        <a class="btn btn-ghost btn-sm" href="/admin/guides/<%= g.id %>">Edit</a>
+        <form method="post" action="/admin/guides/<%= g.id %>/delete">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <button class="btn-danger btn-sm">Delete</button>
+        </form>
+      </td>
+    </tr>
+    <% } %>
+    <% if (!guides.length) { %><tr><td colspan="5" class="hint">No guides yet — write one for installing the app on a Firestick.</td></tr><% } %>
+  </table>
+</div>
+
+<%- include('../partials/admin-bottom') %>

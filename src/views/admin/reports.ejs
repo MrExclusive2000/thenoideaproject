@@ -1,0 +1,94 @@
+<%- include('../partials/admin-top', { title }) %>
+
+<h1>Reports &amp; status</h1>
+<p class="sub">Service status shown to users, plus how and when the bot reports back to you on Telegram.</p>
+
+<div class="card">
+  <h2>Service status</h2>
+  <form method="post" action="/admin/reports/service">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <div class="row">
+      <div>
+        <label for="status">Status (shown in /status and the portal)</label>
+        <select id="status" name="status">
+          <option value="operational" <%= s.serviceStatus === 'operational' ? 'selected' : '' %>>✅ Operational</option>
+          <option value="degraded" <%= s.serviceStatus === 'degraded' ? 'selected' : '' %>>⚠️ Degraded / issues</option>
+          <option value="maintenance" <%= s.serviceStatus === 'maintenance' ? 'selected' : '' %>>🛠 Maintenance</option>
+        </select>
+      </div>
+      <div>
+        <label for="note">Note (optional, e.g. "server move, back at 20:00 UTC")</label>
+        <input id="note" name="note" type="text" maxlength="300" value="<%= s.serviceNote %>">
+      </div>
+    </div>
+    <div class="checkline">
+      <input type="checkbox" id="announceChanges" name="announceChanges" value="1" <%= s.announceChanges ? 'checked' : '' %>>
+      <label for="announceChanges">Auto-announce status changes to the group</label>
+    </div>
+    <p><button type="submit">Update status</button></p>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Telegram reporting</h2>
+  <form method="post" action="/admin/reports/settings">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <label for="adminTelegramIds">Admin Telegram user IDs (comma separated)</label>
+    <input id="adminTelegramIds" name="adminTelegramIds" type="text" value="<%= s.adminTelegramIds %>" placeholder="123456789, 987654321">
+    <p class="hint">Get your ID by messaging <code>@userinfobot</code> on Telegram. Each admin must also send the bot a /start DM once (Telegram rule: bots can't DM first). These IDs can also use admin commands like /adopt, /report and /broadcast.</p>
+
+    <h2>Instant alerts</h2>
+    <div class="checkline"><input type="checkbox" id="alertErrors" name="alertErrors" value="1" <%= s.alertErrors ? 'checked' : '' %>><label for="alertErrors">Bot errors and AI endpoint failures</label></div>
+    <div class="checkline"><input type="checkbox" id="alertBudget" name="alertBudget" value="1" <%= s.alertBudget ? 'checked' : '' %>><label for="alertBudget">Daily AI budget reached</label></div>
+    <div class="checkline"><input type="checkbox" id="alertTickets" name="alertTickets" value="1" <%= s.alertTickets ? 'checked' : '' %>><label for="alertTickets">New support tickets</label></div>
+    <div class="checkline"><input type="checkbox" id="alertBannedWords" name="alertBannedWords" value="1" <%= s.alertBannedWords ? 'checked' : '' %>><label for="alertBannedWords">Banned-word triggers</label></div>
+
+    <h2>AI digest</h2>
+    <div class="row">
+      <div>
+        <label for="digest">Schedule</label>
+        <select id="digest" name="digest">
+          <option value="off" <%= s.digest === 'off' ? 'selected' : '' %>>Off</option>
+          <option value="daily" <%= s.digest === 'daily' ? 'selected' : '' %>>Daily</option>
+          <option value="weekly" <%= s.digest === 'weekly' ? 'selected' : '' %>>Weekly (Mondays)</option>
+        </select>
+      </div>
+      <div>
+        <label for="digestHour">Send at (hour, UTC)</label>
+        <input id="digestHour" name="digestHour" type="number" min="0" max="23" value="<%= s.digestHour %>">
+      </div>
+      <div>
+        <label for="expiryReminderDays">Customer expiry reminder (days before)</label>
+        <input id="expiryReminderDays" name="expiryReminderDays" type="number" min="1" max="30" value="<%= s.expiryReminderDays %>">
+      </div>
+      <div>
+        <label for="retentionDays">Keep message stats for (days)</label>
+        <input id="retentionDays" name="retentionDays" type="number" min="1" max="365" value="<%= s.retentionDays %>">
+      </div>
+    </div>
+    <p><button type="submit">Save reporting settings</button></p>
+  </form>
+  <div class="toolbar">
+    <form method="post" action="/admin/reports/test-alert">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <button class="btn-ghost btn-sm" <%= botOnline ? '' : 'disabled' %>>Send test alert</button>
+    </form>
+    <form method="post" action="/admin/reports/send-digest">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <button class="btn-ghost btn-sm">Generate digest now</button>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Recent digests</h2>
+  <% if (!digests.length) { %><p class="hint">No digests yet — enable the schedule or hit "Generate digest now".</p><% } %>
+  <% for (const d of digests) { %>
+  <div style="margin-bottom:16px">
+    <div class="hint"><%= formatDate(d.created_at) %> · <%= d.period %></div>
+    <pre class="mono"><%= d.body %></pre>
+  </div>
+  <% } %>
+</div>
+
+<%- include('../partials/admin-bottom') %>

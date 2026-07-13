@@ -1,0 +1,26 @@
+<%- include('../partials/admin-top', { title }) %>
+
+<h1>Audit log</h1>
+<p class="sub"><%= total %> entries — every admin action, login and download is recorded.</p>
+
+<div class="card">
+  <table class="list">
+    <tr><th>When</th><th>Who</th><th>Action</th><th>Detail</th><th>IP</th></tr>
+    <% for (const r of rows) { %>
+    <tr>
+      <td class="hint" style="white-space:nowrap"><%= formatDate(r.ts) %></td>
+      <td><span class="badge badge-dim"><%= r.actor_type %></span> <%= r.actor %></td>
+      <td><code><%= r.action %></code></td>
+      <td class="hint" style="max-width:320px;word-break:break-word"><%= r.detail %></td>
+      <td class="hint"><%= r.ip %></td>
+    </tr>
+    <% } %>
+    <% if (!rows.length) { %><tr><td colspan="5" class="hint">Empty.</td></tr><% } %>
+  </table>
+  <div class="toolbar" style="margin-top:12px">
+    <% if (page > 0) { %><a class="btn btn-ghost btn-sm" href="/admin/audit?page=<%= page - 1 %>">← Newer</a><% } %>
+    <% if ((page + 1) * 100 < total) { %><a class="btn btn-ghost btn-sm" href="/admin/audit?page=<%= page + 1 %>">Older →</a><% } %>
+  </div>
+</div>
+
+<%- include('../partials/admin-bottom') %>

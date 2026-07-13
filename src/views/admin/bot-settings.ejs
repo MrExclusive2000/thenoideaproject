@@ -1,0 +1,117 @@
+<%- include('../partials/admin-top', { title }) %>
+
+<h1>Bot settings</h1>
+<p class="sub">How the bot behaves in your group and in private chats. Changes apply immediately.</p>
+
+<form method="post" action="/admin/bot">
+  <input type="hidden" name="_csrf" value="<%= csrf %>">
+
+  <div class="card">
+    <h2>General</h2>
+    <div class="checkline">
+      <input type="checkbox" id="enabled" name="enabled" value="1" <%= s.enabled ? 'checked' : '' %>>
+      <label for="enabled">Bot enabled (answers messages)</label>
+    </div>
+    <div class="checkline">
+      <input type="checkbox" id="dmEnabled" name="dmEnabled" value="1" <%= s.dmEnabled ? 'checked' : '' %>>
+      <label for="dmEnabled">Answer private (DM) messages too</label>
+    </div>
+
+    <label for="responseMode">When should the bot reply in the group?</label>
+    <select id="responseMode" name="responseMode">
+      <option value="mention" <%= s.responseMode === 'mention' ? 'selected' : '' %>>Only when mentioned or replied to</option>
+      <option value="questions" <%= s.responseMode === 'questions' ? 'selected' : '' %>>When a message looks like a question (recommended)</option>
+      <option value="all" <%= s.responseMode === 'all' ? 'selected' : '' %>>Try to answer every message</option>
+    </select>
+
+    <label for="cooldownSeconds">Per-user cooldown (seconds between answers to the same person)</label>
+    <input id="cooldownSeconds" name="cooldownSeconds" type="number" min="0" max="600" value="<%= s.cooldownSeconds %>">
+  </div>
+
+  <div class="card">
+    <h2>Instructions (the bot's persona and rules)</h2>
+    <p class="hint">This is the system prompt for the AI. Describe your app, tone, and anything the bot should or shouldn't say. FAQ entries and guides are automatically added as knowledge.</p>
+    <textarea name="instructions" rows="8" maxlength="8000"><%= s.instructions %></textarea>
+
+    <label for="faqThreshold">FAQ match strictness (0.1 loose – 0.95 strict)</label>
+    <input id="faqThreshold" name="faqThreshold" type="number" step="0.05" min="0.1" max="0.95" value="<%= s.faqThreshold %>">
+    <p class="hint">Above this score a FAQ answers instantly without the AI. Test scores in the <a href="/admin/faqs">FAQ manager</a>.</p>
+  </div>
+
+  <div class="card">
+    <h2>Off-topic &amp; fallback</h2>
+    <label for="offtopicBehavior">When someone asks something unrelated to the app</label>
+    <select id="offtopicBehavior" name="offtopicBehavior">
+      <option value="silent" <%= s.offtopicBehavior === 'silent' ? 'selected' : '' %>>Stay silent (recommended for groups)</option>
+      <option value="redirect" <%= s.offtopicBehavior === 'redirect' ? 'selected' : '' %>>Send the short redirect message below</option>
+    </select>
+    <label for="offtopicMessage">Redirect message</label>
+    <input id="offtopicMessage" name="offtopicMessage" type="text" maxlength="500" value="<%= s.offtopicMessage %>">
+    <label for="fallbackMessage">Fallback when nothing matched and the AI is off/unreachable (empty = stay silent)</label>
+    <input id="fallbackMessage" name="fallbackMessage" type="text" maxlength="500" value="<%= s.fallbackMessage %>">
+  </div>
+
+  <div class="card">
+    <h2>Welcome message</h2>
+    <div class="checkline">
+      <input type="checkbox" id="welcomeEnabled" name="welcomeEnabled" value="1" <%= s.welcomeEnabled ? 'checked' : '' %>>
+      <label for="welcomeEnabled">Greet new group members</label>
+    </div>
+    <label for="welcomeText">Welcome text (<code>{name}</code> is replaced with the member's name)</label>
+    <textarea id="welcomeText" name="welcomeText" rows="2" maxlength="1000"><%= s.welcomeText %></textarea>
+  </div>
+
+  <p><button type="submit">Save bot settings</button></p>
+</form>
+
+<div class="card">
+  <h2>Banned words</h2>
+  <p class="hint">Messages containing these are never answered, and AI replies containing them are suppressed. Optionally get alerted in <a href="/admin/reports">Reports</a>.</p>
+  <form method="post" action="/admin/bot/banned-words" class="toolbar">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <input type="text" name="word" placeholder="Add a word or phrase…" maxlength="60" style="max-width:280px" required>
+    <button type="submit" class="btn-sm">Add</button>
+  </form>
+  <% if (bannedWords.length) { %>
+  <table class="list">
+    <% for (const w of bannedWords) { %>
+    <tr><td><%= w.word %></td>
+      <td class="actions">
+        <form method="post" action="/admin/bot/banned-words/<%= w.id %>/delete">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <button class="btn-ghost btn-sm">Remove</button>
+        </form>
+      </td></tr>
+    <% } %>
+  </table>
+  <% } %>
+</div>
+
+<div class="card">
+  <h2>Connected chats</h2>
+  <p class="hint">The bot only ever answers in chats on this list. Add a chat by sending <code>/adopt</code> in it from one of your admin Telegram IDs (set those in <a href="/admin/reports">Reports &amp; status</a>).</p>
+  <% if (!allowedChats.length) { %><p class="hint">No chats connected yet.</p><% } else { %>
+  <table class="list">
+    <tr><th>Chat</th><th>ID</th><th>Status</th><th></th></tr>
+    <% for (const c of allowedChats) { %>
+    <tr>
+      <td><%= c.title || '—' %></td>
+      <td><code><%= c.chat_id %></code></td>
+      <td><span class="badge <%= c.enabled ? 'badge-ok' : 'badge-dim' %>"><%= c.enabled ? 'enabled' : 'muted' %></span></td>
+      <td class="actions">
+        <form method="post" action="/admin/bot/chats/<%= c.chat_id %>/toggle">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <button class="btn-ghost btn-sm"><%= c.enabled ? 'Mute' : 'Enable' %></button>
+        </form>
+        <form method="post" action="/admin/bot/chats/<%= c.chat_id %>/delete">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <button class="btn-ghost btn-sm">Remove</button>
+        </form>
+      </td>
+    </tr>
+    <% } %>
+  </table>
+  <% } %>
+</div>
+
+<%- include('../partials/admin-bottom') %>

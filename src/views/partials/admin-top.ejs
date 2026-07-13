@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title><%= title %> · <%= appName %></title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <style>:root { --accent: <%= accentColor %>; }</style>
+</head>
+<body class="admin">
+<% if (httpWarning) { %>
+  <div class="http-warn">⚠ You are using this panel over plain HTTP — traffic (including passwords) is not encrypted. Put it behind HTTPS (reverse proxy) if it is reachable from the internet.</div>
+<% } %>
+<div class="admin-wrap">
+  <nav class="sidebar">
+    <div class="brand">
+      <% if (hasLogo) { %><img src="/admin/branding/logo" alt=""><% } else { %><span class="dot"></span><% } %>
+      <span><%= appName %></span>
+    </div>
+
+    <div class="group">Overview</div>
+    <a class="nav <%= path === '/admin' ? 'active' : '' %>" href="/admin">Dashboard</a>
+    <a class="nav <%= path.startsWith('/admin/tickets') ? 'active' : '' %>" href="/admin/tickets">Tickets</a>
+    <a class="nav <%= path.startsWith('/admin/unanswered') ? 'active' : '' %>" href="/admin/unanswered">Unanswered</a>
+
+    <div class="group">Bot</div>
+    <a class="nav <%= path.startsWith('/admin/bot') ? 'active' : '' %>" href="/admin/bot">Bot settings</a>
+    <a class="nav <%= path.startsWith('/admin/ai') ? 'active' : '' %>" href="/admin/ai">AI settings</a>
+    <a class="nav <%= path.startsWith('/admin/faqs') ? 'active' : '' %>" href="/admin/faqs">FAQ manager</a>
+    <a class="nav <%= path.startsWith('/admin/broadcasts') ? 'active' : '' %>" href="/admin/broadcasts">Broadcasts</a>
+    <a class="nav <%= path.startsWith('/admin/reports') ? 'active' : '' %>" href="/admin/reports">Reports &amp; status</a>
+
+    <div class="group">Portal</div>
+    <a class="nav <%= path.startsWith('/admin/files') ? 'active' : '' %>" href="/admin/files">Downloads</a>
+    <a class="nav <%= path.startsWith('/admin/guides') ? 'active' : '' %>" href="/admin/guides">Guides</a>
+    <a class="nav <%= path.startsWith('/admin/customers') ? 'active' : '' %>" href="/admin/customers">Customers</a>
+
+    <div class="group">System</div>
+    <a class="nav <%= path.startsWith('/admin/admins') ? 'active' : '' %>" href="/admin/admins">Admins</a>
+    <a class="nav <%= path.startsWith('/admin/audit') ? 'active' : '' %>" href="/admin/audit">Audit log</a>
+    <a class="nav <%= path.startsWith('/admin/system') ? 'active' : '' %>" href="/admin/system">Branding &amp; backup</a>
+
+    <div class="foot">
+      <%= admin ? admin.username : '' %> (<%= admin ? admin.role : '' %>)<br>
+      <a href="/admin/password">Password &amp; 2FA</a><br>
+      <form method="post" action="/admin/logout" style="margin-top:6px">
+        <input type="hidden" name="_csrf" value="<%= csrf %>">
+        <button class="btn-ghost btn-sm">Log out</button>
+      </form>
+    </div>
+  </nav>
+
+  <main class="main">
+    <% if (flash) { %><div class="flash flash-<%= flash.type %>"><%= flash.message %></div><% } %>

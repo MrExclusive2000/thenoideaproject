@@ -1,0 +1,40 @@
+<%- include('../partials/admin-top', { title }) %>
+
+<h1>Unanswered questions</h1>
+<p class="sub">Questions the bot couldn't confidently answer, and answers customers rated 👎. Turn the common ones into FAQs.</p>
+
+<div class="toolbar">
+  <span class="spacer"></span>
+  <form method="post" action="/admin/unanswered/resolve-all">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <button class="btn-ghost btn-sm">Clear all</button>
+  </form>
+</div>
+
+<div class="card">
+  <table class="list">
+    <tr><th>Question</th><th>From</th><th>Why</th><th></th></tr>
+    <% for (const u of items) { %>
+    <tr>
+      <td><%= u.text %>
+        <% if (u.near_miss_question) { %><div class="hint">near miss: “<%= u.near_miss_question %>”</div><% } %>
+      </td>
+      <td class="hint"><%= u.tg_user || '—' %><br><%= u.chat_title || '' %></td>
+      <td><span class="badge badge-dim"><%= u.source %></span></td>
+      <td class="actions">
+        <form method="post" action="/admin/unanswered/<%= u.id %>/convert">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <button class="btn-sm">Make FAQ</button>
+        </form>
+        <form method="post" action="/admin/unanswered/<%= u.id %>/resolve">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <button class="btn-ghost btn-sm">Dismiss</button>
+        </form>
+      </td>
+    </tr>
+    <% } %>
+    <% if (!items.length) { %><tr><td colspan="4" class="hint">Inbox zero — nothing waiting. 🎉</td></tr><% } %>
+  </table>
+</div>
+
+<%- include('../partials/admin-bottom') %>

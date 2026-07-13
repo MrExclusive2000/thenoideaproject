@@ -1,0 +1,42 @@
+<%- include('../partials/admin-top', { title }) %>
+
+<h1>Broadcasts</h1>
+<p class="sub">Send an announcement to every connected chat — new version out, maintenance notice, anything.</p>
+
+<div class="card">
+  <h2>New announcement</h2>
+  <% if (!botOnline) { %><div class="flash flash-err">The bot is offline — broadcasts can't be sent right now.</div><% } %>
+  <form method="post" action="/admin/broadcasts">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <textarea name="body" rows="4" maxlength="3500" placeholder="📢 Version 2.1 is out — update from the portal! Fixes buffering on Firestick 4K." required></textarea>
+    <p><button type="submit" <%= botOnline ? '' : 'disabled' %>>Send to all connected chats</button></p>
+  </form>
+  <p class="hint">Tip: uploads can announce themselves automatically — toggle it in <a href="/admin/files">Downloads</a>.</p>
+</div>
+
+<div class="card">
+  <h2>History</h2>
+  <table class="list">
+    <tr><th>Message</th><th>By</th><th>Status</th><th>When</th><th></th></tr>
+    <% for (const b of broadcasts) { %>
+    <tr>
+      <td style="max-width:420px"><%= b.body.slice(0, 200) %><%= b.body.length > 200 ? '…' : '' %>
+        <% if (b.result) { %><div class="hint"><%= b.result %></div><% } %></td>
+      <td><%= b.created_by %></td>
+      <td><span class="badge <%= b.status === 'sent' ? 'badge-ok' : (b.status === 'failed' ? 'badge-bad' : 'badge-warn') %>"><%= b.status %></span></td>
+      <td class="hint"><%= b.sent_at ? formatDate(b.sent_at) : formatDate(b.created_at) %></td>
+      <td class="actions">
+        <% if (b.status === 'failed') { %>
+        <form method="post" action="/admin/broadcasts/<%= b.id %>/retry">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <button class="btn-ghost btn-sm">Retry</button>
+        </form>
+        <% } %>
+      </td>
+    </tr>
+    <% } %>
+    <% if (!broadcasts.length) { %><tr><td colspan="5" class="hint">No broadcasts yet.</td></tr><% } %>
+  </table>
+</div>
+
+<%- include('../partials/admin-bottom') %>

@@ -1,0 +1,17 @@
+<%- include('../partials/portal-top', { title: 'Account unavailable', subtitle: '' }) %>
+
+<div class="portal-note">
+  <% if (reason === 'expired') { %>
+    <h1 style="font-size:20px">Your access has expired</h1>
+    <p>Your account is still here — it just needs renewing. Contact us in the Telegram group or message the bot to sort it out.</p>
+  <% } else { %>
+    <h1 style="font-size:20px">This account is disabled</h1>
+    <p>Contact us in the Telegram group if you think this is a mistake.</p>
+  <% } %>
+  <form method="post" action="/logout" style="margin-top:16px">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <button type="submit" class="btn-ghost">Log out</button>
+  </form>
+</div>
+
+<%- include('../partials/portal-bottom') %>

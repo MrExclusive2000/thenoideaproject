@@ -1,0 +1,50 @@
+<%- include('../partials/admin-top', { title }) %>
+
+<h1>Admin accounts</h1>
+<p class="sub">People who can use this panel. Only the owner can add or remove admins.</p>
+
+<% if (created) { %>
+<div class="card" style="border-color:var(--good)">
+  <h2>Credentials for <%= created.username %> (shown once)</h2>
+  <p>Password: <code style="font-size:16px"><%= created.password %></code> — they must change it at first login.</p>
+</div>
+<% } %>
+
+<% if (isOwner) { %>
+<div class="card">
+  <h2>Add an admin</h2>
+  <form method="post" action="/admin/admins" class="toolbar">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <input type="text" name="username" maxlength="40" placeholder="username" required style="max-width:220px">
+    <button>Create admin</button>
+  </form>
+</div>
+<% } %>
+
+<div class="card">
+  <table class="list">
+    <tr><th>Username</th><th>Role</th><th>2FA</th><th>Last login</th><th></th></tr>
+    <% for (const a of admins) { %>
+    <tr>
+      <td><strong><%= a.username %></strong></td>
+      <td><span class="badge <%= a.role === 'owner' ? 'badge-ok' : 'badge-dim' %>"><%= a.role %></span></td>
+      <td><%= a.totp_secret ? '🔒 on' : '—' %></td>
+      <td class="hint"><%= a.last_login_at ? formatDate(a.last_login_at) : 'never' %></td>
+      <td class="actions">
+        <% if (isOwner && a.role !== 'owner') { %>
+        <form method="post" action="/admin/admins/<%= a.id %>/reset-password">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <button class="btn-ghost btn-sm">Reset password</button>
+        </form>
+        <form method="post" action="/admin/admins/<%= a.id %>/delete">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <button class="btn-danger btn-sm">Delete</button>
+        </form>
+        <% } %>
+      </td>
+    </tr>
+    <% } %>
+  </table>
+</div>
+
+<%- include('../partials/admin-bottom') %>

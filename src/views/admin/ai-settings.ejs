@@ -1,0 +1,56 @@
+<%- include('../partials/admin-top', { title }) %>
+
+<h1>AI settings</h1>
+<p class="sub">Point the bot at your self-hosted Llama (Ollama) or any OpenAI-compatible endpoint.</p>
+
+<% if (testResult) { %>
+<div class="flash <%= testResult.ok ? 'flash-ok' : 'flash-err' %>"><%= testResult.ok ? '✅ ' : '❌ ' %><%= testResult.detail %></div>
+<% } %>
+
+<form method="post" action="/admin/ai">
+  <input type="hidden" name="_csrf" value="<%= csrf %>">
+  <div class="card">
+    <div class="checkline">
+      <input type="checkbox" id="enabled" name="enabled" value="1" <%= s.enabled ? 'checked' : '' %>>
+      <label for="enabled">AI answering enabled (FAQ matches always answer first, for free)</label>
+    </div>
+
+    <label for="baseUrl">Endpoint base URL (OpenAI-compatible)</label>
+    <input id="baseUrl" name="baseUrl" type="url" value="<%= s.baseUrl %>" placeholder="http://127.0.0.1:11434/v1" required>
+    <p class="hint">Ollama on the same machine: <code>http://127.0.0.1:11434/v1</code> · Ollama on another server: <code>http://SERVER-IP:11434/v1</code> · Groq: <code>https://api.groq.com/openai/v1</code></p>
+
+    <div class="row">
+      <div>
+        <label for="model">Model name</label>
+        <input id="model" name="model" type="text" value="<%= s.model %>" placeholder="llama3.1" required>
+      </div>
+      <div>
+        <label for="apiKey">API key (leave empty for local Ollama)</label>
+        <input id="apiKey" name="apiKey" type="password" value="<%= s.apiKey %>" autocomplete="off">
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label for="maxTokens">Max reply tokens</label>
+        <input id="maxTokens" name="maxTokens" type="number" min="50" max="4000" value="<%= s.maxTokens %>">
+      </div>
+      <div>
+        <label for="temperature">Temperature (0 = factual, 1 = creative)</label>
+        <input id="temperature" name="temperature" type="number" step="0.1" min="0" max="2" value="<%= s.temperature %>">
+      </div>
+      <div>
+        <label for="dailyBudget">Daily AI call budget (0 = unlimited)</label>
+        <input id="dailyBudget" name="dailyBudget" type="number" min="0" max="100000" value="<%= s.dailyBudget %>">
+      </div>
+    </div>
+  </div>
+  <p><button type="submit">Save AI settings</button></p>
+</form>
+
+<form method="post" action="/admin/ai/test">
+  <input type="hidden" name="_csrf" value="<%= csrf %>">
+  <button type="submit" class="btn-ghost">Test connection</button>
+</form>
+
+<%- include('../partials/admin-bottom') %>

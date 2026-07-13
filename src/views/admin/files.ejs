@@ -1,0 +1,134 @@
+<%- include('../partials/admin-top', { title }) %>
+
+<h1>Downloads</h1>
+<p class="sub">Files customers can download from the portal — APKs, guides, anything up to <%= maxUploadMb %> MB.</p>
+
+<div class="card">
+  <h2>Upload a file</h2>
+  <form method="post" action="/admin/files/upload" enctype="multipart/form-data">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <label for="file">File (.apk, .zip, .ipa, .exe, .pdf, .txt, .mp4)</label>
+    <input id="file" type="file" name="file" required>
+    <div class="row">
+      <div>
+        <label for="display_name">Display name</label>
+        <input id="display_name" name="display_name" type="text" maxlength="120" placeholder="MyApp for Firestick">
+      </div>
+      <div>
+        <label for="version">Version</label>
+        <input id="version" name="version" type="text" maxlength="40" placeholder="1.2.3">
+      </div>
+      <div>
+        <label for="category">Category (optional)</label>
+        <input id="category" name="category" type="text" maxlength="40" placeholder="firestick / mobile">
+      </div>
+    </div>
+    <label for="description">Changelog / description (shown to customers)</label>
+    <textarea id="description" name="description" rows="3" maxlength="2000"></textarea>
+    <div class="checkline">
+      <input type="checkbox" id="is_latest" name="is_latest" value="1" checked>
+      <label for="is_latest">Mark as the latest version (used by the bot's /version and /download)</label>
+    </div>
+    <p><button type="submit">Upload</button></p>
+  </form>
+</div>
+
+<div class="card">
+  <div class="toolbar">
+    <h2 style="margin:0">Files (<%= files.length %>)</h2>
+    <span class="spacer"></span>
+    <form method="post" action="/admin/files/auto-announce">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <input type="hidden" name="enabled" value="<%= autoAnnounce ? '0' : '1' %>">
+      <button class="btn-ghost btn-sm">Auto-announce uploads to group: <%= autoAnnounce ? 'ON — turn off' : 'OFF — turn on' %></button>
+    </form>
+  </div>
+  <table class="list">
+    <tr><th>File</th><th>Version</th><th>Size</th><th>Downloads</th><th>Status</th><th></th></tr>
+    <% for (const f of files) { %>
+    <tr>
+      <td><strong><%= f.display_name %></strong>
+        <% if (f.is_latest) { %> <span class="badge badge-ok">latest</span><% } %>
+        <div class="hint"><%= f.original_name %> · sha256 <code><%= f.sha256.slice(0, 16) %>…</code></div>
+      </td>
+      <td><%= f.version || '—' %></td>
+      <td><%= formatBytes(f.size) %></td>
+      <td><%= f.download_count %></td>
+      <td><span class="badge <%= f.visible ? 'badge-ok' : 'badge-dim' %>"><%= f.visible ? 'visible' : 'hidden' %></span></td>
+      <td class="actions">
+        <form method="post" action="/admin/files/<%= f.id %>/toggle">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <button class="btn-ghost btn-sm"><%= f.visible ? 'Hide' : 'Show' %></button>
+        </form>
+        <form method="post" action="/admin/files/<%= f.id %>/delete">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <button class="btn-danger btn-sm">Delete</button>
+        </form>
+      </td>
+    </tr>
+    <tr>
+      <td colspan="6" style="padding-top:0">
+        <details>
+          <summary class="hint" style="cursor:pointer">Edit details / create Firestick code</summary>
+          <div class="row" style="margin-top:10px">
+            <form method="post" action="/admin/files/<%= f.id %>/update" class="card" style="margin:0">
+              <input type="hidden" name="_csrf" value="<%= csrf %>">
+              <label>Display name</label>
+              <input name="display_name" type="text" value="<%= f.display_name %>" maxlength="120">
+              <label>Version</label>
+              <input name="version" type="text" value="<%= f.version || '' %>" maxlength="40">
+              <label>Changelog / description</label>
+              <textarea name="description" rows="2" maxlength="2000"><%= f.description || '' %></textarea>
+              <div class="checkline">
+                <input type="checkbox" id="latest<%= f.id %>" name="is_latest" value="1" <%= f.is_latest ? 'checked' : '' %>>
+                <label for="latest<%= f.id %>">Latest version</label>
+              </div>
+              <p><button class="btn-sm">Save</button></p>
+            </form>
+            <form method="post" action="/admin/files/<%= f.id %>/code" class="card" style="margin:0">
+              <input type="hidden" name="_csrf" value="<%= csrf %>">
+              <p class="hint">Short code for the Downloader app — customer enters <code>your-address/d/CODE</code> and the download starts. No typing a password on the TV remote.</p>
+              <label>Valid for (days)</label>
+              <input name="days" type="number" min="1" max="90" value="7">
+              <label>Max uses</label>
+              <input name="max_uses" type="number" min="1" max="1000" value="3">
+              <label>Tie to customer (for the download log)</label>
+              <select name="customer_id">
+                <option value="">— anyone with the code —</option>
+                <% for (const c of customers) { %><option value="<%= c.id %>"><%= c.username %></option><% } %>
+              </select>
+              <p><button class="btn-sm">Create code</button></p>
+            </form>
+          </div>
+        </details>
+      </td>
+    </tr>
+    <% } %>
+    <% if (!files.length) { %><tr><td colspan="6" class="hint">Nothing uploaded yet.</td></tr><% } %>
+  </table>
+</div>
+
+<div class="card">
+  <h2>Active download codes</h2>
+  <table class="list">
+    <tr><th>Code</th><th>File</th><th>Customer</th><th>Uses</th><th>Expires</th><th></th></tr>
+    <% for (const c of codes) { %>
+    <tr>
+      <td><code style="font-size:15px"><%= c.code %></code></td>
+      <td><%= c.display_name %></td>
+      <td><%= c.customer_name || 'anyone' %></td>
+      <td><%= c.uses %>/<%= c.max_uses %></td>
+      <td><%= new Date(c.expires_at * 1000).toISOString().slice(0, 10) %></td>
+      <td class="actions">
+        <form method="post" action="/admin/files/codes/<%= c.code %>/delete">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <button class="btn-ghost btn-sm">Revoke</button>
+        </form>
+      </td>
+    </tr>
+    <% } %>
+    <% if (!codes.length) { %><tr><td colspan="6" class="hint">No active codes.</td></tr><% } %>
+  </table>
+</div>
+
+<%- include('../partials/admin-bottom') %>

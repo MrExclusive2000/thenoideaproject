@@ -1,0 +1,102 @@
+import { Bot, GrammyError } from 'grammy';
+import { autoRetry } from '@grammyjs/auto-retry';
+import { apiThrottler } from '@grammyjs/transformer-throttler';
+import { db, now } from '../db/db.js';
+import { config } from '../config.js';
+import { getSetting } from '../settings.js';
+import { state } from '../state.js';
+import { hub } from './hub.js';
+import { registerCommands } from './commands.js';
+import { registerFeedback } from './feedback.js';
+import { handleGroupMessage, handleDirectMessage } from './pipeline.js';
+import { alertAdmins } from './reports.js';
+
+let bot = null;
+
+export async function startBot() {
+  if (!config.botToken) {
+    state.bot.status = 'disabled';
+    console.log('No TELEGRAM_BOT_TOKEN set — the web panel runs, the bot does not.');
+    return null;
+  }
+
+  bot = new Bot(config.botToken);
+  bot.api.config.use(apiThrottler());
+  bot.api.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 30 }));
+
+  registerFeedback(bot);
+  registerCommands(bot);
+
+  // Group housekeeping: welcome messages and supergroup migration.
+  bot.on('message:new_chat_members', async (ctx) => {
+    if (!getSetting('bot.welcomeEnabled')) return;
+    const row = db.prepare('SELECT enabled FROM allowed_chats WHERE chat_id = ?').get(ctx.chat.id);
+    if (!row?.enabled) return;
+    for (const member of ctx.message.new_chat_members) {
+      if (member.is_bot) continue;
+      const text = String(getSetting('bot.welcomeText') || '').replace(/\{name\}/g, member.first_name || 'there');
+      if (text) await ctx.reply(text).catch(() => {});
+    }
+  });
+
+  // Telegram changes the chat id when a group upgrades to a supergroup —
+  // carry the allowlist entry over so the bot keeps working.
+  bot.on('message:migrate_to_chat_id', (ctx) => {
+    const newId = ctx.message.migrate_to_chat_id;
+    const old = db.prepare('SELECT * FROM allowed_chats WHERE chat_id = ?').get(ctx.chat.id);
+    if (old) {
+      db.prepare('INSERT OR REPLACE INTO allowed_chats (chat_id, title, enabled, added_at) VALUES (?, ?, ?, ?)')
+        .run(newId, old.title, old.enabled, now());
+      db.prepare('DELETE FROM allowed_chats WHERE chat_id = ?').run(ctx.chat.id);
+      console.log(`chat migrated ${ctx.chat.id} → ${newId}`);
+    }
+  });
+
+  bot.on('message:text', async (ctx) => {
+    if (ctx.chat.type === 'private') return handleDirectMessage(ctx);
+    return handleGroupMessage(ctx);
+  });
+
+  bot.catch((err) => {
+    const message = err.error?.message || String(err.error || err);
+    console.error('bot error:', message);
+    state.bot.lastError = message.slice(0, 300);
+    alertAdmins('error', `❌ Bot error: ${message.slice(0, 200)}`);
+  });
+
+  // Long polling in the background. 409 = another instance is polling with
+  // this token — surface it in the panel instead of crash-looping.
+  bot.start({
+    onStart: (botInfo) => {
+      state.bot.status = 'online';
+      state.bot.username = botInfo.username;
+      hub.api = bot.api;
+      console.log(`Bot online as @${botInfo.username}`);
+    },
+  }).catch((err) => {
+    hub.api = null;
+    if (err instanceof GrammyError && err.error_code === 409) {
+      state.bot.status = 'conflict';
+      state.bot.lastError = 'Another instance of this bot is running (409). Stop the other one and restart.';
+    } else if (err instanceof GrammyError && err.error_code === 401) {
+      state.bot.status = 'error';
+      state.bot.lastError = 'Bot token rejected by Telegram (401) — check TELEGRAM_BOT_TOKEN.';
+    } else {
+      state.bot.status = 'error';
+      state.bot.lastError = String(err.message || err).slice(0, 300);
+    }
+    console.error('bot stopped:', state.bot.lastError);
+  });
+
+  return bot;
+}
+
+export async function stopBot() {
+  if (!bot) return;
+  hub.api = null;
+  try {
+    await bot.stop();
+  } catch {
+    // already stopped
+  }
+}

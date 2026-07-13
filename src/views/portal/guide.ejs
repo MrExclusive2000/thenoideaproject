@@ -1,0 +1,9 @@
+<%- include('../partials/portal-top', { title, subtitle }) %>
+
+<p><a class="btn btn-ghost" href="/portal/guides">← All guides</a></p>
+<div class="guide-body">
+  <h1><%= guide.title %></h1>
+  <%- body %>
+</div>
+
+<%- include('../partials/portal-bottom') %>

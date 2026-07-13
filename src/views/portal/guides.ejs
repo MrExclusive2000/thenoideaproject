@@ -1,0 +1,15 @@
+<%- include('../partials/portal-top', { title, subtitle }) %>
+
+<% if (!guides.length) { %>
+<div class="portal-note">No guides published yet.</div>
+<% } %>
+
+<% for (const g of guides) { %>
+<div class="dl-item">
+  <div class="name"><%= g.title %></div>
+  <div class="meta">updated <%= formatDate(g.updated_at).slice(0, 10) %></div>
+  <a class="dl-btn" href="/portal/guides/<%= g.slug %>">Read guide →</a>
+</div>
+<% } %>
+
+<%- include('../partials/portal-bottom') %>

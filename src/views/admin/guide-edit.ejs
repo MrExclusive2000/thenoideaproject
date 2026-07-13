@@ -1,0 +1,41 @@
+<%- include('../partials/admin-top', { title }) %>
+
+<h1><%= guide ? 'Edit guide' : 'New guide' %></h1>
+<p class="sub">Markdown supported: headings, lists, links, images, bold. Save to refresh the preview.</p>
+
+<form method="post" action="/admin/guides">
+  <input type="hidden" name="_csrf" value="<%= csrf %>">
+  <% if (guide) { %><input type="hidden" name="id" value="<%= guide.id %>"><% } %>
+  <div class="card">
+    <label for="title">Title</label>
+    <input id="title" name="title" type="text" maxlength="150" required value="<%= guide ? guide.title : '' %>" placeholder="How to install on Firestick">
+    <div class="row">
+      <div>
+        <label for="sort">Sort order (lower = higher on the list)</label>
+        <input id="sort" name="sort" type="number" value="<%= guide ? guide.sort : 0 %>">
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <div class="checkline">
+          <input type="checkbox" id="visible" name="visible" value="1" <%= !guide || guide.visible ? 'checked' : '' %>>
+          <label for="visible">Visible to customers</label>
+        </div>
+      </div>
+    </div>
+    <label for="body_md">Content (Markdown)</label>
+    <textarea id="body_md" name="body_md" rows="18" maxlength="60000"><%= guide ? guide.body_md : '' %></textarea>
+    <p>
+      <button type="submit">Save guide</button>
+      <a class="btn btn-ghost" href="/admin/guides">Back</a>
+    </p>
+  </div>
+</form>
+
+<% if (preview) { %>
+<div class="card">
+  <h2>Preview</h2>
+  <div class="guide-body"><%- preview %></div>
+</div>
+<% } %>
+
+<%- include('../partials/admin-bottom') %>

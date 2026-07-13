@@ -1,0 +1,33 @@
+<%- include('../partials/portal-top', { title, subtitle }) %>
+
+<% if (serviceStatus !== 'operational' || serviceNote) { %>
+<div class="status-strip status-<%= serviceStatus %>">
+  <%= serviceStatus === 'operational' ? '✅ All systems operational' : (serviceStatus === 'degraded' ? '⚠️ Some issues right now' : '🛠 Maintenance in progress') %>
+  <% if (serviceNote) { %> — <%= serviceNote %><% } %>
+</div>
+<% } %>
+
+<% if (!files.length) { %>
+<div class="portal-note">No downloads are available yet. Check back soon!</div>
+<% } %>
+
+<% for (const f of files) { %>
+<div class="dl-item">
+  <div class="name"><%= f.display_name %>
+    <% if (f.is_latest) { %> <span class="badge badge-ok">LATEST</span><% } %>
+  </div>
+  <div class="meta">
+    <% if (f.version) { %>Version <%= f.version %> · <% } %><%= formatBytes(f.size) %> · updated <%= formatDate(f.uploaded_at).slice(0, 10) %>
+  </div>
+  <% if (f.description) { %><div class="desc"><%= f.description %></div><% } %>
+  <a class="dl-btn" href="/portal/download/<%= f.id %>/<%= encodeURIComponent((f.display_name || 'app').replace(/[^a-zA-Z0-9._-]/g, '-')) %><%= f.original_name.slice(f.original_name.lastIndexOf('.')) %>">⬇ Download</a>
+  <div class="sha">SHA-256: <%= f.sha256 %></div>
+</div>
+<% } %>
+
+<form method="post" action="/logout" style="text-align:center;margin-top:26px">
+  <input type="hidden" name="_csrf" value="<%= csrf %>">
+  <button type="submit" class="btn-ghost">Log out</button>
+</form>
+
+<%- include('../partials/portal-bottom') %>

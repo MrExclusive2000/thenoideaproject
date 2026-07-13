@@ -1,0 +1,77 @@
+<%- include('../partials/admin-top', { title }) %>
+
+<h1>FAQ manager</h1>
+<p class="sub">Questions the bot answers instantly (and for free). Anything below the match threshold falls back to the AI.</p>
+
+<div class="row">
+  <div class="card">
+    <h2><%= editing ? 'Edit FAQ' : 'Add a FAQ' %></h2>
+    <form method="post" action="/admin/faqs">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <% if (editing) { %><input type="hidden" name="id" value="<%= editing.id %>"><% } %>
+      <label for="question">Question (as a user would ask it)</label>
+      <input id="question" name="question" type="text" maxlength="500" required value="<%= editing ? editing.question : '' %>">
+      <label for="answer">Answer</label>
+      <textarea id="answer" name="answer" rows="4" maxlength="3000" required><%= editing ? editing.answer : '' %></textarea>
+      <label for="keywords">Keywords (comma or space separated — strong match boost)</label>
+      <input id="keywords" name="keywords" type="text" maxlength="300" value="<%= editing ? editing.keywords : '' %>" placeholder="buffering, freeze, stuck, loading">
+      <label for="priority">Priority (0–10, tie-breaker between similar FAQs)</label>
+      <input id="priority" name="priority" type="number" min="0" max="10" value="<%= editing ? editing.priority : 0 %>">
+      <p>
+        <button type="submit"><%= editing ? 'Save changes' : 'Add FAQ' %></button>
+        <% if (editing) { %><a class="btn btn-ghost" href="/admin/faqs">Cancel</a><% } %>
+      </p>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Test a question</h2>
+    <p class="hint">Type a question the way a customer would and see which FAQ (if any) would answer it.</p>
+    <form method="get" action="/admin/faqs">
+      <input type="text" name="q" maxlength="300" placeholder="my firestick keeps buffering??" value="<%= test ? test.q : '' %>">
+      <p style="margin-top:10px"><button type="submit" class="btn-ghost">Score it</button></p>
+    </form>
+    <% if (test) { %>
+      <% if (test.matched) { %>
+        <div class="flash flash-ok">Would answer with: “<%= test.matched.question %>”</div>
+      <% } else { %>
+        <div class="flash flash-err">No FAQ clears the threshold (<%= test.threshold %>) — this would go to the AI.</div>
+      <% } %>
+      <table class="list">
+        <tr><th>FAQ</th><th>Score</th><th>Keyword hits</th></tr>
+        <% for (const r of test.rows) { %>
+        <tr><td><%= r.question %></td><td><%= r.score %></td><td><%= r.keywordHits %></td></tr>
+        <% } %>
+      </table>
+    <% } %>
+  </div>
+</div>
+
+<div class="card">
+  <h2>All FAQs (<%= faqs.length %>)</h2>
+  <table class="list">
+    <tr><th>Question</th><th>Keywords</th><th>Hits</th><th>Status</th><th></th></tr>
+    <% for (const f of faqs) { %>
+    <tr>
+      <td><strong><%= f.question %></strong><div class="hint"><%= f.answer.slice(0, 120) %><%= f.answer.length > 120 ? '…' : '' %></div></td>
+      <td class="hint"><%= f.keywords %></td>
+      <td><%= f.hit_count %></td>
+      <td><span class="badge <%= f.enabled ? 'badge-ok' : 'badge-dim' %>"><%= f.enabled ? 'live' : 'off' %></span></td>
+      <td class="actions">
+        <a class="btn btn-ghost btn-sm" href="/admin/faqs?edit=<%= f.id %>">Edit</a>
+        <form method="post" action="/admin/faqs/<%= f.id %>/toggle">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <button class="btn-ghost btn-sm"><%= f.enabled ? 'Disable' : 'Enable' %></button>
+        </form>
+        <form method="post" action="/admin/faqs/<%= f.id %>/delete">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <button class="btn-danger btn-sm">Delete</button>
+        </form>
+      </td>
+    </tr>
+    <% } %>
+    <% if (!faqs.length) { %><tr><td colspan="5" class="hint">No FAQs yet — add your first one above.</td></tr><% } %>
+  </table>
+</div>
+
+<%- include('../partials/admin-bottom') %>

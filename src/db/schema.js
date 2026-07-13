@@ -1,0 +1,225 @@
+// Versioned migrations tracked via PRAGMA user_version. Each entry runs once,
+// in order, inside a transaction. Never edit an existing migration — append.
+const migrations = [
+  // v1 — initial schema
+  `
+  CREATE TABLE settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+
+  CREATE TABLE admins (
+    id                   INTEGER PRIMARY KEY,
+    username             TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash        TEXT NOT NULL,
+    role                 TEXT NOT NULL DEFAULT 'admin',
+    totp_secret          TEXT,
+    must_change_password INTEGER NOT NULL DEFAULT 0,
+    failed_attempts      INTEGER NOT NULL DEFAULT 0,
+    locked_until         INTEGER,
+    last_login_at        INTEGER,
+    created_at           INTEGER NOT NULL
+  );
+
+  CREATE TABLE customers (
+    id               INTEGER PRIMARY KEY,
+    username         TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash    TEXT NOT NULL,
+    display_name     TEXT,
+    notes            TEXT,
+    telegram_user_id INTEGER UNIQUE,
+    active           INTEGER NOT NULL DEFAULT 1,
+    expires_at       INTEGER,
+    reminder_sent_at INTEGER,
+    failed_attempts  INTEGER NOT NULL DEFAULT 0,
+    locked_until     INTEGER,
+    last_login_at    INTEGER,
+    created_by       TEXT,
+    created_at       INTEGER NOT NULL
+  );
+
+  CREATE TABLE files (
+    id            INTEGER PRIMARY KEY,
+    stored_name   TEXT NOT NULL UNIQUE,
+    display_name  TEXT NOT NULL,
+    original_name TEXT NOT NULL,
+    description   TEXT,
+    version       TEXT,
+    category      TEXT,
+    size          INTEGER NOT NULL,
+    sha256        TEXT NOT NULL,
+    visible       INTEGER NOT NULL DEFAULT 1,
+    is_latest     INTEGER NOT NULL DEFAULT 0,
+    uploaded_by   TEXT,
+    uploaded_at   INTEGER NOT NULL
+  );
+
+  CREATE TABLE downloads (
+    id          INTEGER PRIMARY KEY,
+    file_id     INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+    customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL,
+    via         TEXT NOT NULL DEFAULT 'portal',
+    ip          TEXT,
+    ts          INTEGER NOT NULL
+  );
+  CREATE INDEX idx_downloads_file ON downloads(file_id, ts);
+
+  CREATE TABLE guides (
+    id         INTEGER PRIMARY KEY,
+    title      TEXT NOT NULL,
+    slug       TEXT NOT NULL UNIQUE,
+    body_md    TEXT NOT NULL DEFAULT '',
+    sort       INTEGER NOT NULL DEFAULT 0,
+    visible    INTEGER NOT NULL DEFAULT 1,
+    updated_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE faqs (
+    id         INTEGER PRIMARY KEY,
+    question   TEXT NOT NULL,
+    answer     TEXT NOT NULL,
+    keywords   TEXT NOT NULL DEFAULT '',
+    enabled    INTEGER NOT NULL DEFAULT 1,
+    priority   INTEGER NOT NULL DEFAULT 0,
+    hit_count  INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE unanswered (
+    id               INTEGER PRIMARY KEY,
+    text             TEXT NOT NULL,
+    chat_id          INTEGER,
+    chat_title       TEXT,
+    tg_user          TEXT,
+    near_miss_faq_id INTEGER,
+    source           TEXT NOT NULL DEFAULT 'nomatch',
+    resolved         INTEGER NOT NULL DEFAULT 0,
+    ts               INTEGER NOT NULL
+  );
+
+  CREATE TABLE allowed_chats (
+    chat_id  INTEGER PRIMARY KEY,
+    title    TEXT,
+    enabled  INTEGER NOT NULL DEFAULT 1,
+    added_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE banned_words (
+    id   INTEGER PRIMARY KEY,
+    word TEXT NOT NULL UNIQUE COLLATE NOCASE
+  );
+
+  CREATE TABLE broadcasts (
+    id         INTEGER PRIMARY KEY,
+    body       TEXT NOT NULL,
+    status     TEXT NOT NULL DEFAULT 'pending',
+    result     TEXT,
+    sent_at    INTEGER,
+    created_by TEXT,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE messages_log (
+    id           INTEGER PRIMARY KEY,
+    chat_id      INTEGER,
+    tg_user_id   INTEGER,
+    tg_username  TEXT,
+    text         TEXT,
+    reply_source TEXT,
+    ts           INTEGER NOT NULL
+  );
+  CREATE INDEX idx_messages_chat_ts ON messages_log(chat_id, ts);
+  CREATE INDEX idx_messages_ts ON messages_log(ts);
+
+  CREATE TABLE audit_log (
+    id         INTEGER PRIMARY KEY,
+    actor_type TEXT NOT NULL,
+    actor      TEXT NOT NULL,
+    action     TEXT NOT NULL,
+    detail     TEXT,
+    ip         TEXT,
+    ts         INTEGER NOT NULL
+  );
+  CREATE INDEX idx_audit_ts ON audit_log(ts);
+
+  CREATE TABLE sessions (
+    sid    TEXT PRIMARY KEY,
+    sess   TEXT NOT NULL,
+    expire INTEGER NOT NULL
+  );
+  CREATE INDEX idx_sessions_expire ON sessions(expire);
+
+  CREATE TABLE tickets (
+    id               INTEGER PRIMARY KEY,
+    customer_id      INTEGER REFERENCES customers(id) ON DELETE SET NULL,
+    telegram_user_id INTEGER,
+    tg_username      TEXT,
+    subject          TEXT,
+    status           TEXT NOT NULL DEFAULT 'open',
+    created_at       INTEGER NOT NULL,
+    updated_at       INTEGER NOT NULL
+  );
+
+  CREATE TABLE ticket_messages (
+    id        INTEGER PRIMARY KEY,
+    ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    sender    TEXT NOT NULL,
+    body      TEXT NOT NULL,
+    ts        INTEGER NOT NULL
+  );
+
+  CREATE TABLE link_codes (
+    code        TEXT PRIMARY KEY,
+    customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    expires_at  INTEGER NOT NULL,
+    used        INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE download_codes (
+    code        TEXT PRIMARY KEY,
+    file_id     INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+    customer_id INTEGER REFERENCES customers(id) ON DELETE CASCADE,
+    max_uses    INTEGER NOT NULL DEFAULT 1,
+    uses        INTEGER NOT NULL DEFAULT 0,
+    expires_at  INTEGER NOT NULL,
+    created_by  TEXT,
+    created_at  INTEGER NOT NULL
+  );
+
+  CREATE TABLE answer_feedback (
+    id         INTEGER PRIMARY KEY,
+    chat_id    INTEGER,
+    message_id INTEGER,
+    faq_id     INTEGER,
+    source     TEXT,
+    rating     TEXT NOT NULL,
+    tg_user_id INTEGER,
+    ts         INTEGER NOT NULL,
+    UNIQUE(chat_id, message_id, tg_user_id)
+  );
+
+  CREATE TABLE ai_usage (
+    day    TEXT PRIMARY KEY,
+    calls  INTEGER NOT NULL DEFAULT 0,
+    tokens INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE digests (
+    id         INTEGER PRIMARY KEY,
+    period     TEXT,
+    body       TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  `,
+];
+
+export function migrate(db) {
+  const current = db.pragma('user_version', { simple: true });
+  for (let v = current; v < migrations.length; v++) {
+    db.transaction(() => {
+      db.exec(migrations[v]);
+      db.pragma(`user_version = ${v + 1}`);
+    })();
+  }
+}

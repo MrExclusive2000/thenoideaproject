@@ -1,0 +1,85 @@
+<%- include('../partials/admin-top', { title }) %>
+
+<h1>Customers</h1>
+<p class="sub">Accounts for the download portal. Create one shared login or one per customer — your call.</p>
+
+<% if (created && created.length) { %>
+<div class="card" style="border-color:var(--good)">
+  <h2>New account<%= created.length > 1 ? 's' : '' %> — copy these passwords now (shown once)</h2>
+  <table class="list">
+    <tr><th>Username</th><th>Password</th></tr>
+    <% for (const c of created) { %>
+    <tr><td><code><%= c.username %></code></td><td><code><%= c.password %></code></td></tr>
+    <% } %>
+  </table>
+</div>
+<% } %>
+
+<div class="card">
+  <h2>Create accounts</h2>
+  <form method="post" action="/admin/customers">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <div class="row">
+      <div>
+        <label for="username">Username (base name when creating several)</label>
+        <input id="username" name="username" type="text" maxlength="40" required placeholder="john or vipcustomer">
+      </div>
+      <div>
+        <label for="count">How many accounts (1 = single, more = username01, 02…)</label>
+        <input id="count" name="count" type="number" min="1" max="50" value="1">
+      </div>
+      <div>
+        <label for="expires_days">Access length (days, 0 = never expires)</label>
+        <input id="expires_days" name="expires_days" type="number" min="0" max="3650" value="0">
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label for="display_name">Display name (optional)</label>
+        <input id="display_name" name="display_name" type="text" maxlength="100">
+      </div>
+      <div>
+        <label for="notes">Private notes (optional — only admins see this)</label>
+        <input id="notes" name="notes" type="text" maxlength="500" placeholder="paid via PayPal, renews monthly">
+      </div>
+    </div>
+    <p><button type="submit">Create — passwords are generated automatically</button></p>
+  </form>
+</div>
+
+<div class="toolbar">
+  <a class="btn <%= filter === 'all' ? '' : 'btn-ghost' %> btn-sm" href="/admin/customers">All</a>
+  <a class="btn <%= filter === 'expiring' ? '' : 'btn-ghost' %> btn-sm" href="/admin/customers?filter=expiring">Expiring ≤7d</a>
+  <a class="btn <%= filter === 'expired' ? '' : 'btn-ghost' %> btn-sm" href="/admin/customers?filter=expired">Expired</a>
+  <a class="btn <%= filter === 'disabled' ? '' : 'btn-ghost' %> btn-sm" href="/admin/customers?filter=disabled">Disabled</a>
+  <span class="spacer"></span>
+  <form method="get" action="/admin/customers" class="toolbar" style="margin:0">
+    <input type="text" name="q" placeholder="Search…" value="<%= q %>" style="max-width:200px">
+    <button class="btn-ghost btn-sm">Search</button>
+  </form>
+</div>
+
+<div class="card">
+  <table class="list">
+    <tr><th>Username</th><th>Telegram</th><th>Expires</th><th>Last login</th><th>Status</th><th></th></tr>
+    <% for (const c of customers) { %>
+    <tr>
+      <td><a href="/admin/customers/<%= c.id %>"><strong><%= c.username %></strong></a>
+        <% if (c.display_name) { %><div class="hint"><%= c.display_name %></div><% } %></td>
+      <td><%= c.telegram_user_id ? '🔗 linked' : '—' %></td>
+      <td>
+        <% if (!c.expires_at) { %>never
+        <% } else if (c.expires_at < nowTs) { %><span class="badge badge-bad">expired</span>
+        <% } else if (c.expires_at < nowTs + 7 * 86400) { %><span class="badge badge-warn"><%= formatDate(c.expires_at).slice(0, 10) %></span>
+        <% } else { %><%= formatDate(c.expires_at).slice(0, 10) %><% } %>
+      </td>
+      <td class="hint"><%= c.last_login_at ? formatDate(c.last_login_at) : 'never' %></td>
+      <td><span class="badge <%= c.active ? 'badge-ok' : 'badge-dim' %>"><%= c.active ? 'active' : 'disabled' %></span></td>
+      <td class="actions"><a class="btn btn-ghost btn-sm" href="/admin/customers/<%= c.id %>">Manage</a></td>
+    </tr>
+    <% } %>
+    <% if (!customers.length) { %><tr><td colspan="6" class="hint">No customers match.</td></tr><% } %>
+  </table>
+</div>
+
+<%- include('../partials/admin-bottom') %>
