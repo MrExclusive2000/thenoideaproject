@@ -24,7 +24,9 @@ Traffic to it comes from packaging QRs, link-in-bio, and content — it is **not
 | Shopify | Rejected: £25+/mo, and violates the self-hosted constraint |
 | Saleor / Vendure | Overkill (enterprise headless) for a single-brand store |
 
-## 3. Egg / container spec
+> **Deployment decision (13 Jul 2026):** rather than authoring a custom egg, the store deploys with the maintained upstream **[Sigma WebHost egg](https://github.com/Sigma-Production/ptero-eggs)** (nginx + PHP-FPM, WordPress auto-install, panel-provided database). Full walkthrough: [`../egg/README.md`](../egg/README.md). The spec below stands as background/rationale and as the fallback blueprint if upstream ever disappears.
+
+## 3. Egg / container spec (background)
 
 Two-container layout (Pelican supports allocating both under one server, or use the DB egg separately):
 

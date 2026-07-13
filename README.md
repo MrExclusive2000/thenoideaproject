@@ -13,7 +13,9 @@ The self-hosted webstore component runs as a Docker container, deployable as a *
 | [`docs/PLAYBOOK.md`](docs/PLAYBOOK.md) | Step-by-step execution guides: accounts, validation sprint, first white-label order, automations, AI workflows |
 | [`docs/MARKETING.md`](docs/MARKETING.md) | The no-ads traffic engine: content pillars, Etsy SEO, TikTok Shop affiliates, launch calendar |
 | [`docs/BRAND.md`](docs/BRAND.md) | Brand identity (palette, typography, packaging) + **name candidates with trademark knock-out results** |
+| [`docs/DESIGN-DIRECTION.md`](docs/DESIGN-DIRECTION.md) | Collection 01 "After Hours" — all 10 launch designs fully specified (palettes, composition, print spec, Etsy titles/tags) |
 | [`docs/STORE-SETUP.md`](docs/STORE-SETUP.md) | The self-hosted store as a Pelican egg — platform choice and hosting spec |
+| [`egg/README.md`](egg/README.md) | Step-by-step: deploy the WooCommerce store on the panel using the upstream WebHost egg |
 
 ## The one-paragraph pitch
 
