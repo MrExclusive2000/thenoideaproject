@@ -95,7 +95,10 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         await ctx.replyWithChatAction?.('typing')?.catch?.(() => {});
         const historyKey = `${ctx.chat.id}:${ctx.from.id}`;
         const history = providedHistory ?? (isDm ? (dmHistory.get(historyKey) || []) : []);
-        const reply = await askAi(question, { history });
+        // A problem-report trigger or an FAQ near-miss means we already KNOW
+        // this is on-topic — stop the model from bailing with OFFTOPIC.
+        const assumeOnTopic = looksLikeProblem(question) || Boolean(result.nearMiss);
+        const reply = await askAi(question, { history, assumeOnTopic });
 
         if (reply) {
           setLogSource(logId, 'ai');
@@ -109,6 +112,20 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
           });
           if (sent) rememberReply(ctx.chat.id, sent.message_id, { question, faqId: null, source: 'ai' });
           return 'ai';
+        }
+
+        // The model still refused a request we know is on-topic — answer with
+        // the closest FAQ instead of brushing the user off.
+        if (assumeOnTopic && result.nearMiss) {
+          db.prepare('UPDATE faqs SET hit_count = hit_count + 1 WHERE id = ?').run(result.nearMiss.id);
+          setLogSource(logId, 'faq');
+          recordUnanswered(question, ctx, 'ai-refused', result.nearMiss.id);
+          const sent = await sendChunked(ctx.api, ctx.chat.id, result.nearMiss.answer, {
+            ...replyParams,
+            reply_markup: feedbackKeyboard(),
+          });
+          if (sent) rememberReply(ctx.chat.id, sent.message_id, { question, faqId: result.nearMiss.id, source: 'faq' });
+          return 'faq';
         }
 
         // AI judged it off-topic / unanswerable — strict-topic rule kicked in.

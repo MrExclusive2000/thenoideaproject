@@ -140,10 +140,12 @@ test('group user can reply to a bot answer and continue the conversation', async
   assert.equal(ctx.sent.length, 1, 'bot replied to the follow-up');
   assert.match(ctx.sent[0].msg, /wired ethernet/);
   // The AI saw the conversation, not just the bare follow-up …
+  // ("still freezing" is also a problem report, so the on-topic hint system
+  // message is present too)
   const roles = lastAiRequest.messages.map((m) => m.role);
-  assert.deepEqual(roles, ['system', 'user', 'assistant', 'user']);
-  assert.match(lastAiRequest.messages[1].content, /fix buffering/);
-  assert.match(lastAiRequest.messages[2].content, /clearing the app cache/);
+  assert.deepEqual(roles, ['system', 'system', 'user', 'assistant', 'user']);
+  assert.match(lastAiRequest.messages[2].content, /fix buffering/);
+  assert.match(lastAiRequest.messages[3].content, /clearing the app cache/);
   // … and the FAQ was skipped even though "freezing" matches FAQ keywords.
   assert.doesNotMatch(ctx.sent[0].msg, /Downloader app/);
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
@@ -159,6 +161,22 @@ test('problem statements in the group trigger an answer (no question mark needed
   await handleGroupMessage(ctx);
   assert.equal(ctx.sent.length, 1, 'bot answered the problem report');
   assert.match(ctx.sent[0].msg, /BBC1/);
+  // Problem reports carry the on-topic hint so the model can't bail with OFFTOPIC.
+  assert.equal(lastAiRequest.messages.filter((m) => m.role === 'system').length, 2);
+  assert.match(lastAiRequest.messages[1].content, /IS in scope/);
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('if the model still refuses an on-topic problem, the nearest FAQ answers instead', async () => {
+  db.prepare(`INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at)
+              VALUES ('The app keeps buffering, what can I do?', 'Restart the app, clear the cache, and try a different link for the channel.', 'buffering, freeze, stuck, loading, lag', 1, 0, 0, 0)`).run();
+  aiResponse = 'OFFTOPIC';
+  const ctx = fakeCtx('buffering on bbc1', { chatType: 'group', userId: 8888 });
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 1, 'FAQ fallback replied');
+  assert.match(ctx.sent[0].msg, /clear the cache/);
+  const row = db.prepare("SELECT * FROM unanswered WHERE source = 'ai-refused' ORDER BY id DESC").get();
+  assert.match(row.text, /bbc1/, 'refusal logged for admin review');
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
 
