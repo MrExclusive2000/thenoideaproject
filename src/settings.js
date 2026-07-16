@@ -17,6 +17,9 @@ export const DEFAULTS = {
   'bot.offtopicBehavior': 'silent', // silent | redirect
   'bot.offtopicMessage': 'I can only help with questions about the app. Ask me anything about installing or using it!',
   'bot.fallbackMessage': '', // empty = stay silent when nothing matched and AI is off/down
+  // Sent when a message IS about the app/service but the bot can't answer it —
+  // kinder than the off-topic line, and points the user to a human.
+  'bot.unsureMessage': "I'm not totally sure on that one — send /ticket in a private message to me and the team will help you out.",
   'bot.welcomeEnabled': false,
   'bot.welcomeText': 'Welcome {name}! Ask me anything about the app — or type /help to see what I can do.',
   'bot.cooldownSeconds': 15,
@@ -43,6 +46,7 @@ export const DEFAULTS = {
   'reports.alertBudget': true,
   'reports.alertBannedWords': false,
   'reports.alertTickets': true,
+  'reports.alertProblems': true, // DM admins when users report problems (buffering, channels down…)
   'reports.digest': 'off', // off | daily | weekly
   'reports.digestHour': 9,
 

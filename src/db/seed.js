@@ -4,7 +4,7 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 2;
+const SEED_VERSION = 3;
 
 export const STARTER_FAQS = [
   {
@@ -16,6 +16,16 @@ export const STARTER_FAQS = [
     question: 'How do I install the app on an Android phone or tablet?',
     answer: 'Open our Android installer link on your device (ask here or check the customer panel if you don’t have it), pick the app you want — we recommend the Purple App — and allow installs from unknown sources if your phone asks (the prompt varies by model). Install it, open it, and log in with your service details.',
     keywords: 'android, phone, tablet, mobile, apk, installer, samsung, pixel',
+  },
+  {
+    question: 'How do I enable Developer Options or allow apps from unknown sources on Firestick?',
+    answer: 'If the Firestick blocks the install or asks for "unknown sources":\n1. Press the Home button on the remote.\n2. Go to Settings > My Fire TV > About.\n3. Highlight your device name and press it 7–10 times until it says Developer Options are enabled.\n4. Go back and open Developer Options.\n5. Turn ON both options (Apps from Unknown Sources / ADB debugging).\n6. Go back to the Downloader app and continue installing.\nThen open the app and log in with your service details.',
+    keywords: 'developer, options, unknown, sources, enable, allow, apps, permission, blocked, install, sideload, adb, about',
+  },
+  {
+    question: "The install is blocked or says I can't install unknown apps",
+    answer: 'That just means the device needs permission first. On Firestick: Settings > My Fire TV > About, press the device name 7–10 times to unlock Developer Options, then enable both options in there and try the install again. On Android: when you open the downloaded file and it asks, tap "Settings" and allow installs from that app/browser, then install.',
+    keywords: 'blocked, unknown, install, cant, cannot, unable, permission, sources, allow, developer, options, prohibited, restricted',
   },
   {
     question: 'Which app should I use — Purple, XC or Smarters?',

@@ -41,6 +41,7 @@
     <div class="checkline"><input type="checkbox" id="alertErrors" name="alertErrors" value="1" <%= s.alertErrors ? 'checked' : '' %>><label for="alertErrors">Bot errors and AI endpoint failures</label></div>
     <div class="checkline"><input type="checkbox" id="alertBudget" name="alertBudget" value="1" <%= s.alertBudget ? 'checked' : '' %>><label for="alertBudget">Daily AI budget reached</label></div>
     <div class="checkline"><input type="checkbox" id="alertTickets" name="alertTickets" value="1" <%= s.alertTickets ? 'checked' : '' %>><label for="alertTickets">New support tickets</label></div>
+    <div class="checkline"><input type="checkbox" id="alertProblems" name="alertProblems" value="1" <%= s.alertProblems ? 'checked' : '' %>><label for="alertProblems">Problem reports in the group (buffering, channels down…) — batched, with outage detection</label></div>
     <div class="checkline"><input type="checkbox" id="alertBannedWords" name="alertBannedWords" value="1" <%= s.alertBannedWords ? 'checked' : '' %>><label for="alertBannedWords">Banned-word triggers</label></div>
 
     <h2>AI digest</h2>

@@ -5,8 +5,12 @@ import { matchFaq } from '../faq/matcher.js';
 import { askAi, aiBudgetExceeded } from '../ai/client.js';
 import { containsBannedWord } from '../ai/guardrails.js';
 import { state } from '../state.js';
-import { sendChunked, logMessage, setLogSource, recordUnanswered, chatAllowed } from './helpers.js';
+import {
+  sendChunked, logMessage, setLogSource, recordUnanswered, chatAllowed,
+  isLikelyInScope, recordProblem, extractProblemTopic,
+} from './helpers.js';
 import { alertAdmins } from './reports.js';
+import { queueProblemAlert } from './problems.js';
 
 // Per-user answer cooldowns and short DM conversation memory.
 const cooldowns = new Map();
@@ -55,6 +59,17 @@ function bumpCooldown(userId) {
   if (cooldowns.size > 5000) cooldowns.clear();
 }
 
+// Record at most one problem report per user per minute so a single person
+// spamming "still buffering" doesn't flood the admin inbox.
+const recentProblem = new Map();
+function problemRecentlyFrom(userId) {
+  return Date.now() - (recentProblem.get(userId) || 0) < 60000;
+}
+function markProblemRecorded(userId) {
+  recentProblem.set(userId, Date.now());
+  if (recentProblem.size > 5000) recentProblem.clear();
+}
+
 function getBannedWords() {
   return db.prepare('SELECT word FROM banned_words').all().map((r) => r.word);
 }
@@ -95,9 +110,10 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         await ctx.replyWithChatAction?.('typing')?.catch?.(() => {});
         const historyKey = `${ctx.chat.id}:${ctx.from.id}`;
         const history = providedHistory ?? (isDm ? (dmHistory.get(historyKey) || []) : []);
-        // A problem-report trigger or an FAQ near-miss means we already KNOW
-        // this is on-topic — stop the model from bailing with OFFTOPIC.
-        const assumeOnTopic = looksLikeProblem(question) || Boolean(result.nearMiss);
+        // A problem report, an FAQ near-miss, or plain app/device vocabulary
+        // means we already KNOW this is on-topic — stop the model bailing to
+        // OFFTOPIC on legit questions (e.g. "how do I enable developer options").
+        const assumeOnTopic = looksLikeProblem(question) || Boolean(result.nearMiss) || isLikelyInScope(question);
         const reply = await askAi(question, { history, assumeOnTopic });
 
         if (reply) {
@@ -114,9 +130,9 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
           return 'ai';
         }
 
-        // The model still refused a request we know is on-topic — answer with
-        // the closest FAQ instead of brushing the user off.
-        if (assumeOnTopic && result.nearMiss) {
+        // The model refused, but we have a near-miss FAQ — answer with that
+        // instead of saying nothing.
+        if (result.nearMiss) {
           db.prepare('UPDATE faqs SET hit_count = hit_count + 1 WHERE id = ?').run(result.nearMiss.id);
           setLogSource(logId, 'faq');
           recordUnanswered(question, ctx, 'ai-refused', result.nearMiss.id);
@@ -128,11 +144,23 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
           return 'faq';
         }
 
-        // AI judged it off-topic / unanswerable — strict-topic rule kicked in.
-        setLogSource(logId, 'offtopic');
-        if (looksLikeQuestion(question)) {
-          recordUnanswered(question, ctx, 'offtopic', result.nearMiss?.id ?? null);
+        // In scope but genuinely unanswerable: log it for the admin, and defer
+        // to a human — never the dismissive off-topic line. In a DM we always
+        // reply; in a group we only speak up if the admin chose 'redirect'
+        // (silent mode means silent), so this can't get chatty.
+        if (assumeOnTopic || isLikelyInScope(question)) {
+          setLogSource(logId, 'unsure');
+          recordUnanswered(question, ctx, 'ai-refused', null);
+          if (isDm || getSetting('bot.offtopicBehavior') === 'redirect') {
+            const msg = getSetting('bot.unsureMessage');
+            if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, replyParams);
+          }
+          return 'unsure';
         }
+
+        // Truly unrelated to the service — strict-topic rule kicked in.
+        setLogSource(logId, 'offtopic');
+        if (looksLikeQuestion(question)) recordUnanswered(question, ctx, 'offtopic', null);
         if (getSetting('bot.offtopicBehavior') === 'redirect') {
           const msg = getSetting('bot.offtopicMessage');
           if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, replyParams);
@@ -178,9 +206,11 @@ export async function handleGroupMessage(ctx) {
   const question = stripMention(text);
   if (question.length < 3) return;
 
+  const isProblem = looksLikeProblem(text);
+
   let shouldAnswer = mode === 'all' || mentioned;
   if (!shouldAnswer && mode === 'questions') {
-    shouldAnswer = looksLikeQuestion(text) || looksLikeProblem(text);
+    shouldAnswer = looksLikeQuestion(text) || isProblem;
     if (!shouldAnswer) {
       // Last check: if the FAQ can answer this confidently, answer it —
       // staying silent on a known answer helps nobody.
@@ -188,6 +218,21 @@ export async function handleGroupMessage(ctx) {
       shouldAnswer = Boolean(matchFaq(question, faqs, Number(getSetting('faq.threshold')) || 0.5).match);
     }
   }
+
+  // Surface problem reports to admins (buffering, channels down, ...) so they
+  // can spot outages. Deduped per user so one person can't spam the inbox.
+  if (isProblem && !problemRecentlyFrom(ctx.from.id)) {
+    markProblemRecorded(ctx.from.id);
+    const willAnswer = shouldAnswer && !onCooldown(ctx.from.id);
+    recordProblem(ctx, text, { answered: willAnswer });
+    queueProblemAlert({
+      tg_user: ctx.from?.username || ctx.from?.first_name,
+      tg_user_id: ctx.from?.id,
+      text,
+      topic: extractProblemTopic(text),
+    });
+  }
+
   if (!shouldAnswer) return;
 
   if (onCooldown(ctx.from.id)) return;

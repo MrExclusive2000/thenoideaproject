@@ -212,6 +212,23 @@ const migrations = [
     created_at INTEGER NOT NULL
   );
   `,
+  // v2 — problem reports surfaced from the group so admins can spot outages
+  `
+  CREATE TABLE problem_reports (
+    id         INTEGER PRIMARY KEY,
+    chat_id    INTEGER,
+    chat_title TEXT,
+    tg_user_id INTEGER,
+    tg_user    TEXT,
+    text       TEXT NOT NULL,
+    topic      TEXT,
+    answered   INTEGER NOT NULL DEFAULT 0,
+    resolved   INTEGER NOT NULL DEFAULT 0,
+    ts         INTEGER NOT NULL
+  );
+  CREATE INDEX idx_problem_reports_ts ON problem_reports(ts);
+  CREATE INDEX idx_problem_reports_open ON problem_reports(resolved, ts);
+  `,
 ];
 
 export function migrate(db) {

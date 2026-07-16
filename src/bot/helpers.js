@@ -1,5 +1,6 @@
 import { db, now } from '../db/db.js';
 import { getSetting } from '../settings.js';
+import { tokens } from '../faq/matcher.js';
 
 export const TG_MAX = 4096;
 
@@ -76,4 +77,76 @@ export function recordUnanswered(text, ctx, source, nearMissFaqId = null) {
       source,
       now()
     );
+}
+
+// Base support vocabulary — app names, device-setup steps, playback/account
+// terms. Used to tell a real (if unanswerable) support question apart from
+// genuine off-topic chatter so the bot never brushes off a legit user.
+const BASE_SCOPE_TERMS = new Set([
+  'app', 'apps', 'purple', 'smarters', 'downloader',
+  'firestick', 'fire', 'stick', 'android', 'phone', 'tablet', 'device', 'devices', 'tv',
+  'install', 'installing', 'installed', 'reinstall', 'update', 'updating', 'version', 'apk', 'sideload',
+  'setup', 'settings', 'developer', 'developers', 'options', 'option', 'unknown', 'sources', 'source',
+  'enable', 'enabling', 'enabled', 'allow', 'allowing', 'allowed', 'permission', 'permissions', 'blocked',
+  'code', 'link', 'download', 'downloads',
+  'buffer', 'buffering', 'freeze', 'freezing', 'frozen', 'lag', 'lagging', 'stutter', 'glitch', 'crash', 'crashing',
+  'stream', 'streaming', 'streams', 'channel', 'channels', 'vod', 'movie', 'movies', 'film', 'series', 'show',
+  'season', 'episode', 'sports', 'sport', 'match', 'game', 'fixture', 'playback', 'black', 'screen',
+  'sound', 'audio', 'picture', 'video', 'offline', 'error', 'buffered',
+  'login', 'password', 'account', 'subscription', 'renew', 'renewal', 'expire', 'expired', 'expiry',
+  'pay', 'payment', 'crypto', 'litecoin', 'ltc', 'bitcoin', 'wallet', 'exodus', 'panel', 'portal',
+  'vpn', 'wifi', 'internet', 'connection', 'router', 'ethernet', 'service',
+]);
+
+// Rebuilt at most every 30s so admin FAQ/guide edits are reflected without a
+// query on every message.
+let scopeVocabCache = null;
+let scopeVocabAt = 0;
+function scopeVocab() {
+  if (scopeVocabCache && Date.now() - scopeVocabAt < 30000) return scopeVocabCache;
+  const vocab = new Set(BASE_SCOPE_TERMS);
+  try {
+    for (const r of db.prepare('SELECT keywords, question FROM faqs WHERE enabled = 1').all()) {
+      for (const t of tokens(`${r.keywords} ${r.question}`)) vocab.add(t);
+    }
+    for (const g of db.prepare('SELECT title FROM guides WHERE visible = 1').all()) {
+      for (const t of tokens(g.title)) vocab.add(t);
+    }
+  } catch {
+    // tables may not exist yet during first migration — base vocab is enough
+  }
+  scopeVocabCache = vocab;
+  scopeVocabAt = Date.now();
+  return scopeVocabCache;
+}
+
+export function isLikelyInScope(text) {
+  const vocab = scopeVocab();
+  for (const t of tokens(text)) if (vocab.has(t)) return true;
+  return false;
+}
+
+// Best-effort label for a problem report so admin alerts can group them
+// ("buffering ×4"). Returns null when nothing recognizable is found.
+export function extractProblemTopic(text) {
+  const m = String(text).toLowerCase().match(
+    /\b(buffer\w*|freez\w*|frozen|lag\w*|stutter\w*|glitch\w*|crash\w*|black ?screen|no (?:sound|audio|picture|video)|offline|error|not work\w*|wont \w+|cant \w+|keeps? \w+)\b/
+  );
+  return m ? m[1].replace(/\s+/g, ' ') : null;
+}
+
+export function recordProblem(ctx, text, { answered = false } = {}) {
+  const info = db.prepare(
+    'INSERT INTO problem_reports (chat_id, chat_title, tg_user_id, tg_user, text, topic, answered, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(
+    ctx.chat?.id ?? null,
+    ctx.chat?.title ?? null,
+    ctx.from?.id ?? null,
+    ctx.from?.username || ctx.from?.first_name || null,
+    String(text).slice(0, 500),
+    extractProblemTopic(text),
+    answered ? 1 : 0,
+    now()
+  );
+  return info.lastInsertRowid;
 }

@@ -21,6 +21,7 @@ dashboardRouter.get('/', (req, res) => {
     downloads7d: db.prepare('SELECT COUNT(*) n FROM downloads WHERE ts > ?').get(weekAgo).n,
     openTickets: db.prepare("SELECT COUNT(*) n FROM tickets WHERE status != 'closed'").get().n,
     unanswered: db.prepare('SELECT COUNT(*) n FROM unanswered WHERE resolved = 0').get().n,
+    openProblems: db.prepare('SELECT COUNT(*) n FROM problem_reports WHERE resolved = 0').get().n,
     ai: aiUsageToday(),
   };
 

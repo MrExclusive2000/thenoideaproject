@@ -195,6 +195,73 @@ test('statement matching a FAQ confidently is answered even without problem word
   assert.match(ctx.sent[0].msg, /Downloader app/);
 });
 
+test('a problem report in the group is recorded for the admin', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.responseMode', 'questions');
+  setSetting('reports.alertProblems', true);
+  db.prepare('INSERT OR REPLACE INTO allowed_chats (chat_id, title, enabled, added_at) VALUES (-100123, ?, 1, 0)').run('Test Group');
+  db.prepare('DELETE FROM problem_reports').run();
+  aiResponse = 'Try a different link for BBC1 or restart the app.';
+
+  const ctx = fakeCtx('buffering on bbc1', { chatType: 'group', userId: 91001 });
+  await handleGroupMessage(ctx);
+
+  const row = db.prepare('SELECT * FROM problem_reports ORDER BY id DESC LIMIT 1').get();
+  assert.ok(row, 'problem report saved');
+  assert.match(row.text, /bbc1/);
+  assert.match(row.topic, /buffer/);
+  assert.equal(row.answered, 1, 'marked as answered since the bot replied');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('the same user reporting twice within a minute is only recorded once', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  db.prepare('DELETE FROM problem_reports').run();
+  const a = fakeCtx('buffering again', { chatType: 'group', userId: 91002 });
+  const b = fakeCtx('still buffering man', { chatType: 'group', userId: 91002 });
+  await handleGroupMessage(a);
+  await handleGroupMessage(b);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM problem_reports').get().n, 1);
+});
+
+test('a developer-options question is answered by FAQ, never brushed off', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  db.prepare(`INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at)
+    VALUES ('How do I enable Developer Options or allow apps from unknown sources on Firestick?',
+            'Settings > My Fire TV > About, press the device name 7 times, then enable both options.',
+            'developer, options, unknown, sources, enable, allow, apps, blocked, install, sideload', 1, 0, 0, 0)`).run();
+  const ctx = fakeCtx('How do i enable developer options?', { chatType: 'group', userId: 91003 });
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 1);
+  assert.match(ctx.sent[0].msg, /enable both options|My Fire TV/i);
+});
+
+test('in-scope but unanswerable question defers to a human, not the off-topic brush-off', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.offtopicBehavior', 'redirect');
+  setSetting('bot.offtopicMessage', 'BRUSH-OFF LINE');
+  setSetting('bot.unsureMessage', 'Not sure — please open a /ticket.');
+  aiResponse = 'OFFTOPIC';
+  const ctx = fakeCtx('does the app have a sports section i can browse', { chatType: 'group', userId: 91004 });
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 1);
+  assert.match(ctx.sent[0].msg, /ticket/);
+  assert.doesNotMatch(ctx.sent[0].msg, /BRUSH-OFF/);
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('genuinely off-topic chatter still gets the redirect line', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.offtopicBehavior', 'redirect');
+  setSetting('bot.offtopicMessage', 'App questions only please.');
+  aiResponse = 'OFFTOPIC';
+  const ctx = fakeCtx('how do i bake a chocolate cake', { chatType: 'group', userId: 91005 });
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 1);
+  assert.match(ctx.sent[0].msg, /App questions only/);
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
 test('banned words are never answered', async () => {
   db.prepare("INSERT INTO banned_words (word) VALUES ('scamsite')").run();
   const ctx = fakeCtx('is scamsite legit for subs?', { userId: 3333 });

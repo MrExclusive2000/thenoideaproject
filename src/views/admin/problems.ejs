@@ -1,0 +1,58 @@
+<%- include('../partials/admin-top', { title }) %>
+
+<h1>Problem reports</h1>
+<p class="sub">Issues customers reported in the group (buffering, channels down, crashes). The bot still answers them — this is your heads-up so you can spot outages.</p>
+
+<% if (hot.length) { %>
+<div class="card" style="border-color:var(--warn)">
+  <h2>⚠️ Trending in the last 24h</h2>
+  <p>
+    <% for (const h of hot) { %>
+      <span class="badge badge-warn" style="margin-right:6px"><%= h.topic %> × <%= h.c %></span>
+    <% } %>
+  </p>
+  <p class="hint">Several people reporting the same thing usually means a real outage — consider a <a href="/admin/broadcasts">broadcast</a> or a <a href="/admin/reports">service-status</a> update.</p>
+</div>
+<% } %>
+
+<div class="toolbar">
+  <a class="btn <%= show === 'open' ? '' : 'btn-ghost' %> btn-sm" href="/admin/problems">Open</a>
+  <a class="btn <%= show === 'resolved' ? '' : 'btn-ghost' %> btn-sm" href="/admin/problems?show=resolved">Resolved</a>
+  <span class="spacer"></span>
+  <% if (show === 'open') { %>
+  <form method="post" action="/admin/problems/resolve-all">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <button class="btn-ghost btn-sm">Mark all resolved</button>
+  </form>
+  <% } else { %>
+  <form method="post" action="/admin/problems/clear-resolved">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <button class="btn-ghost btn-sm">Delete resolved</button>
+  </form>
+  <% } %>
+</div>
+
+<div class="card">
+  <table class="list">
+    <tr><th>When</th><th>From</th><th>Report</th><th>Topic</th><th></th></tr>
+    <% for (const r of reports) { %>
+    <tr>
+      <td class="hint" style="white-space:nowrap"><%= formatDate(r.ts) %></td>
+      <td><%= r.tg_user || ('id ' + r.tg_user_id) %><% if (r.chat_title) { %><div class="hint"><%= r.chat_title %></div><% } %></td>
+      <td><%= r.text %><% if (!r.answered) { %> <span class="badge badge-dim">not answered</span><% } %></td>
+      <td><% if (r.topic) { %><span class="badge badge-warn"><%= r.topic %></span><% } else { %>—<% } %></td>
+      <td class="actions">
+        <% if (!r.resolved) { %>
+        <form method="post" action="/admin/problems/<%= r.id %>/resolve">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <button class="btn-ghost btn-sm">Resolve</button>
+        </form>
+        <% } %>
+      </td>
+    </tr>
+    <% } %>
+    <% if (!reports.length) { %><tr><td colspan="5" class="hint">No <%= show %> problem reports. 🎉</td></tr><% } %>
+  </table>
+</div>
+
+<%- include('../partials/admin-bottom') %>

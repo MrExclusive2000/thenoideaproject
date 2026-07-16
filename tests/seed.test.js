@@ -83,6 +83,8 @@ test('starter FAQs actually match how people ask', () => {
     ['can i pay with litecoin?', 'crypto'],
     ['is purple better than smarters', 'Purple'],
     ['whats the downloader code', 'Firestick'],
+    ['how do i enable developer options', 'developer'],
+    ['it says i cant install unknown apps', 'unknown'],
   ];
   for (const [q, expect] of cases) {
     const { match } = matchFaq(q, faqs, 0.5);
