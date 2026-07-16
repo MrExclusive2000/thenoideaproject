@@ -1,11 +1,13 @@
 import { config } from './config.js';
 import { closeDb } from './db/db.js';
 import { bootstrapAdmin } from './web/accounts.js';
+import { seedStarterContent } from './db/seed.js';
 import { createApp } from './web/app.js';
 import { startBot, stopBot } from './bot/bot.js';
 import { startSchedulers } from './bot/reports.js';
 
 bootstrapAdmin();
+seedStarterContent();
 
 const app = createApp();
 const server = app.listen(config.port, config.host, () => {

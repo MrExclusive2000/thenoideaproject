@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { db, now } from '../../../db/db.js';
 import { getSetting } from '../../../settings.js';
 import { matchFaq, scoreFaq } from '../../../faq/matcher.js';
+import { addStarterFaqs } from '../../../db/seed.js';
 import { audit } from '../../../util.js';
 import { flash } from '../../middleware.js';
 
@@ -54,6 +55,17 @@ faqsRouter.post('/faqs', (req, res) => {
     audit('admin', res.locals.admin.username, 'faq.create', q.slice(0, 80), req.ip);
     flash(req, 'ok', 'FAQ added. The bot can use it immediately.');
   }
+  res.redirect('/admin/faqs');
+});
+
+// Add the built-in starter pack (install / buffering / VOD / account FAQs),
+// skipping any question that already exists.
+faqsRouter.post('/faqs/starter-pack', (req, res) => {
+  const added = addStarterFaqs();
+  audit('admin', res.locals.admin.username, 'faq.starterPack', `${added} added`, req.ip);
+  flash(req, added ? 'ok' : 'err', added
+    ? `Added ${added} starter FAQ${added > 1 ? 's' : ''} — review the answers and tweak the wording to fit your app.`
+    : 'All starter FAQs are already in your list.');
   res.redirect('/admin/faqs');
 });
 

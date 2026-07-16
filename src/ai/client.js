@@ -62,21 +62,32 @@ async function chatCompletion(messages, { maxTokens, temperature, timeoutMs = 60
   const model = getSetting('ai.model');
   if (!baseUrl || !model) throw new Error('AI endpoint not configured');
 
-  const res = await fetch(`${baseUrl}/chat/completions`, {
-    method: 'POST',
-    signal: AbortSignal.timeout(timeoutMs),
-    headers: {
-      'Content-Type': 'application/json',
-      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      max_tokens: maxTokens ?? (Number(getSetting('ai.maxTokens')) || 350),
-      temperature: temperature ?? (Number(getSetting('ai.temperature')) || 0.3),
-      stream: false,
-    }),
-  });
+  let res;
+  try {
+    res = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(timeoutMs),
+      headers: {
+        'Content-Type': 'application/json',
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        max_tokens: maxTokens ?? (Number(getSetting('ai.maxTokens')) || 350),
+        temperature: temperature ?? (Number(getSetting('ai.temperature')) || 0.3),
+        stream: false,
+      }),
+    });
+  } catch (err) {
+    // Node's bare "fetch failed" hides the real cause — surface it, plus the
+    // most common trap when running inside a Pelican/Docker container.
+    const cause = err.cause?.code || err.cause?.message || err.name || err.message;
+    const localhostHint = /127\.0\.0\.1|localhost/.test(baseUrl)
+      ? " — note: inside the server's container, 127.0.0.1 is the container itself, NOT your node. Use your node's LAN IP or Docker gateway (often 172.17.0.1), and start Ollama with OLLAMA_HOST=0.0.0.0 so it accepts outside connections."
+      : '';
+    throw new Error(`AI endpoint unreachable at ${baseUrl} (${cause})${localhostHint}`);
+  }
 
   if (!res.ok) {
     const body = (await res.text().catch(() => '')).slice(0, 300);

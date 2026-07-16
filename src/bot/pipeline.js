@@ -59,11 +59,14 @@ function stripMention(text) {
 }
 
 // Core answering flow: FAQ first, then AI with strict-topic guardrails.
+// `history` carries conversation context (DM memory, or a group reply chain);
+// `skipFaq` is set for follow-up replies so the bot doesn't repeat the same
+// FAQ instead of continuing the conversation.
 // Exported so tests can drive it with a fake ctx.
-export async function answer(ctx, question, { isDm, logId }) {
+export async function answer(ctx, question, { isDm, logId, history: providedHistory = null, skipFaq = false }) {
   const faqs = db.prepare('SELECT * FROM faqs WHERE enabled = 1').all();
   const threshold = Number(getSetting('faq.threshold')) || 0.5;
-  const result = matchFaq(question, faqs, threshold);
+  const result = skipFaq ? { match: null, nearMiss: null } : matchFaq(question, faqs, threshold);
   const replyParams = isDm ? {} : { reply_parameters: { message_id: ctx.message.message_id } };
 
   if (result.match) {
@@ -85,7 +88,7 @@ export async function answer(ctx, question, { isDm, logId }) {
       try {
         await ctx.replyWithChatAction?.('typing')?.catch?.(() => {});
         const historyKey = `${ctx.chat.id}:${ctx.from.id}`;
-        const history = isDm ? (dmHistory.get(historyKey) || []) : [];
+        const history = providedHistory ?? (isDm ? (dmHistory.get(historyKey) || []) : []);
         const reply = await askAi(question, { history });
 
         if (reply) {
@@ -160,7 +163,21 @@ export async function handleGroupMessage(ctx) {
 
   const question = stripMention(text);
   if (question.length < 3) return;
-  await answer(ctx, question, { isDm: false, logId });
+
+  // Replying to one of the bot's messages is a follow-up conversation: give
+  // the AI the reply chain as context and don't just re-match the same FAQ.
+  const repliedTo = ctx.message.reply_to_message;
+  const isFollowUp = repliedTo?.from?.id === ctx.me?.id && Boolean(repliedTo.text);
+  let history = null;
+  if (isFollowUp) {
+    const prev = replyContext.get(`${ctx.chat.id}:${repliedTo.message_id}`);
+    history = [
+      ...(prev?.question ? [{ role: 'user', content: String(prev.question).slice(0, 1000) }] : []),
+      { role: 'assistant', content: String(repliedTo.text).slice(0, 1500) },
+    ];
+  }
+
+  await answer(ctx, question, { isDm: false, logId, history, skipFaq: isFollowUp });
 }
 
 export async function handleDirectMessage(ctx) {

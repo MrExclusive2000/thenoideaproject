@@ -48,7 +48,14 @@
 </div>
 
 <div class="card">
-  <h2>All FAQs (<%= faqs.length %>)</h2>
+  <div class="toolbar">
+    <h2 style="margin:0">All FAQs (<%= faqs.length %>)</h2>
+    <span class="spacer"></span>
+    <form method="post" action="/admin/faqs/starter-pack">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <button class="btn-ghost btn-sm">Load starter FAQs (install / buffering / VOD…)</button>
+    </form>
+  </div>
   <table class="list">
     <tr><th>Question</th><th>Keywords</th><th>Hits</th><th>Status</th><th></th></tr>
     <% for (const f of faqs) { %>

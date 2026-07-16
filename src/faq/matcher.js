@@ -78,7 +78,10 @@ export function scoreFaq(query, faq) {
   const hasAnchor = keywordHits > 0 || overlap >= 2 || (overlap >= 1 && qTokens.size <= 2);
   if (!hasAnchor) return { score: 0, keywordHits, overlap };
 
-  const score = Math.min(1, 0.45 * tokenScore + 0.3 * trigramScore + 0.5 * keywordScore + (faq.priority || 0) * 0.01);
+  // Two or more admin-chosen keywords matching is near-conclusive evidence —
+  // worth a flat bonus on top of the proportional keyword score.
+  const multiKeywordBonus = keywordHits >= 2 ? 0.15 : 0;
+  const score = Math.min(1, 0.45 * tokenScore + 0.3 * trigramScore + 0.5 * keywordScore + multiKeywordBonus + (faq.priority || 0) * 0.01);
   return { score, keywordHits, overlap };
 }
 
@@ -93,7 +96,15 @@ export function matchFaq(query, faqs, threshold = 0.5) {
   if (!scores.length) return { match: null, score: 0, scores };
   const [best, second] = scores;
   const margin = second ? best.score - second.score : 1;
-  if (best.score >= threshold && (margin >= 0.05 || best.score >= 0.75)) {
+  const clearsThreshold = best.score >= threshold && (margin >= 0.05 || best.score >= 0.75);
+  // Admin-curated keywords are deliberate triggers: two or more hits with a
+  // clear lead over the runner-up is a match even below the blended threshold
+  // ("can you add the new season of X" → VOD FAQ via keywords add + season).
+  const strongKeywords =
+    best.keywordHits >= 2 &&
+    best.score >= 0.3 &&
+    (!second || best.keywordHits > (second.keywordHits || 0) || margin >= 0.05);
+  if (clearsThreshold || strongKeywords) {
     return { match: best.faq, score: best.score, scores };
   }
   return { match: null, score: best.score, nearMiss: best.score >= threshold * 0.6 ? best.faq : null, scores };

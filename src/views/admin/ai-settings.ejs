@@ -17,7 +17,7 @@
 
     <label for="baseUrl">Endpoint base URL (OpenAI-compatible)</label>
     <input id="baseUrl" name="baseUrl" type="url" value="<%= s.baseUrl %>" placeholder="http://127.0.0.1:11434/v1" required>
-    <p class="hint">Ollama on the same machine: <code>http://127.0.0.1:11434/v1</code> · Ollama on another server: <code>http://SERVER-IP:11434/v1</code> · Groq: <code>https://api.groq.com/openai/v1</code></p>
+    <p class="hint">⚠ On Pelican, <code>127.0.0.1</code> is the container itself — for Ollama on the node use the Docker gateway <code>http://172.17.0.1:11434/v1</code> or the node's LAN IP <code>http://NODE-IP:11434/v1</code>, and run Ollama with <code>OLLAMA_HOST=0.0.0.0</code>. Groq cloud: <code>https://api.groq.com/openai/v1</code>.</p>
 
     <div class="row">
       <div>

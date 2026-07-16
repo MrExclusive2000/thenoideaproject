@@ -9,17 +9,20 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-test-'));
 
 const { db } = await import('../src/db/db.js');
 const { setSetting } = await import('../src/settings.js');
-const { answer, handleDirectMessage } = await import('../src/bot/pipeline.js');
+const { answer, handleDirectMessage, handleGroupMessage, replyContext } = await import('../src/bot/pipeline.js');
+const { state } = await import('../src/state.js');
 
 // Mock OpenAI-compatible endpoint: replies based on the question content.
 let aiServer;
 let aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+let lastAiRequest = null;
 
 before(async () => {
   aiServer = http.createServer((req, res) => {
     let body = '';
     req.on('data', (c) => (body += c));
     req.on('end', () => {
+      lastAiRequest = JSON.parse(body);
       res.setHeader('content-type', 'application/json');
       res.end(JSON.stringify({
         choices: [{ message: { content: aiResponse } }],
@@ -114,6 +117,36 @@ test('open ticket routes DM text into the ticket thread', async () => {
   const ticket = db.prepare('SELECT * FROM tickets WHERE telegram_user_id = 2222').get();
   assert.equal(ticket.status, 'open');
   assert.match(ctx.sent[0].msg, /ticket #/);
+});
+
+test('group user can reply to a bot answer and continue the conversation', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.responseMode', 'questions');
+  db.prepare('INSERT OR REPLACE INTO allowed_chats (chat_id, title, enabled, added_at) VALUES (-100123, ?, 1, 0)').run('Test Group');
+  state.bot.username = 'testbot';
+
+  // The bot previously answered message 555 in this chat.
+  replyContext.set('-100123:555', { question: 'how do I fix buffering?', faqId: 2, source: 'faq' });
+  aiResponse = 'Then try a wired ethernet connection and lower the stream quality.';
+
+  const ctx = fakeCtx('that didnt help, still freezing', { chatType: 'group', userId: 4444 });
+  ctx.message.reply_to_message = {
+    message_id: 555,
+    from: { id: 999 }, // the bot (ctx.me.id)
+    text: 'Try clearing the app cache in Settings.',
+  };
+  await handleGroupMessage(ctx);
+
+  assert.equal(ctx.sent.length, 1, 'bot replied to the follow-up');
+  assert.match(ctx.sent[0].msg, /wired ethernet/);
+  // The AI saw the conversation, not just the bare follow-up …
+  const roles = lastAiRequest.messages.map((m) => m.role);
+  assert.deepEqual(roles, ['system', 'user', 'assistant', 'user']);
+  assert.match(lastAiRequest.messages[1].content, /fix buffering/);
+  assert.match(lastAiRequest.messages[2].content, /clearing the app cache/);
+  // … and the FAQ was skipped even though "freezing" matches FAQ keywords.
+  assert.doesNotMatch(ctx.sent[0].msg, /Downloader app/);
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
 
 test('banned words are never answered', async () => {
