@@ -6,22 +6,22 @@
     },
     "name": "Telegram Support Suite",
     "author": "support-suite@localhost",
-    "description": "Telegram AI\/FAQ support bot + web admin panel + customer download portal. Single Node.js process, SQLite storage, everything persistent lives in data\/.",
+    "description": "Telegram AI/FAQ support bot + web admin panel + customer download portal. Single Node.js process, SQLite storage, everything persistent lives in data/.",
     "features": [],
     "docker_images": {
-        "Node.js 22": "ghcr.io\/parkervcp\/yolks:nodejs_22"
+        "Node.js 22": "ghcr.io/parkervcp/yolks:nodejs_22"
     },
     "file_denylist": [],
-    "startup": "bash -c 'export GIT_TERMINAL_PROMPT=0; if [ \"${AUTO_UPDATE}\" = \"1\" ] && [ -d .git ]; then echo \"[auto-update] pulling latest...\"; git fetch --all --prune && git reset --hard \"origin\/$(git rev-parse --abbrev-ref HEAD)\" && CI=1 npm ci --omit=dev --no-audit --no-fund; fi; exec node src\/index.js'",
+    "startup": "bash -c 'export GIT_TERMINAL_PROMPT=0 CI=1; if [ \"${AUTO_UPDATE}\" = \"1\" ] && [ -d .git ]; then echo \"[auto-update] pulling latest...\"; if git fetch --all --prune && git reset --hard \"origin/$(git rev-parse --abbrev-ref HEAD)\"; then if [ -f package-lock.json ]; then npm ci --omit=dev --no-audit --no-fund || echo \"[auto-update] npm install failed — keeping current files\"; fi; else echo \"[auto-update] update failed — keeping current files\"; fi; fi; if [ ! -f src/index.js ]; then echo \"ERROR: app files are missing. The GitHub branch this server installs from must contain the app code — check the GitHub branch variable in the Startup tab, then Reinstall.\"; exit 1; fi; exec node src/index.js'",
     "config": {
         "files": "{}",
-        "startup": "{\r\n    \"done\": \"Panel listening on\"\r\n}",
+        "startup": "{\n    \"done\": \"Panel listening on\"\n}",
         "logs": "{}",
         "stop": "^C"
     },
     "scripts": {
         "installation": {
-            "script": "#!\/bin\/bash\r\n# Telegram Support Suite installer — fully non-interactive, reinstall-safe.\r\nset -e\r\nexport GIT_TERMINAL_PROMPT=0\r\nexport CI=1\r\nexport DEBIAN_FRONTEND=noninteractive\r\n\r\napt-get update -qq >\/dev\/null 2>&1 || true\r\napt-get install -y -qq git ca-certificates >\/dev\/null 2>&1 || true\r\n\r\nmkdir -p \/mnt\/server\r\ncd \/mnt\/server\r\n\r\nREPO_HOST_PATH=\"github.com\/${GITHUB_USERNAME}\/${GITHUB_REPO}.git\"\r\nif [ -z \"${GITHUB_PAT}\" ] || [ -z \"${GITHUB_USERNAME}\" ]; then\r\n    echo \"ERROR: GITHUB_USERNAME and GITHUB_PAT variables are required (the repository is private).\"\r\n    echo \"Create a fine-grained PAT with read-only Contents access to the repo and set both variables.\"\r\n    exit 1\r\nfi\r\nCLONE_URL=\"https:\/\/${GITHUB_USERNAME}:${GITHUB_PAT}@${REPO_HOST_PATH}\"\r\n\r\nif [ -d .git ]; then\r\n    echo \"[install] existing checkout found — updating (data\/ is never touched)\"\r\n    git remote set-url origin \"${CLONE_URL}\"\r\n    git fetch --all --prune\r\n    git reset --hard \"origin\/${GITHUB_BRANCH}\"\r\nelse\r\n    echo \"[install] cloning branch ${GITHUB_BRANCH}...\"\r\n    git clone --branch \"${GITHUB_BRANCH}\" --single-branch \"${CLONE_URL}\" .\r\nfi\r\n\r\nif ! git rev-parse HEAD >\/dev\/null 2>&1; then\r\n    echo \"ERROR: clone failed — check GITHUB_USERNAME\/GITHUB_PAT\/GITHUB_REPO\/GITHUB_BRANCH.\"\r\n    exit 1\r\nfi\r\n\r\necho \"[install] installing dependencies...\"\r\nif ! npm ci --omit=dev --no-audit --no-fund; then\r\n    echo \"[install] npm ci failed once — retrying with a rebuild of native modules\"\r\n    npm ci --omit=dev --no-audit --no-fund || { echo \"ERROR: npm install failed\"; exit 1; }\r\nfi\r\nnpm rebuild better-sqlite3 >\/dev\/null 2>&1 || true\r\n\r\nmkdir -p data\r\n\r\necho \"[install] done. Start the server, then open http:\/\/YOUR-NODE-IP:PORT\/admin\/login\"\r\necho \"[install] the first-boot admin password prints in the server console if ADMIN_PASSWORD was left empty.\"",
+            "script": "#!/bin/bash\n# Telegram Support Suite installer — fully non-interactive, reinstall-safe.\nset -e\nexport GIT_TERMINAL_PROMPT=0\nexport CI=1\nexport DEBIAN_FRONTEND=noninteractive\n\napt-get update -qq >/dev/null 2>&1 || true\napt-get install -y -qq git ca-certificates >/dev/null 2>&1 || true\n\nmkdir -p /mnt/server\ncd /mnt/server\n\nREPO_HOST_PATH=\"github.com/${GITHUB_USERNAME}/${GITHUB_REPO}.git\"\nif [ -z \"${GITHUB_PAT}\" ] || [ -z \"${GITHUB_USERNAME}\" ]; then\n    echo \"ERROR: GITHUB_USERNAME and GITHUB_PAT variables are required (the repository is private).\"\n    echo \"Create a fine-grained PAT with read-only Contents access to the repo and set both variables.\"\n    exit 1\nfi\nCLONE_URL=\"https://${GITHUB_USERNAME}:${GITHUB_PAT}@${REPO_HOST_PATH}\"\n\nif [ -d .git ]; then\n    echo \"[install] existing checkout found — updating (data/ is never touched)\"\n    git remote set-url origin \"${CLONE_URL}\"\n    git fetch --all --prune\n    git reset --hard \"origin/${GITHUB_BRANCH}\"\nelse\n    echo \"[install] cloning branch ${GITHUB_BRANCH}...\"\n    git clone --branch \"${GITHUB_BRANCH}\" --single-branch \"${CLONE_URL}\" .\nfi\n\nif ! git rev-parse HEAD >/dev/null 2>&1; then\n    echo \"ERROR: clone failed — check GITHUB_USERNAME/GITHUB_PAT/GITHUB_REPO/GITHUB_BRANCH.\"\n    exit 1\nfi\n\nif [ ! -f package.json ]; then\n    echo \"ERROR: branch '${GITHUB_BRANCH}' does not contain the app (no package.json found).\"\n    echo \"Set the 'GitHub branch' variable to the branch that has the code, then reinstall.\"\n    exit 1\nfi\n\necho \"[install] installing dependencies...\"\nif ! npm ci --omit=dev --no-audit --no-fund; then\n    echo \"[install] npm ci failed once — retrying with a rebuild of native modules\"\n    npm ci --omit=dev --no-audit --no-fund || { echo \"ERROR: npm install failed\"; exit 1; }\nfi\nnpm rebuild better-sqlite3 >/dev/null 2>&1 || true\n\nmkdir -p data\n\necho \"[install] done. Start the server, then open http://YOUR-NODE-IP:PORT/admin/login\"\necho \"[install] the first-boot admin password prints in the server console if ADMIN_PASSWORD was left empty.\"",
             "container": "node:22-bookworm-slim",
             "entrypoint": "bash"
         }
@@ -69,7 +69,7 @@
         },
         {
             "name": "GitHub branch",
-            "description": "Branch to install\/update from.",
+            "description": "Branch to install/update from.",
             "env_variable": "GITHUB_BRANCH",
             "default_value": "main",
             "user_viewable": true,
@@ -79,9 +79,9 @@
         },
         {
             "name": "AI endpoint base URL",
-            "description": "OpenAI-compatible endpoint. Ollama on the same node: http:\/\/127.0.0.1:11434\/v1 (can be changed later in the panel).",
+            "description": "OpenAI-compatible endpoint. Ollama on the same node: http://127.0.0.1:11434/v1 (can be changed later in the panel).",
             "env_variable": "AI_BASE_URL",
-            "default_value": "http:\/\/127.0.0.1:11434\/v1",
+            "default_value": "http://127.0.0.1:11434/v1",
             "user_viewable": true,
             "user_editable": true,
             "rules": "required|string|max:300",
@@ -129,7 +129,7 @@
         },
         {
             "name": "Public URL",
-            "description": "Address customers use to reach the portal, e.g. http:\/\/1.2.3.4:25580 or https:\/\/portal.example.com — used in links the bot sends.",
+            "description": "Address customers use to reach the portal, e.g. http://1.2.3.4:25580 or https://portal.example.com — used in links the bot sends.",
             "env_variable": "PUBLIC_URL",
             "default_value": "",
             "user_viewable": true,
