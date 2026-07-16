@@ -20,7 +20,7 @@
     <label for="responseMode">When should the bot reply in the group?</label>
     <select id="responseMode" name="responseMode">
       <option value="mention" <%= s.responseMode === 'mention' ? 'selected' : '' %>>Only when mentioned or replied to</option>
-      <option value="questions" <%= s.responseMode === 'questions' ? 'selected' : '' %>>When a message looks like a question (recommended)</option>
+      <option value="questions" <%= s.responseMode === 'questions' ? 'selected' : '' %>>Questions &amp; problem reports, e.g. "buffering on bbc1" (recommended)</option>
       <option value="all" <%= s.responseMode === 'all' ? 'selected' : '' %>>Try to answer every message</option>
     </select>
 

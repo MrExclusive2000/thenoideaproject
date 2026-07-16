@@ -32,6 +32,12 @@ export function looksLikeQuestion(text) {
   return starters.test(text.trim());
 }
 
+// Support groups mostly post problem STATEMENTS ("buffering on bbc1",
+// "purple not working") — treat those as requests for help too.
+export function looksLikeProblem(text) {
+  return /\b(buffer(ing|s)?|freez\w*|frozen|lag(gy|ging|s)?|stutter\w*|glitch\w*|crash\w*|stuck|loading|offline|down|error|issue|problem|broken|playback|black ?screen|no (sound|audio|picture|video)|not work\w*|(doesnt|dont|isnt|aint|stopped) work\w*|wont (work|load|play|open|start)|cant (log ?in|sign in|watch|open|play|stream|connect)|keeps? (stopping|buffering|freezing|crashing|cutting))\b/i.test(text);
+}
+
 function mentionsBot(ctx, text) {
   const username = state.bot.username;
   if (username && text.toLowerCase().includes(`@${username.toLowerCase()}`)) return true;
@@ -152,17 +158,23 @@ export async function handleGroupMessage(ctx) {
 
   const mode = getSetting('bot.responseMode');
   const mentioned = mentionsBot(ctx, text);
-  const shouldAnswer =
-    mode === 'all' ||
-    (mode === 'mention' && mentioned) ||
-    (mode === 'questions' && (mentioned || looksLikeQuestion(text)));
+  const question = stripMention(text);
+  if (question.length < 3) return;
+
+  let shouldAnswer = mode === 'all' || mentioned;
+  if (!shouldAnswer && mode === 'questions') {
+    shouldAnswer = looksLikeQuestion(text) || looksLikeProblem(text);
+    if (!shouldAnswer) {
+      // Last check: if the FAQ can answer this confidently, answer it —
+      // staying silent on a known answer helps nobody.
+      const faqs = db.prepare('SELECT * FROM faqs WHERE enabled = 1').all();
+      shouldAnswer = Boolean(matchFaq(question, faqs, Number(getSetting('faq.threshold')) || 0.5).match);
+    }
+  }
   if (!shouldAnswer) return;
 
   if (onCooldown(ctx.from.id)) return;
   bumpCooldown(ctx.from.id);
-
-  const question = stripMention(text);
-  if (question.length < 3) return;
 
   // Replying to one of the bot's messages is a follow-up conversation: give
   // the AI the reply chain as context and don't just re-match the same FAQ.

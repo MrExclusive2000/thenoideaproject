@@ -149,6 +149,34 @@ test('group user can reply to a bot answer and continue the conversation', async
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
 
+test('problem statements in the group trigger an answer (no question mark needed)', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.responseMode', 'questions');
+  db.prepare('INSERT OR REPLACE INTO allowed_chats (chat_id, title, enabled, added_at) VALUES (-100123, ?, 1, 0)').run('Test Group');
+  aiResponse = 'Try a different link for BBC1, or restart the app and check again.';
+
+  const ctx = fakeCtx('buffering on bbc1', { chatType: 'group', userId: 5555 });
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 1, 'bot answered the problem report');
+  assert.match(ctx.sent[0].msg, /BBC1/);
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('plain chatter in the group is left alone', async () => {
+  const before = lastAiRequest;
+  const ctx = fakeCtx('nice weather today lads', { chatType: 'group', userId: 6666 });
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 0, 'no reply to small talk');
+  assert.equal(lastAiRequest, before, 'AI was not even called');
+});
+
+test('statement matching a FAQ confidently is answered even without problem words', async () => {
+  const ctx = fakeCtx('need the install code for firestick downloader m8', { chatType: 'group', userId: 7777 });
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 1, 'FAQ answered the statement');
+  assert.match(ctx.sent[0].msg, /Downloader app/);
+});
+
 test('banned words are never answered', async () => {
   db.prepare("INSERT INTO banned_words (word) VALUES ('scamsite')").run();
   const ctx = fakeCtx('is scamsite legit for subs?', { userId: 3333 });
