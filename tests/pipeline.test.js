@@ -9,7 +9,9 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-test-'));
 
 const { db } = await import('../src/db/db.js');
 const { setSetting } = await import('../src/settings.js');
-const { answer, handleDirectMessage, handleGroupMessage, replyContext } = await import('../src/bot/pipeline.js');
+const { answer, handleDirectMessage, handleGroupMessage, replyContext, _resetProblemTriage } = await import('../src/bot/pipeline.js');
+const { flushProblemAlerts, _resetProblemQueue } = await import('../src/bot/problems.js');
+const { hub } = await import('../src/bot/hub.js');
 const { state } = await import('../src/state.js');
 
 // Mock OpenAI-compatible endpoint: replies based on the question content.
@@ -127,9 +129,10 @@ test('group user can reply to a bot answer and continue the conversation', async
 
   // The bot previously answered message 555 in this chat.
   replyContext.set('-100123:555', { question: 'how do I fix buffering?', faqId: 2, source: 'faq' });
-  aiResponse = 'Then try a wired ethernet connection and lower the stream quality.';
+  aiResponse = 'Set the player quality to auto and it will adapt to your connection.';
 
-  const ctx = fakeCtx('that didnt help, still freezing', { chatType: 'group', userId: 4444 });
+  // A non-problem follow-up question continues the conversation with context.
+  const ctx = fakeCtx('ok i cleared the cache, what quality setting should i use?', { chatType: 'group', userId: 4444 });
   ctx.message.reply_to_message = {
     message_id: 555,
     from: { id: 999 }, // the bot (ctx.me.id)
@@ -138,15 +141,13 @@ test('group user can reply to a bot answer and continue the conversation', async
   await handleGroupMessage(ctx);
 
   assert.equal(ctx.sent.length, 1, 'bot replied to the follow-up');
-  assert.match(ctx.sent[0].msg, /wired ethernet/);
+  assert.match(ctx.sent[0].msg, /quality to auto/);
   // The AI saw the conversation, not just the bare follow-up …
-  // ("still freezing" is also a problem report, so the on-topic hint system
-  // message is present too)
-  const roles = lastAiRequest.messages.map((m) => m.role);
-  assert.deepEqual(roles, ['system', 'system', 'user', 'assistant', 'user']);
-  assert.match(lastAiRequest.messages[2].content, /fix buffering/);
-  assert.match(lastAiRequest.messages[3].content, /clearing the app cache/);
-  // … and the FAQ was skipped even though "freezing" matches FAQ keywords.
+  const userAndAssistant = lastAiRequest.messages.filter((m) => m.role !== 'system');
+  assert.equal(userAndAssistant.length, 3);
+  assert.match(userAndAssistant[0].content, /fix buffering/);
+  assert.match(userAndAssistant[1].content, /clearing the app cache/);
+  // … and the FAQ was skipped for the follow-up.
   assert.doesNotMatch(ctx.sent[0].msg, /Downloader app/);
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
@@ -195,33 +196,91 @@ test('statement matching a FAQ confidently is answered even without problem word
   assert.match(ctx.sent[0].msg, /Downloader app/);
 });
 
-test('a problem report in the group is recorded for the admin', async () => {
+test('first problem report: fixes + confirm invite, saved for the panel, NO admin alert', async () => {
   setSetting('bot.cooldownSeconds', 0);
   setSetting('bot.responseMode', 'questions');
   setSetting('reports.alertProblems', true);
+  setSetting('reports.adminTelegramIds', [777]);
   db.prepare('INSERT OR REPLACE INTO allowed_chats (chat_id, title, enabled, added_at) VALUES (-100123, ?, 1, 0)').run('Test Group');
   db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
   aiResponse = 'Try a different link for BBC1 or restart the app.';
 
   const ctx = fakeCtx('buffering on bbc1', { chatType: 'group', userId: 91001 });
   await handleGroupMessage(ctx);
 
+  assert.equal(ctx.sent.length, 1, 'user got the fixes');
+  assert.match(ctx.sent[0].msg, /BBC1/);
+  assert.match(ctx.sent[0].msg, /flag it straight to the team/, 'confirm invitation appended');
+
   const row = db.prepare('SELECT * FROM problem_reports ORDER BY id DESC LIMIT 1').get();
-  assert.ok(row, 'problem report saved');
-  assert.match(row.text, /bbc1/);
+  assert.ok(row, 'problem report saved for the panel');
   assert.match(row.topic, /buffer/);
-  assert.equal(row.answered, 1, 'marked as answered since the bot replied');
+  assert.equal(row.answered, 1, 'answered flag reflects the actual reply');
+
+  await flushProblemAlerts();
+  assert.equal(adminDms.length, 0, 'no admin DM for a first report');
+  hub.api = null;
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
 
-test('the same user reporting twice within a minute is only recorded once', async () => {
+test('confirmation escalates: ack to user, batched DM to admin, no FAQ re-dump; then silence', async () => {
   setSetting('bot.cooldownSeconds', 0);
   db.prepare('DELETE FROM problem_reports').run();
-  const a = fakeCtx('buffering again', { chatType: 'group', userId: 91002 });
-  const b = fakeCtx('still buffering man', { chatType: 'group', userId: 91002 });
-  await handleGroupMessage(a);
-  await handleGroupMessage(b);
-  assert.equal(db.prepare('SELECT COUNT(*) n FROM problem_reports').get().n, 1);
+  _resetProblemTriage();
+  _resetProblemQueue();
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
+
+  // First report → fixes.
+  const first = fakeCtx('buffering on itv tonight', { chatType: 'group', userId: 91002 });
+  await handleGroupMessage(first);
+  assert.equal(first.sent.length, 1);
+
+  // Confirmation → escalation ack, not the same fixes again.
+  const confirm = fakeCtx('still buffering man', { chatType: 'group', userId: 91002 });
+  await handleGroupMessage(confirm);
+  assert.equal(confirm.sent.length, 1);
+  assert.match(confirm.sent[0].msg, /Flagged to the team/);
+  assert.doesNotMatch(confirm.sent[0].msg, /Restart the app/);
+
+  await flushProblemAlerts();
+  assert.equal(adminDms.length, 1, 'one batched admin DM');
+  assert.equal(adminDms[0].id, 777);
+  assert.match(adminDms[0].text, /still buffering man/);
+
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM problem_reports').get().n, 2, 'both stages recorded');
+
+  // Further grumbling while already escalated: quiet, no new row, no new DM.
+  const again = fakeCtx('buffering yet again ffs', { chatType: 'group', userId: 91002 });
+  await handleGroupMessage(again);
+  assert.equal(again.sent.length, 0, 'no nagging after escalation');
+  await flushProblemAlerts();
+  assert.equal(adminDms.length, 1, 'no duplicate admin DM');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM problem_reports').get().n, 2);
+
+  hub.api = null;
+});
+
+test('3 different users reporting within 15 minutes triggers an outage alert immediately', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
+
+  for (const userId of [92001, 92002, 92003]) {
+    await handleGroupMessage(fakeCtx('bbc one is buffering', { chatType: 'group', userId }));
+  }
+
+  const outage = adminDms.filter((d) => /Possible outage/.test(d.text));
+  assert.equal(outage.length, 1, 'exactly one outage alert');
+  assert.match(outage[0].text, /3 different people/);
+  hub.api = null;
 });
 
 test('a developer-options question is answered by FAQ, never brushed off', async () => {

@@ -15,6 +15,7 @@ Live bot status (online / no token / error / **conflict** = same token running t
 - **Cooldown** — seconds between answers to the same user (spam brake).
 - **FAQ threshold** — how confident a FAQ match must be to answer without AI. Test in the FAQ manager.
 - **Banned words** — messages containing them are never answered; AI output containing them is suppressed; optional alert to you.
+- **Problem reports (two-stage triage)** — when someone reports an issue ("buffering on bbc1"), the bot answers with the fixes first and invites them to confirm; only when they come back saying it's still broken (or reply with the channel and time) does it escalate: the user gets a "flagged to the team" ack and you get a batched Telegram DM. Separately, 3+ different people reporting within 15 minutes triggers an immediate outage alert. Both messages are editable here; the alert toggle lives in Reports & status; reports land on the Problem reports page.
 - **Connected chats** — the allowlist. The bot only ever answers in chats you've adopted (send `/adopt` in the group). Mute/remove here.
 
 ## AI settings

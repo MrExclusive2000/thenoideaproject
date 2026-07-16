@@ -31,6 +31,10 @@ test('genuine chatter is out of scope', () => {
     'happy birthday mate have a great one',
     'lol that meme was hilarious',
     'anyone know a good plumber',
+    // single generic words must not force in-scope (review finding):
+    'who won the match last night',
+    'that film was amazing',
+    'fancy a game of pool later',
   ]) {
     assert.equal(isLikelyInScope(q), false, `should be out of scope: ${q}`);
   }

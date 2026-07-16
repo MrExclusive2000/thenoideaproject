@@ -49,6 +49,17 @@
     <input id="offtopicMessage" name="offtopicMessage" type="text" maxlength="500" value="<%= s.offtopicMessage %>">
     <label for="fallbackMessage">Fallback when nothing matched and the AI is off/unreachable (empty = stay silent)</label>
     <input id="fallbackMessage" name="fallbackMessage" type="text" maxlength="500" value="<%= s.fallbackMessage %>">
+    <label for="unsureMessage">When a question IS about the app but the bot can't answer it (empty = stay silent)</label>
+    <input id="unsureMessage" name="unsureMessage" type="text" maxlength="500" value="<%= s.unsureMessage %>">
+  </div>
+
+  <div class="card">
+    <h2>Problem reports</h2>
+    <p class="hint">When someone reports an issue (buffering, channel down…) the bot answers with the fixes first. If they confirm it's still broken — or reply with the channel and time — it gets flagged to you (see <a href="/admin/problems">Problem reports</a> and the alert toggle in <a href="/admin/reports">Reports &amp; status</a>). 3+ different people reporting within 15 minutes triggers an outage alert immediately.</p>
+    <label for="problemFollowupNote">Added to the first answer — invites them to confirm (empty = off)</label>
+    <input id="problemFollowupNote" name="problemFollowupNote" type="text" maxlength="500" value="<%= s.problemFollowupNote %>">
+    <label for="problemFlaggedNote">Reply when a confirmed problem is flagged to you (empty = off)</label>
+    <input id="problemFlaggedNote" name="problemFlaggedNote" type="text" maxlength="500" value="<%= s.problemFlaggedNote %>">
   </div>
 
   <div class="card">

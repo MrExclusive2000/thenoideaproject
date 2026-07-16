@@ -120,9 +120,26 @@ function scopeVocab() {
   return scopeVocabCache;
 }
 
+// Unambiguous service terms — one of these alone proves the message is about
+// the service. Generic words ('match', 'show', 'movie', 'game', 'error'…)
+// stay in the weak vocabulary and need a second hit, so "who won the match
+// last night" is NOT forced in-scope on a single word.
+const STRONG_SCOPE_TERMS = new Set([
+  'app', 'apps', 'purple', 'smarters', 'downloader', 'firestick', 'apk', 'sideload',
+  'install', 'installing', 'installed', 'reinstall', 'vod', 'iptv', 'buffering', 'playback',
+  'login', 'password', 'subscription', 'renew', 'renewal', 'expiry', 'expired',
+  'pay', 'payment', 'paying', 'crypto', 'litecoin', 'ltc', 'wallet', 'exodus',
+  'vpn', 'router', 'ethernet', 'panel', 'portal', 'developer',
+]);
+
 export function isLikelyInScope(text) {
   const vocab = scopeVocab();
-  for (const t of tokens(text)) if (vocab.has(t)) return true;
+  let hits = 0;
+  for (const t of new Set(tokens(text))) {
+    if (STRONG_SCOPE_TERMS.has(t)) return true;
+    if (vocab.has(t)) hits++;
+    if (hits >= 2) return true;
+  }
   return false;
 }
 

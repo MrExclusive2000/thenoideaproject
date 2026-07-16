@@ -20,6 +20,11 @@ export const DEFAULTS = {
   // Sent when a message IS about the app/service but the bot can't answer it —
   // kinder than the off-topic line, and points the user to a human.
   'bot.unsureMessage': "I'm not totally sure on that one — send /ticket in a private message to me and the team will help you out.",
+  // Appended to the FIRST answer to a problem report: invites the user to
+  // confirm if the fixes don't help. Empty = off.
+  'bot.problemFollowupNote': "Still happening after trying these? Reply here with the channel name and the time — I'll flag it straight to the team.",
+  // Sent when a confirmed problem is escalated to the admins. Empty = off.
+  'bot.problemFlaggedNote': "✅ Flagged to the team — they'll look into it. No need to report it again.",
   'bot.welcomeEnabled': false,
   'bot.welcomeText': 'Welcome {name}! Ask me anything about the app — or type /help to see what I can do.',
   'bot.cooldownSeconds': 15,

@@ -13,6 +13,7 @@ export async function alertAdmins(type, text) {
     budget: 'reports.alertBudget',
     bannedWord: 'reports.alertBannedWords',
     ticket: 'reports.alertTickets',
+    problem: 'reports.alertProblems',
   };
   const settingKey = toggles[type];
   if (settingKey && !getSetting(settingKey)) return;

@@ -4,7 +4,7 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 3;
+const SEED_VERSION = 4;
 
 export const STARTER_FAQS = [
   {
@@ -34,7 +34,7 @@ export const STARTER_FAQS = [
   },
   {
     question: 'The app keeps buffering, freezing or stuttering — how do I fix it?',
-    answer: 'Try these in order — they fix most buffering:\n1. Restart the app and your device.\n2. Restart your router.\n3. Clear the app cache (Settings > Applications > Manage Installed Applications > the app > Clear cache).\n4. Use 5GHz WiFi or wired ethernet if you can — 2.4GHz struggles with HD streams.\n5. Switch to a backup app (XC or Smarters) with the same login — one app often runs better than another.\n6. Try a lower quality stream or a different link/server for the same channel.\n7. Run a speed test — HD needs about 10 Mbps, 4K about 25 Mbps.\nStill buffering after all that? Tell us the channel and the time it happened.',
+    answer: 'Try these in order — they fix most buffering:\n1. Restart the app and your device.\n2. Restart your router.\n3. Clear the app cache (Settings > Applications > Manage Installed Applications > the app > Clear cache).\n4. Use 5GHz WiFi or wired ethernet if you can — 2.4GHz struggles with HD streams.\n5. Switch to a backup app (XC or Smarters) with the same login — one app often runs better than another.\n6. Try a lower quality stream or a different link/server for the same channel.\n7. Run a speed test — HD needs about 10 Mbps, 4K about 25 Mbps.',
     keywords: 'buffering, buffer, freeze, freezing, stuck, loading, lag, stutter, spinning, slow',
   },
   {
@@ -44,7 +44,7 @@ export const STARTER_FAQS = [
   },
   {
     question: "A channel or stream isn't working — what do I do?",
-    answer: "First try a different link/server for the same channel, or the same channel in a backup app (XC/Smarters) — and give it a minute, streams sometimes restart on their own. Still down? Report it with: the exact channel name, what you see (frozen / black screen / error message), and the time. That helps us fix it fast.",
+    answer: 'First try a different link/server for the same channel, or the same channel in a backup app (XC or Smarters) — and give it a minute, streams sometimes restart on their own. When you report a dead channel, the exact channel name, what you see (frozen / black screen / error message) and the time help us fix it fast.',
     keywords: 'channel, stream, not working, down, offline, black, screen, error, playback, broken',
   },
   {
@@ -197,8 +197,14 @@ We aim to provide the best support possible and are always happy to help where w
   },
 ];
 
-// v1 pack contents, kept so the upgrade can tell "still the default" apart
-// from "admin edited this" — only untouched entries are upgraded.
+// Earlier default texts, kept so the upgrade can tell "still the default"
+// apart from "admin edited this" — only untouched entries are upgraded.
+// Values are arrays: one entry per previous version of that answer.
+const V3_BUFFERING =
+  'Try these in order — they fix most buffering:\n1. Restart the app and your device.\n2. Restart your router.\n3. Clear the app cache (Settings > Applications > Manage Installed Applications > the app > Clear cache).\n4. Use 5GHz WiFi or wired ethernet if you can — 2.4GHz struggles with HD streams.\n5. Switch to a backup app (XC or Smarters) with the same login — one app often runs better than another.\n6. Try a lower quality stream or a different link/server for the same channel.\n7. Run a speed test — HD needs about 10 Mbps, 4K about 25 Mbps.\nStill buffering after all that? Tell us the channel and the time it happened.';
+const V3_CHANNEL =
+  "First try a different link/server for the same channel, or the same channel in a backup app (XC/Smarters) — and give it a minute, streams sometimes restart on their own. Still down? Report it with: the exact channel name, what you see (frozen / black screen / error message), and the time. That helps us fix it fast.";
+
 const V1_ANSWERS = {
   'How do I install the app on my Firestick?': 'Easiest way is with the Downloader app:\n1. On the Firestick go to Settings > My Fire TV > Developer Options and allow apps from unknown sources (or allow Downloader there).\n2. Install "Downloader" from the Amazon app store.\n3. Open Downloader and enter the download link or code from our portal.\n4. Install the APK when it finishes, open the app and sign in.\nGot a portal login? Message me /download in a private chat and I’ll send the file or a code.',
   'How do I install the app on an Android phone or tablet?': '1. Log in to the download portal and download the latest APK.\n2. Open the file — Android will ask you to allow installs from your browser; allow it.\n3. Install and sign in.\nYou can also message me /download in a private chat to get the file sent straight to you.',
@@ -208,6 +214,14 @@ const V1_ANSWERS = {
   'How do I update the app to the latest version?': 'Download the newest APK from the portal and install it straight over the old one — your settings are kept. On a Firestick, enter the download code or link in the Downloader app again. You can also message me /version to see the latest version and /download to get it.',
   'How do I check or renew my subscription?': 'Message me /myaccount in a private chat to see your status and expiry date (link your account once with /link plus the code from the portal’s Account page). To renew, contact the admin — in the group or via /ticket.',
 };
+
+function previousDefaults(question) {
+  const out = [];
+  if (V1_ANSWERS[question]) out.push(V1_ANSWERS[question]);
+  if (question === 'The app keeps buffering, freezing or stuttering — how do I fix it?') out.push(V3_BUFFERING);
+  if (question === "A channel or stream isn't working — what do I do?") out.push(V3_CHANNEL);
+  return out;
+}
 
 // Insert starter FAQs that don't already exist (matched by question text).
 // Returns how many were added. Safe to call any number of times.
@@ -243,7 +257,7 @@ function upgradeStarterContent() {
         db.prepare('INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at) VALUES (?, ?, ?, 1, 0, ?, ?)')
           .run(faq.question, faq.answer, faq.keywords, t, t);
         faqsAdded++;
-      } else if (V1_ANSWERS[faq.question] && row.answer === V1_ANSWERS[faq.question]) {
+      } else if (previousDefaults(faq.question).includes(row.answer)) {
         db.prepare('UPDATE faqs SET answer = ?, keywords = ?, updated_at = ? WHERE id = ?')
           .run(faq.answer, faq.keywords, t, row.id);
         faqsUpgraded++;

@@ -59,15 +59,46 @@ function bumpCooldown(userId) {
   if (cooldowns.size > 5000) cooldowns.clear();
 }
 
-// Record at most one problem report per user per minute so a single person
-// spamming "still buffering" doesn't flood the admin inbox.
-const recentProblem = new Map();
-function problemRecentlyFrom(userId) {
-  return Date.now() - (recentProblem.get(userId) || 0) < 60000;
+// Two-stage problem triage: the FIRST report from a user gets the fixes and an
+// invitation to confirm — no admin ping. A CONFIRMATION (another problem
+// message within the window, a reply to the bot, or "still ...") escalates to
+// the admins. Separately, several DIFFERENT users reporting within 15 minutes
+// triggers one outage alert even without confirmations.
+const PROBLEM_WINDOW_MS = 30 * 60 * 1000;
+const problemState = new Map(); // userId -> { at, escalatedAt }
+
+function getProblemState(userId) {
+  const st = problemState.get(userId);
+  if (!st || Date.now() - st.at > PROBLEM_WINDOW_MS) return null;
+  return st;
 }
-function markProblemRecorded(userId) {
-  recentProblem.set(userId, Date.now());
-  if (recentProblem.size > 5000) recentProblem.clear();
+
+function setProblemState(userId, patch) {
+  const st = problemState.get(userId) || {};
+  problemState.set(userId, { ...st, ...patch });
+  if (problemState.size > 5000) problemState.clear();
+}
+
+function saysStillBroken(text) {
+  return /\b(still|again|didnt (work|help)|didn't (work|help)|no luck|not fixed|same (issue|problem)|tried (all|everything|them|those|that))\b/i.test(text);
+}
+
+// Test helper: clear triage memory between scenarios.
+export function _resetProblemTriage() {
+  problemState.clear();
+  lastOutageAlertAt = 0;
+}
+
+let lastOutageAlertAt = 0;
+function checkOutage() {
+  if (Date.now() - lastOutageAlertAt < 30 * 60 * 1000) return;
+  const distinct = db.prepare(
+    'SELECT COUNT(DISTINCT tg_user_id) n FROM problem_reports WHERE ts > ?'
+  ).get(now() - 15 * 60).n;
+  if (distinct >= 3) {
+    lastOutageAlertAt = Date.now();
+    alertAdmins('problem', `⚠️ Possible outage: ${distinct} different people reported problems in the last 15 minutes. Check the panel → Problem reports.`);
+  }
 }
 
 function getBannedWords() {
@@ -82,18 +113,20 @@ function stripMention(text) {
 // Core answering flow: FAQ first, then AI with strict-topic guardrails.
 // `history` carries conversation context (DM memory, or a group reply chain);
 // `skipFaq` is set for follow-up replies so the bot doesn't repeat the same
-// FAQ instead of continuing the conversation.
+// FAQ instead of continuing the conversation. `suffix` is appended to any
+// actual answer (e.g. "flagged to the team" after a problem report).
 // Exported so tests can drive it with a fake ctx.
-export async function answer(ctx, question, { isDm, logId, history: providedHistory = null, skipFaq = false }) {
+export async function answer(ctx, question, { isDm, logId, history: providedHistory = null, skipFaq = false, suffix = null }) {
   const faqs = db.prepare('SELECT * FROM faqs WHERE enabled = 1').all();
   const threshold = Number(getSetting('faq.threshold')) || 0.5;
   const result = skipFaq ? { match: null, nearMiss: null } : matchFaq(question, faqs, threshold);
   const replyParams = isDm ? {} : { reply_parameters: { message_id: ctx.message.message_id } };
+  const withSuffix = (text) => (suffix ? `${text}\n\n${suffix}` : text);
 
   if (result.match) {
     db.prepare('UPDATE faqs SET hit_count = hit_count + 1 WHERE id = ?').run(result.match.id);
     setLogSource(logId, 'faq');
-    const sent = await sendChunked(ctx.api, ctx.chat.id, result.match.answer, {
+    const sent = await sendChunked(ctx.api, ctx.chat.id, withSuffix(result.match.answer), {
       ...replyParams,
       reply_markup: feedbackKeyboard(),
     });
@@ -122,7 +155,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
             dmHistory.set(historyKey, [...history, { role: 'user', content: question }, { role: 'assistant', content: reply }].slice(-6));
             if (dmHistory.size > 1000) dmHistory.clear();
           }
-          const sent = await sendChunked(ctx.api, ctx.chat.id, reply, {
+          const sent = await sendChunked(ctx.api, ctx.chat.id, withSuffix(reply), {
             ...replyParams,
             reply_markup: feedbackKeyboard(),
           });
@@ -136,7 +169,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
           db.prepare('UPDATE faqs SET hit_count = hit_count + 1 WHERE id = ?').run(result.nearMiss.id);
           setLogSource(logId, 'faq');
           recordUnanswered(question, ctx, 'ai-refused', result.nearMiss.id);
-          const sent = await sendChunked(ctx.api, ctx.chat.id, result.nearMiss.answer, {
+          const sent = await sendChunked(ctx.api, ctx.chat.id, withSuffix(result.nearMiss.answer), {
             ...replyParams,
             reply_markup: feedbackKeyboard(),
           });
@@ -219,18 +252,48 @@ export async function handleGroupMessage(ctx) {
     }
   }
 
-  // Surface problem reports to admins (buffering, channels down, ...) so they
-  // can spot outages. Deduped per user so one person can't spam the inbox.
-  if (isProblem && !problemRecentlyFrom(ctx.from.id)) {
-    markProblemRecorded(ctx.from.id);
-    const willAnswer = shouldAnswer && !onCooldown(ctx.from.id);
-    recordProblem(ctx, text, { answered: willAnswer });
-    queueProblemAlert({
-      tg_user: ctx.from?.username || ctx.from?.first_name,
-      tg_user_id: ctx.from?.id,
-      text,
-      topic: extractProblemTopic(text),
-    });
+  const repliedTo = ctx.message.reply_to_message;
+  const isFollowUp = repliedTo?.from?.id === ctx.me?.id && Boolean(repliedTo.text);
+
+  // Problem triage: fixes first, admin escalation only on confirmation.
+  let problemId = null;
+  let problemSuffix = null;
+  if (isProblem) {
+    const st = getProblemState(ctx.from.id);
+    const isConfirmation = Boolean(st) || isFollowUp || saysStillBroken(text);
+    const alreadyEscalated = st?.escalatedAt && Date.now() - st.escalatedAt < PROBLEM_WINDOW_MS;
+
+    if (isConfirmation && !alreadyEscalated) {
+      // The user tried the fixes (or told us it's still broken) — NOW it goes
+      // to the admins, and the user gets an ack instead of the same FAQ again.
+      setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: Date.now() });
+      recordProblem(ctx, text, { answered: true });
+      queueProblemAlert({
+        tg_user: ctx.from?.username || ctx.from?.first_name,
+        tg_user_id: ctx.from?.id,
+        text,
+        topic: extractProblemTopic(text),
+      });
+      setLogSource(logId, 'escalated');
+      const ack = getSetting('bot.problemFlaggedNote');
+      if (ack) {
+        await ctx.api.sendMessage(ctx.chat.id, ack, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
+      }
+      return;
+    }
+
+    if (alreadyEscalated) {
+      // Admins are already on it — stay quiet rather than nag or re-alert.
+      setProblemState(ctx.from.id, { at: Date.now() });
+      return;
+    }
+
+    // First report: save it for the panel (no admin DM), answer with the
+    // fixes, and invite the user to confirm if it persists.
+    setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: null });
+    problemId = recordProblem(ctx, text, { answered: false });
+    problemSuffix = getSetting('bot.problemFollowupNote') || null;
+    checkOutage();
   }
 
   if (!shouldAnswer) return;
@@ -240,8 +303,6 @@ export async function handleGroupMessage(ctx) {
 
   // Replying to one of the bot's messages is a follow-up conversation: give
   // the AI the reply chain as context and don't just re-match the same FAQ.
-  const repliedTo = ctx.message.reply_to_message;
-  const isFollowUp = repliedTo?.from?.id === ctx.me?.id && Boolean(repliedTo.text);
   let history = null;
   if (isFollowUp) {
     const prev = replyContext.get(`${ctx.chat.id}:${repliedTo.message_id}`);
@@ -251,7 +312,13 @@ export async function handleGroupMessage(ctx) {
     ];
   }
 
-  await answer(ctx, question, { isDm: false, logId, history, skipFaq: isFollowUp });
+  const outcome = await answer(ctx, question, { isDm: false, logId, history, skipFaq: isFollowUp, suffix: problemSuffix });
+
+  // Only mark the report answered when a real answer actually went out.
+  if (problemId) {
+    db.prepare('UPDATE problem_reports SET answered = ? WHERE id = ?')
+      .run(['faq', 'ai'].includes(outcome) ? 1 : 0, problemId);
+  }
 }
 
 export async function handleDirectMessage(ctx) {
