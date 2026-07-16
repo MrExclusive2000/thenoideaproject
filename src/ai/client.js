@@ -81,17 +81,23 @@ async function chatCompletion(messages, { maxTokens, temperature, timeoutMs = 60
     });
   } catch (err) {
     // Node's bare "fetch failed" hides the real cause — surface it, plus the
-    // most common trap when running inside a Pelican/Docker container.
+    // most common configuration traps.
     const cause = err.cause?.code || err.cause?.message || err.name || err.message;
-    const localhostHint = /127\.0\.0\.1|localhost/.test(baseUrl)
-      ? " — note: inside the server's container, 127.0.0.1 is the container itself, NOT your node. Use your node's LAN IP or Docker gateway (often 172.17.0.1), and start Ollama with OLLAMA_HOST=0.0.0.0 so it accepts outside connections."
-      : '';
-    throw new Error(`AI endpoint unreachable at ${baseUrl} (${cause})${localhostHint}`);
+    let hint = '';
+    if (/WRONG_VERSION_NUMBER|SSL|TLS/i.test(String(cause)) && baseUrl.startsWith('https://')) {
+      hint = ' — the endpoint answered with plain HTTP, not SSL: change https:// to http:// in the AI base URL.';
+    } else if (/127\.0\.0\.1|localhost/.test(baseUrl)) {
+      hint = " — note: inside the server's container, 127.0.0.1 is the container itself, NOT your node. Use your node's LAN IP or Docker gateway (often 172.17.0.1), and start Ollama with OLLAMA_HOST=0.0.0.0 so it accepts outside connections.";
+    }
+    throw new Error(`AI endpoint unreachable at ${baseUrl} (${cause})${hint}`);
   }
 
   if (!res.ok) {
     const body = (await res.text().catch(() => '')).slice(0, 300);
-    throw new Error(`AI endpoint returned ${res.status}: ${body}`);
+    const v1Hint = res.status === 404 && !baseUrl.endsWith('/v1')
+      ? ' — the base URL probably needs to end with /v1 (e.g. http://host:11434/v1)'
+      : '';
+    throw new Error(`AI endpoint returned ${res.status}${v1Hint}: ${body}`);
   }
   const data = await res.json();
   const text = data?.choices?.[0]?.message?.content ?? '';
