@@ -28,6 +28,7 @@ export const DEFAULTS = {
   'ai.model': config.ai.model,
   'ai.maxTokens': 350,
   'ai.temperature': 0.3,
+  'ai.timeoutSeconds': 90,
 
   'faq.threshold': 0.5,
 

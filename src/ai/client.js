@@ -34,7 +34,9 @@ export function buildSystemPrompt() {
     for (const f of faqs) knowledge.push(`Q: ${f.question}\nA: ${f.answer}`);
   }
   for (const g of guides) {
-    knowledge.push(`## Guide: ${g.title}\n${g.body_md.slice(0, 4000)}`);
+    // Keep the prompt lean — long prompts cost real seconds on CPU nodes and
+    // the full guide text lives in the portal anyway.
+    knowledge.push(`## Guide: ${g.title}\n${g.body_md.slice(0, 2000)}`);
   }
   if (status !== 'operational' || note) {
     knowledge.push(`## Current service status\n${status}${note ? ` — ${note}` : ''}`);
@@ -58,7 +60,8 @@ export function buildSystemPrompt() {
   ].join('\n');
 }
 
-async function chatCompletion(messages, { maxTokens, temperature, timeoutMs = 60000 } = {}) {
+async function chatCompletion(messages, { maxTokens, temperature, timeoutMs } = {}) {
+  timeoutMs = timeoutMs ?? (Number(getSetting('ai.timeoutSeconds')) || 90) * 1000;
   const baseUrl = String(getSetting('ai.baseUrl') || '').replace(/\/+$/, '');
   const apiKey = getSetting('ai.apiKey');
   const model = getSetting('ai.model');
@@ -86,7 +89,9 @@ async function chatCompletion(messages, { maxTokens, temperature, timeoutMs = 60
     // most common configuration traps.
     const cause = err.cause?.code || err.cause?.message || err.name || err.message;
     let hint = '';
-    if (/WRONG_VERSION_NUMBER|SSL|TLS/i.test(String(cause)) && baseUrl.startsWith('https://')) {
+    if (/TimeoutError|AbortError/i.test(String(cause))) {
+      hint = ` — the model did not answer within ${Math.round(timeoutMs / 1000)}s. It is probably too slow for this hardware: switch to a smaller/faster model (e.g. llama3.1:8b or qwen2.5:7b — avoid gemma3 on CPU, it re-reads the whole prompt every message), or raise the timeout in AI settings.`;
+    } else if (/WRONG_VERSION_NUMBER|SSL|TLS/i.test(String(cause)) && baseUrl.startsWith('https://')) {
       hint = ' — the endpoint answered with plain HTTP, not SSL: change https:// to http:// in the AI base URL.';
     } else if (/127\.0\.0\.1|localhost/.test(baseUrl)) {
       hint = " — note: inside the server's container, 127.0.0.1 is the container itself, NOT your node. Use your node's LAN IP or Docker gateway (often 172.17.0.1), and start Ollama with OLLAMA_HOST=0.0.0.0 so it accepts outside connections.";

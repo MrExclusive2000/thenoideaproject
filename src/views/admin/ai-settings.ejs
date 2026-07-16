@@ -23,6 +23,7 @@
       <div>
         <label for="model">Model name</label>
         <input id="model" name="model" type="text" value="<%= s.model %>" placeholder="llama3.1" required>
+        <p class="hint">CPU-only node? Prefer <code>llama3.1:8b</code> or <code>qwen2.5:7b</code> — they reuse the cached prompt between messages. Avoid <code>gemma3</code> on CPU: it re-reads the whole prompt on every message (~1 min per reply).</p>
       </div>
       <div>
         <label for="apiKey">API key (leave empty for local Ollama)</label>
@@ -38,6 +39,10 @@
       <div>
         <label for="temperature">Temperature (0 = factual, 1 = creative)</label>
         <input id="temperature" name="temperature" type="number" step="0.1" min="0" max="2" value="<%= s.temperature %>">
+      </div>
+      <div>
+        <label for="timeoutSeconds">Answer timeout (seconds)</label>
+        <input id="timeoutSeconds" name="timeoutSeconds" type="number" min="10" max="600" value="<%= s.timeoutSeconds %>">
       </div>
       <div>
         <label for="dailyBudget">Daily AI call budget (0 = unlimited)</label>

@@ -91,6 +91,7 @@ settingsRouter.get('/ai', (req, res) => {
       model: getSetting('ai.model'),
       maxTokens: getSetting('ai.maxTokens'),
       temperature: getSetting('ai.temperature'),
+      timeoutSeconds: getSetting('ai.timeoutSeconds'),
       dailyBudget: getSetting('bot.aiDailyBudget'),
     },
     testResult: req.session.aiTestResult || null,
@@ -107,6 +108,7 @@ settingsRouter.post('/ai', (req, res) => {
     'ai.model': String(b.model || '').trim().slice(0, 120),
     'ai.maxTokens': Math.max(50, Math.min(4000, Number(b.maxTokens) || 350)),
     'ai.temperature': Math.max(0, Math.min(2, Number(b.temperature) ?? 0.3)),
+    'ai.timeoutSeconds': Math.max(10, Math.min(600, Number(b.timeoutSeconds) || 90)),
     'bot.aiDailyBudget': Math.max(0, Math.min(100000, Number(b.dailyBudget) || 0)),
   });
   audit('admin', res.locals.admin.username, 'settings.ai.update', '', req.ip);
