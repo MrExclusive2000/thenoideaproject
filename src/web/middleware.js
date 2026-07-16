@@ -78,6 +78,7 @@ export function requireAdmin(req, res, next) {
   // req.path is relative to the router's mount point (/admin).
   const fullPath = (req.baseUrl || '') + req.path;
   if (res.locals.admin.must_change_password && fullPath !== '/admin/password') {
+    flash(req, 'err', 'Set a new password first — the whole panel unlocks straight after.');
     return res.redirect('/admin/password');
   }
   next();

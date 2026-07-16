@@ -19,6 +19,11 @@
       <span><%= appName %></span>
     </div>
 
+    <% if (admin && admin.must_change_password) { %>
+    <div class="group">Locked</div>
+    <a class="nav active" href="/admin/password">Set new password</a>
+    <div class="foot">The menu unlocks after you choose a new password.</div>
+    <% } else { %>
     <div class="group">Overview</div>
     <a class="nav <%= path === '/admin' ? 'active' : '' %>" href="/admin">Dashboard</a>
     <a class="nav <%= path.startsWith('/admin/tickets') ? 'active' : '' %>" href="/admin/tickets">Tickets</a>
@@ -40,6 +45,7 @@
     <a class="nav <%= path.startsWith('/admin/admins') ? 'active' : '' %>" href="/admin/admins">Admins</a>
     <a class="nav <%= path.startsWith('/admin/audit') ? 'active' : '' %>" href="/admin/audit">Audit log</a>
     <a class="nav <%= path.startsWith('/admin/system') ? 'active' : '' %>" href="/admin/system">Branding &amp; backup</a>
+    <% } %>
 
     <div class="foot">
       <%= admin ? admin.username : '' %> (<%= admin ? admin.role : '' %>)<br>
