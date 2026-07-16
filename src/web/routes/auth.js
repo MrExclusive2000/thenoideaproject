@@ -13,6 +13,10 @@ const loginLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: 'Too many login attempts from this address. Try again later.',
+  // An upstream proxy may add X-Forwarded-For even when TRUST_PROXY is off;
+  // without this the validator turns every login into a 500. With trust
+  // proxy disabled we key on the direct connection IP, which is correct.
+  validate: { xForwardedForHeader: false },
 });
 
 function regenerate(req) {

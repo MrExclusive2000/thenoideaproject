@@ -105,6 +105,23 @@ test('unauthenticated admin and portal pages redirect to login', async () => {
   }
 });
 
+test('login works even when an upstream proxy adds X-Forwarded-For', async () => {
+  const jar = {};
+  const { csrf } = await getWithCsrf(`${base}/login`, jar);
+  const res = await fetch(`${base}/login`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+      cookie: cookieHeader(jar),
+      'x-forwarded-for': '203.0.113.7',
+    },
+    body: `_csrf=${csrf}&username=nobody&password=whatever`,
+    redirect: 'manual',
+  });
+  // Must be an auth rejection, not a rate-limiter 500 (ERR_ERL_UNEXPECTED_X_FORWARDED_FOR).
+  assert.equal(res.status, 401);
+});
+
 test('invalid short download code shows friendly page, not a crash', async () => {
   const res = await fetch(`${base}/d/NOPE99`);
   assert.equal(res.status, 404);

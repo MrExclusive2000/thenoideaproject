@@ -138,6 +138,26 @@
             "field_type": "text"
         },
         {
+            "name": "Trust reverse proxy",
+            "description": "Set to 1 ONLY if you access the panel through a reverse proxy or tunnel (Cloudflare, Nginx Proxy Manager, ...). Makes rate limiting and logged IPs use the real visitor address from X-Forwarded-For.",
+            "env_variable": "TRUST_PROXY",
+            "default_value": "0",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|boolean",
+            "field_type": "text"
+        },
+        {
+            "name": "Secure cookies (HTTPS only)",
+            "description": "Set to 1 when the panel is served over HTTPS (via your reverse proxy). Leave 0 for plain http://IP:PORT access or logins will not stick.",
+            "env_variable": "FORCE_SECURE_COOKIE",
+            "default_value": "0",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|boolean",
+            "field_type": "text"
+        },
+        {
             "name": "Auto-update on start",
             "description": "1 = git pull + npm ci on every start. Data is never touched.",
             "env_variable": "AUTO_UPDATE",

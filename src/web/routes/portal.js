@@ -102,6 +102,8 @@ const codeLimiter = rateLimit({
   limit: 60,
   standardHeaders: true,
   legacyHeaders: false,
+  // Tolerate X-Forwarded-For from an untrusted upstream (see auth.js).
+  validate: { xForwardedForHeader: false },
 });
 
 portalRouter.get('/d/:code', codeLimiter, (req, res) => {
