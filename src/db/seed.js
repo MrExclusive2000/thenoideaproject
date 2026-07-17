@@ -4,7 +4,7 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 4;
+const SEED_VERSION = 5;
 
 export const STARTER_FAQS = [
   {
@@ -64,8 +64,8 @@ export const STARTER_FAQS = [
   },
   {
     question: "The app says my login is wrong or my account doesn't work",
-    answer: 'Double-check the username and password — watch for extra spaces and capital letters. If it still fails your access may have expired: message me /myaccount in a private chat, or contact the admin via /ticket and we’ll sort it.',
-    keywords: 'login, log, password, credentials, invalid, wrong, cant, sign, denied, auth',
+    answer: 'If it says "invalid user" or your login is rejected:\n1. Double-check the username and password — watch for extra spaces and capital letters.\n2. Make sure you\'re in the right app — the same login works in Purple, XC and Smarters.\n3. If we\'ve posted about service issues (check /status or the group), it\'s likely on our side — hang tight and try again shortly.\n4. Still no luck? Your access may have expired — message me /myaccount in a private chat, or /ticket and we\'ll sort it.',
+    keywords: 'login, log, password, credentials, invalid, wrong, cant, sign, denied, auth, user, username, details, incorrect, unauthorised, rejected',
   },
   {
     question: 'Can I use a VPN with the app?',
@@ -204,6 +204,8 @@ const V3_BUFFERING =
   'Try these in order — they fix most buffering:\n1. Restart the app and your device.\n2. Restart your router.\n3. Clear the app cache (Settings > Applications > Manage Installed Applications > the app > Clear cache).\n4. Use 5GHz WiFi or wired ethernet if you can — 2.4GHz struggles with HD streams.\n5. Switch to a backup app (XC or Smarters) with the same login — one app often runs better than another.\n6. Try a lower quality stream or a different link/server for the same channel.\n7. Run a speed test — HD needs about 10 Mbps, 4K about 25 Mbps.\nStill buffering after all that? Tell us the channel and the time it happened.';
 const V3_CHANNEL =
   "First try a different link/server for the same channel, or the same channel in a backup app (XC/Smarters) — and give it a minute, streams sometimes restart on their own. Still down? Report it with: the exact channel name, what you see (frozen / black screen / error message), and the time. That helps us fix it fast.";
+const V2_LOGIN =
+  'Double-check the username and password — watch for extra spaces and capital letters. If it still fails your access may have expired: message me /myaccount in a private chat, or contact the admin via /ticket and we’ll sort it.';
 
 const V1_ANSWERS = {
   'How do I install the app on my Firestick?': 'Easiest way is with the Downloader app:\n1. On the Firestick go to Settings > My Fire TV > Developer Options and allow apps from unknown sources (or allow Downloader there).\n2. Install "Downloader" from the Amazon app store.\n3. Open Downloader and enter the download link or code from our portal.\n4. Install the APK when it finishes, open the app and sign in.\nGot a portal login? Message me /download in a private chat and I’ll send the file or a code.',
@@ -220,6 +222,7 @@ function previousDefaults(question) {
   if (V1_ANSWERS[question]) out.push(V1_ANSWERS[question]);
   if (question === 'The app keeps buffering, freezing or stuttering — how do I fix it?') out.push(V3_BUFFERING);
   if (question === "A channel or stream isn't working — what do I do?") out.push(V3_CHANNEL);
+  if (question === "The app says my login is wrong or my account doesn't work") out.push(V2_LOGIN);
   return out;
 }
 

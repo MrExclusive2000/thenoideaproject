@@ -40,7 +40,17 @@ export function looksLikeQuestion(text) {
 // Support groups mostly post problem STATEMENTS ("buffering on bbc1",
 // "purple not working") — treat those as requests for help too.
 export function looksLikeProblem(text) {
-  return /\b(buffer(ing|s)?|freez\w*|frozen|lag(gy|ging|s)?|stutter\w*|glitch\w*|crash\w*|stuck|loading|offline|down|error|issue|problem|broken|playback|black ?screen|no (sound|audio|picture|video)|not work\w*|(doesnt|dont|isnt|aint|stopped) work\w*|wont (work|load|play|open|start)|cant (log ?in|sign in|watch|open|play|stream|connect)|keeps? (stopping|buffering|freezing|crashing|cutting))\b/i.test(text);
+  return /\b(buffer(ing|s)?|freez\w*|frozen|lag(gy|ging|s)?|stutter\w*|glitch\w*|crash\w*|stuck|loading|offline|down|error|issue|problem|broken|playback|black ?screen|no (sound|audio|picture|video)|invalid|unauthori[sz]ed|logged (out|off)|wrong password|access denied|not work\w*|(doesnt|dont|isnt|aint|stopped) work\w*|wont (work|load|play|open|start)|cant (log ?in|sign in|watch|open|play|stream|connect)|keeps? (stopping|buffering|freezing|crashing|cutting))\b/i.test(text);
+}
+
+// Lead problem answers with the known-issue banner when the admin has set a
+// non-operational service status — "invalid user" during a login outage is
+// almost certainly the outage, not the user's typo.
+function serviceStatusLine() {
+  const status = getSetting('service.status');
+  if (status === 'operational') return null;
+  const note = getSetting('service.note');
+  return `⚠️ We're aware of a service issue right now${note ? ` — ${note}` : ''}. This may be what you're seeing.`;
 }
 
 function mentionsBot(ctx, text) {
@@ -127,12 +137,12 @@ function stripMention(text) {
 // FAQ instead of continuing the conversation. `suffix` is appended to any
 // actual answer (e.g. "flagged to the team" after a problem report).
 // Exported so tests can drive it with a fake ctx.
-export async function answer(ctx, question, { isDm, logId, history: providedHistory = null, skipFaq = false, suffix = null }) {
+export async function answer(ctx, question, { isDm, logId, history: providedHistory = null, skipFaq = false, suffix = null, prefix = null }) {
   const faqs = db.prepare('SELECT * FROM faqs WHERE enabled = 1').all();
   const threshold = Number(getSetting('faq.threshold')) || 0.5;
   const result = skipFaq ? { match: null, nearMiss: null } : matchFaq(question, faqs, threshold);
   const replyParams = isDm ? {} : { reply_parameters: { message_id: ctx.message.message_id } };
-  const withSuffix = (text) => (suffix ? `${text}\n\n${suffix}` : text);
+  const withSuffix = (text) => [prefix, text, suffix].filter(Boolean).join('\n\n');
 
   if (result.match) {
     db.prepare('UPDATE faqs SET hit_count = hit_count + 1 WHERE id = ?').run(result.match.id);
@@ -335,12 +345,14 @@ export async function handleGroupMessage(ctx) {
     return;
   }
 
+  let problemPrefix = null;
   if (isProblem && !st) {
     // First report: save it for the panel (no admin DM), answer with the
     // fixes, and invite the user to confirm if it persists.
     setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: null, firstText: text.slice(0, 200) });
     problemId = recordProblem(ctx, text, { answered: false });
     problemSuffix = getSetting('bot.problemFollowupNote') || null;
+    problemPrefix = serviceStatusLine();
     checkOutage();
   }
 
@@ -360,7 +372,7 @@ export async function handleGroupMessage(ctx) {
     ];
   }
 
-  const outcome = await answer(ctx, question, { isDm: false, logId, history, skipFaq: isFollowUp, suffix: problemSuffix });
+  const outcome = await answer(ctx, question, { isDm: false, logId, history, skipFaq: isFollowUp, suffix: problemSuffix, prefix: problemPrefix });
 
   // Only mark the report answered when a real answer actually went out.
   if (problemId) {

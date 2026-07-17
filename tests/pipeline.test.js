@@ -405,6 +405,38 @@ test('a fix reported after escalation closes the loop for the admin too', async 
   hub.api = null;
 });
 
+test('"saying invalid user" is treated as a problem report, not ignored (live bug)', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  aiResponse = 'Double-check your username and password for typos, and make sure your access has not expired.';
+
+  const ctx = fakeCtx('Saying invalid user', { chatType: 'group', userId: 95001 });
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 1, 'login problem statement answered');
+  assert.match(ctx.sent[0].msg, /username and password/);
+  assert.match(ctx.sent[0].msg, /flag it straight to the team/, 'triage invite attached');
+  assert.ok(db.prepare('SELECT 1 FROM problem_reports WHERE tg_user_id = 95001').get(), 'recorded for the panel');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('during a known service issue, problem answers lead with the status banner', async () => {
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  setSetting('service.status', 'degraded');
+  setSetting('service.note', 'login server maintenance');
+
+  const ctx = fakeCtx('logged out and now invalid user??', { chatType: 'group', userId: 95002 });
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 1);
+  assert.match(ctx.sent[0].msg, /^⚠️ We're aware of a service issue right now — login server maintenance/, 'banner first');
+
+  setSetting('service.status', 'operational');
+  setSetting('service.note', '');
+  _resetProblemTriage();
+});
+
 test('3 different users reporting within 15 minutes triggers an outage alert immediately', async () => {
   setSetting('bot.cooldownSeconds', 0);
   db.prepare('DELETE FROM problem_reports').run();

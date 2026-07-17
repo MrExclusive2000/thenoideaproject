@@ -127,7 +127,7 @@ function scopeVocab() {
 const STRONG_SCOPE_TERMS = new Set([
   'app', 'apps', 'purple', 'smarters', 'downloader', 'firestick', 'apk', 'sideload',
   'install', 'installing', 'installed', 'reinstall', 'vod', 'iptv', 'buffering', 'playback',
-  'login', 'password', 'subscription', 'renew', 'renewal', 'expiry', 'expired',
+  'login', 'password', 'username', 'invalid', 'subscription', 'renew', 'renewal', 'expiry', 'expired',
   'pay', 'payment', 'paying', 'crypto', 'litecoin', 'ltc', 'wallet', 'exodus',
   'vpn', 'router', 'ethernet', 'panel', 'portal', 'developer',
 ]);

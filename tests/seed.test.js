@@ -85,6 +85,9 @@ test('starter FAQs actually match how people ask', () => {
     ['whats the downloader code', 'Firestick'],
     ['how do i enable developer options', 'developer'],
     ['it says i cant install unknown apps', 'unknown'],
+    ['saying invalid user', 'login'],
+    ['its saying invalid user??', 'login'],
+    ['keeps logging me out, invalid details', 'login'],
   ];
   for (const [q, expect] of cases) {
     const { match } = matchFaq(q, faqs, 0.5);
