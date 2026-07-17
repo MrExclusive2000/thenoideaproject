@@ -4,6 +4,7 @@ import { composeDigest, aiUsageToday } from '../ai/client.js';
 import { hub } from './hub.js';
 import { vetSweep } from './joiners.js';
 import { autoCloseSweep, degradeRecoverySweep } from './problems.js';
+import { sweepScheduledBroadcasts, expiryReminders, expiryUpsells, suggestFaqsSweep } from './scheduled.js';
 
 // Instant alerts, throttled per type so a flapping error can't flood DMs.
 const lastAlert = new Map();
@@ -90,32 +91,6 @@ export async function sendDigest(period) {
 
 // ---- schedulers -------------------------------------------------------------
 
-async function expiryReminders() {
-  if (!hub.online) return;
-  const daysBefore = Number(getSetting('portal.expiryReminderDays')) || 3;
-  const t = now();
-  const rows = db.prepare(`
-    SELECT * FROM customers
-    WHERE active = 1 AND telegram_user_id IS NOT NULL
-      AND expires_at IS NOT NULL AND expires_at > ? AND expires_at <= ?
-      AND (reminder_sent_at IS NULL OR reminder_sent_at < expires_at - ?)
-  `).all(t, t + daysBefore * 86400, daysBefore * 86400);
-  for (const c of rows) {
-    const daysLeft = Math.max(1, Math.ceil((c.expires_at - t) / 86400));
-    try {
-      await hub.send(
-        c.telegram_user_id,
-        `⏰ Heads up: your access expires in ${daysLeft} day${daysLeft > 1 ? 's' : ''}. ` +
-        'Contact us in the group or reply here to renew.'
-      );
-      db.prepare('UPDATE customers SET reminder_sent_at = ? WHERE id = ?').run(t, c.id);
-    } catch {
-      // user may have blocked the bot; try again next sweep
-      db.prepare('UPDATE customers SET reminder_sent_at = ? WHERE id = ?').run(t, c.id);
-    }
-  }
-}
-
 function pruneOldData() {
   const days = Number(getSetting('retention.messagesDays')) || 30;
   const t = now();
@@ -147,11 +122,14 @@ export function startSchedulers() {
   const timer = setInterval(() => {
     digestTick();
     expiryReminders().catch(() => {});
+    expiryUpsells().catch(() => {});
+    sweepScheduledBroadcasts().catch((err) => console.error('scheduled broadcast failed:', err.message));
     if (Date.now() - lastVetAt > 15 * 60 * 1000) {
       lastVetAt = Date.now();
       vetSweep().catch((err) => console.error('vet sweep failed:', err.message));
       autoCloseSweep().catch((err) => console.error('auto-close sweep failed:', err.message));
       degradeRecoverySweep().catch((err) => console.error('degrade recovery sweep failed:', err.message));
+      suggestFaqsSweep().catch((err) => console.error('faq suggestion sweep failed:', err.message));
     }
   }, 60 * 1000);
   timer.unref();

@@ -293,3 +293,36 @@ export async function composeDigest(statsText) {
 export function recordUsage() {
   return { day: today(), ...aiUsageToday() };
 }
+
+// Draft ONE FAQ entry from a cluster of real unanswered customer questions.
+// Returns { question, answer, keywords } or null when the model's output
+// can't be parsed — callers fall back to a template draft, so suggestions
+// appear even when the AI is down or rambles.
+export async function composeFaqSuggestion(samples) {
+  const faqs = db.prepare('SELECT question, answer FROM faqs WHERE enabled = 1 ORDER BY priority DESC, id').all();
+  const knowledge = faqs.map((f) => `Q: ${f.question}\nA: ${f.answer}`).join('\n\n');
+  const { text } = await withAiSlot(() => chatCompletion(
+    [
+      {
+        role: 'system',
+        content:
+          'You write FAQ entries for the support bot of a streaming service. Customers asked the questions below and the bot could not answer. ' +
+          'Draft ONE FAQ entry that would answer them. Ground the answer in the existing FAQ knowledge where possible; if the real answer needs information only the admin has (a link, a code, a price), write [ADMIN: fill this in] at that spot. ' +
+          'Reply in EXACTLY this format and nothing else:\n' +
+          'QUESTION: <one clean, general phrasing>\n' +
+          'ANSWER: <the answer, plain text, may span lines>\n' +
+          'KEYWORDS: <8-12 lowercase words customers would type, comma separated>\n\n' +
+          '# EXISTING FAQ KNOWLEDGE\n' + knowledge.slice(0, 6000),
+      },
+      { role: 'user', content: 'Customer questions:\n' + samples.map((s) => `- ${s}`).join('\n') },
+    ],
+    { maxTokens: 450, temperature: 0.4 }
+  ));
+  const m = String(text).match(/QUESTION:\s*([\s\S]*?)\nANSWER:\s*([\s\S]*?)\nKEYWORDS:\s*([^\n]*)/i);
+  if (!m) return null;
+  const question = m[1].trim().replace(/\s+/g, ' ').slice(0, 300);
+  const answer = m[2].trim().slice(0, 2500);
+  const keywords = m[3].trim().slice(0, 300);
+  if (!question || !answer) return null;
+  return { question, answer, keywords };
+}

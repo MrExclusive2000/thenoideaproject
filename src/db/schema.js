@@ -260,6 +260,31 @@ const migrations = [
   `
   ALTER TABLE problem_reports ADD COLUMN resolved_by TEXT;
   `,
+  // v7 — AI-drafted FAQ suggestions from unanswered questions, scheduled
+  // broadcasts, and the post-expiry upsell marker
+  `
+  CREATE TABLE suggested_faqs (
+    id         INTEGER PRIMARY KEY,
+    question   TEXT NOT NULL,
+    answer     TEXT NOT NULL,
+    keywords   TEXT,
+    ask_count  INTEGER NOT NULL DEFAULT 1,
+    samples    TEXT,
+    status     TEXT NOT NULL DEFAULT 'pending',
+    created_at INTEGER NOT NULL
+  );
+  CREATE TABLE scheduled_broadcasts (
+    id           INTEGER PRIMARY KEY,
+    body         TEXT NOT NULL,
+    send_at      INTEGER NOT NULL,
+    repeat       TEXT NOT NULL DEFAULT 'once',
+    enabled      INTEGER NOT NULL DEFAULT 1,
+    last_sent_at INTEGER,
+    created_by   TEXT,
+    created_at   INTEGER NOT NULL
+  );
+  ALTER TABLE customers ADD COLUMN upsell_sent_at INTEGER;
+  `,
 ];
 
 export function migrate(db) {

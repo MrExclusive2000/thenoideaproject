@@ -28,6 +28,9 @@ reportsRouter.get('/reports', (req, res) => {
       digest: getSetting('reports.digest'),
       digestHour: getSetting('reports.digestHour'),
       expiryReminderDays: getSetting('portal.expiryReminderDays'),
+      expiryReminderMessage: getSetting('portal.expiryReminderMessage'),
+      expiryUpsellMessage: getSetting('portal.expiryUpsellMessage'),
+      suggestFaqs: getSetting('suggest.faqs'),
       retentionDays: getSetting('retention.messagesDays'),
     },
     digests,
@@ -77,6 +80,9 @@ reportsRouter.post('/reports/settings', (req, res) => {
     'reports.digest': ['off', 'daily', 'weekly'].includes(req.body.digest) ? req.body.digest : 'off',
     'reports.digestHour': Math.max(0, Math.min(23, Number(req.body.digestHour) || 9)),
     'portal.expiryReminderDays': Math.max(1, Math.min(30, Number(req.body.expiryReminderDays) || 3)),
+    'portal.expiryReminderMessage': String(req.body.expiryReminderMessage || '').slice(0, 500),
+    'portal.expiryUpsellMessage': String(req.body.expiryUpsellMessage || '').slice(0, 500),
+    'suggest.faqs': req.body.suggestFaqs === '1',
     'retention.messagesDays': Math.max(1, Math.min(365, Number(req.body.retentionDays) || 30)),
   });
   audit('admin', res.locals.admin.username, 'reports.settings', `${ids.length} admin id(s)`, req.ip);

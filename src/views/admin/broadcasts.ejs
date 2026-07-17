@@ -15,6 +15,73 @@
 </div>
 
 <div class="card">
+  <h2>Schedule a broadcast</h2>
+  <p class="hint">One-off or recurring — great for event reminders ("UFC tonight — PPV row from 9pm"). Times are <strong>server time (UTC)</strong>; server time now: <strong><%= serverNow %></strong>.</p>
+  <form method="post" action="/admin/broadcasts/schedule">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <textarea name="body" rows="3" maxlength="3500" placeholder="🥊 Fight night! UFC is live tonight from 9pm on the PPV channels — replays hit VOD tomorrow." required></textarea>
+    <div class="row">
+      <div>
+        <label for="repeat">Repeat</label>
+        <select id="repeat" name="repeat">
+          <option value="once">Once (pick date &amp; time)</option>
+          <option value="daily">Every day (pick time)</option>
+          <option value="weekly">Every week (pick day &amp; time)</option>
+        </select>
+      </div>
+      <div>
+        <label for="sendAt">Date &amp; time (for once)</label>
+        <input id="sendAt" name="sendAt" type="datetime-local">
+      </div>
+      <div>
+        <label for="dow">Weekday (for weekly)</label>
+        <select id="dow" name="dow">
+          <option value="6">Saturday</option>
+          <option value="0">Sunday</option>
+          <option value="1">Monday</option>
+          <option value="2">Tuesday</option>
+          <option value="3">Wednesday</option>
+          <option value="4">Thursday</option>
+          <option value="5">Friday</option>
+        </select>
+      </div>
+      <div>
+        <label for="hour">Time (for daily/weekly)</label>
+        <div style="display:flex;gap:4px">
+          <input id="hour" name="hour" type="number" min="0" max="23" value="20" style="width:70px"> :
+          <input id="minute" name="minute" type="number" min="0" max="59" value="0" style="width:70px">
+        </div>
+      </div>
+    </div>
+    <p><button type="submit">Schedule it</button></p>
+  </form>
+
+  <% if (scheduled.length) { %>
+  <table class="list">
+    <tr><th>Message</th><th>Repeat</th><th>Next send</th><th>Status</th><th></th></tr>
+    <% for (const s of scheduled) { %>
+    <tr>
+      <td style="max-width:380px"><%= s.body.slice(0, 160) %><%= s.body.length > 160 ? '…' : '' %></td>
+      <td><%= s.repeat %></td>
+      <td class="hint"><%= s.enabled ? formatDate(s.send_at) : '—' %><% if (s.last_sent_at) { %><div class="hint">last: <%= formatDate(s.last_sent_at) %></div><% } %></td>
+      <td><span class="badge <%= s.enabled ? 'badge-ok' : 'badge-dim' %>"><%= s.enabled ? 'active' : 'off' %></span></td>
+      <td class="actions">
+        <form method="post" action="/admin/broadcasts/schedule/<%= s.id %>/toggle">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <button class="btn-ghost btn-sm"><%= s.enabled ? 'Pause' : 'Resume' %></button>
+        </form>
+        <form method="post" action="/admin/broadcasts/schedule/<%= s.id %>/delete">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <button class="btn-ghost btn-sm">Delete</button>
+        </form>
+      </td>
+    </tr>
+    <% } %>
+  </table>
+  <% } %>
+</div>
+
+<div class="card">
   <h2>History</h2>
   <table class="list">
     <tr><th>Message</th><th>By</th><th>Status</th><th>When</th><th></th></tr>

@@ -29,7 +29,46 @@ faqsRouter.get('/faqs', (req, res) => {
     };
   }
 
-  res.render('admin/faqs', { title: 'FAQ manager', faqs, editing, test });
+  const suggested = db.prepare("SELECT * FROM suggested_faqs WHERE status = 'pending' ORDER BY ask_count DESC, id DESC").all()
+    .map((s) => ({ ...s, sampleList: JSON.parse(s.samples || '[]') }));
+  res.render('admin/faqs', { title: 'FAQ manager', faqs, editing, test, suggested });
+});
+
+// ---- AI-suggested FAQs ------------------------------------------------------
+
+faqsRouter.post('/faqs/suggested/generate', async (req, res) => {
+  try {
+    const { generateFaqSuggestions } = await import('../../../bot/scheduled.js');
+    const created = await generateFaqSuggestions();
+    flash(req, 'ok', created.length
+      ? `${created.length} suggestion${created.length > 1 ? 's' : ''} drafted from unanswered questions.`
+      : 'Nothing to suggest — no recent unanswered questions that the FAQs don\'t already cover.');
+  } catch (err) {
+    flash(req, 'err', `Suggestion run failed: ${err.message}`);
+  }
+  res.redirect('/admin/faqs');
+});
+
+faqsRouter.post('/faqs/suggested/:id/approve', (req, res) => {
+  const s = db.prepare("SELECT * FROM suggested_faqs WHERE id = ? AND status = 'pending'").get(req.params.id);
+  if (!s) return res.redirect('/admin/faqs');
+  // Drafts that still need admin info go in DISABLED so customers never see
+  // the [ADMIN: ...] placeholder.
+  const needsEdit = /\[ADMIN:/i.test(s.answer);
+  const info = db.prepare('INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)')
+    .run(s.question, s.answer, s.keywords || '', needsEdit ? 0 : 1, now(), now());
+  db.prepare("UPDATE suggested_faqs SET status = 'approved' WHERE id = ?").run(s.id);
+  audit('admin', res.locals.admin.username, 'faq.suggestion.approve', s.question.slice(0, 80), req.ip);
+  flash(req, 'ok', needsEdit
+    ? 'Added as a DISABLED FAQ — it needs your info where it says [ADMIN: …]. Edit and enable it.'
+    : 'Suggestion approved and live as an FAQ.');
+  res.redirect(needsEdit ? `/admin/faqs?edit=${info.lastInsertRowid}` : '/admin/faqs');
+});
+
+faqsRouter.post('/faqs/suggested/:id/dismiss', (req, res) => {
+  db.prepare("UPDATE suggested_faqs SET status = 'dismissed' WHERE id = ?").run(req.params.id);
+  audit('admin', res.locals.admin.username, 'faq.suggestion.dismiss', String(req.params.id), req.ip);
+  res.redirect('/admin/faqs');
 });
 
 faqsRouter.post('/faqs', (req, res) => {

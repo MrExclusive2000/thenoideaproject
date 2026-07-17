@@ -49,6 +49,46 @@
 
 <div class="card">
   <div class="toolbar">
+    <h2 style="margin:0">💡 Suggested FAQs<% if (suggested.length) { %> (<%= suggested.length %>)<% } %></h2>
+    <span class="spacer"></span>
+    <form method="post" action="/admin/faqs/suggested/generate">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <button class="btn-ghost btn-sm">Generate from unanswered now</button>
+    </form>
+  </div>
+  <p class="hint">Drafted weekly by the AI from questions the bot couldn't answer. Approve to make it a live FAQ (drafts needing your info go in disabled), or dismiss.</p>
+  <% if (suggested.length) { %>
+  <table class="list">
+    <tr><th>Draft</th><th>Asked</th><th></th></tr>
+    <% for (const s of suggested) { %>
+    <tr>
+      <td style="max-width:480px">
+        <strong><%= s.question %></strong>
+        <div class="hint" style="white-space:pre-line"><%= s.answer.slice(0, 400) %><%= s.answer.length > 400 ? '…' : '' %></div>
+        <% if (s.keywords) { %><div class="hint">keywords: <%= s.keywords %></div><% } %>
+        <% if (s.sampleList.length) { %><div class="hint">customers asked: <%= s.sampleList.map((x) => `"${x.slice(0, 60)}"`).join(' · ') %></div><% } %>
+      </td>
+      <td><span class="badge badge-warn">×<%= s.ask_count %></span></td>
+      <td class="actions">
+        <form method="post" action="/admin/faqs/suggested/<%= s.id %>/approve">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <button class="btn-sm">Approve</button>
+        </form>
+        <form method="post" action="/admin/faqs/suggested/<%= s.id %>/dismiss">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <button class="btn-ghost btn-sm">Dismiss</button>
+        </form>
+      </td>
+    </tr>
+    <% } %>
+  </table>
+  <% } else { %>
+  <p class="hint">No pending suggestions. 🎉</p>
+  <% } %>
+</div>
+
+<div class="card">
+  <div class="toolbar">
     <h2 style="margin:0">All FAQs (<%= faqs.length %>)</h2>
     <span class="spacer"></span>
     <form method="post" action="/admin/faqs/starter-pack">

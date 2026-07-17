@@ -79,6 +79,21 @@
         <label for="expiryReminderDays">Customer expiry reminder (days before)</label>
         <input id="expiryReminderDays" name="expiryReminderDays" type="number" min="1" max="30" value="<%= s.expiryReminderDays %>">
       </div>
+    </div>
+
+    <label for="expiryReminderMessage">Reminder DM before expiry ({name}, {days} — empty = off)</label>
+    <input id="expiryReminderMessage" name="expiryReminderMessage" type="text" maxlength="500" value="<%= s.expiryReminderMessage %>">
+
+    <label for="expiryUpsellMessage">Win-back DM on expiry day ({name} — empty = off)</label>
+    <input id="expiryUpsellMessage" name="expiryUpsellMessage" type="text" maxlength="500" value="<%= s.expiryUpsellMessage %>">
+    <p class="hint">Sent once when a linked customer's access lapses (never for accounts expired more than 3 days). Only customers who have DMed the bot can receive it.</p>
+
+    <div class="checkline">
+      <input type="checkbox" id="suggestFaqs" name="suggestFaqs" value="1" <%= s.suggestFaqs ? 'checked' : '' %>>
+      <label for="suggestFaqs">Weekly AI-drafted FAQ suggestions from unanswered questions (review in <a href="/admin/faqs">FAQs</a>)</label>
+    </div>
+
+    <div class="row">
       <div>
         <label for="retentionDays">Keep message stats for (days)</label>
         <input id="retentionDays" name="retentionDays" type="number" min="1" max="365" value="<%= s.retentionDays %>">

@@ -84,6 +84,13 @@ export const DEFAULTS = {
   'files.autoAnnounce': false,
 
   'reports.adminTelegramIds': [],
+  // Weekly AI-drafted FAQ suggestions from unanswered questions.
+  'suggest.faqs': true,
+  'suggest.lastRunAt': 0,
+  // DM sent N days BEFORE expiry ({name}, {days}). Empty = off.
+  'portal.expiryReminderMessage': '⏰ Heads up {name}: your access expires in {days} day(s). Renewing only takes a few minutes — message me /ticket or ask in the group and we will sort you out.',
+  // DM sent ON/after expiry day ({name}). Empty = off.
+  'portal.expiryUpsellMessage': "😢 {name}, your access expired — but getting back takes minutes. Message me /ticket or ask in the group and we'll renew you today. Paying with crypto is easier than it sounds: the step-by-step guide does the hard part.",
   'reports.alertErrors': true,
   'reports.alertBudget': true,
   'reports.alertBannedWords': false,
