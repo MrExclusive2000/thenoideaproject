@@ -185,6 +185,26 @@ test('which-service FAQ matches how people ask once the admin enables it', () =>
   assert.match(urlMatch.question, /iPhone or iPad/, `url question matched wrong FAQ: ${urlMatch?.question}`);
 });
 
+test('service-URL FAQ ships disabled; URL questions route to it once enabled', () => {
+  const row = db.prepare('SELECT * FROM faqs WHERE question = ?').get('What is the service URL to log in with?');
+  assert.ok(row, 'seeded');
+  assert.equal(row.enabled, 0, 'disabled until the real URLs are filled in');
+  assert.match(row.answer, /SERVICE-URL-1/);
+  assert.match(row.answer, /THM/);
+
+  db.prepare("UPDATE faqs SET enabled = 1, answer = replace(replace(answer, 'SERVICE-URL-1', 'http://flix.example:8080'), 'SERVICE-URL-2', 'http://thm.example:8080') WHERE id = ?").run(row.id);
+  const faqs = db.prepare('SELECT * FROM faqs').all();
+  for (const q of ['whats the service url', 'what url do i log in with', 'whats the server address', 'i need the login url']) {
+    const { match } = matchFaq(q, faqs, 0.5);
+    assert.ok(match, `no match for: ${q}`);
+    assert.match(match.question, /service URL to log in/, `"${q}" matched wrong FAQ: ${match?.question}`);
+  }
+  // iPhone-install questions stay with the iOS FAQ (which now points here).
+  const { match: ios } = matchFaq('whats the service url for the iphone app', faqs, 0.5);
+  assert.match(ios.question, /iPhone or iPad/, `iphone url question matched wrong FAQ: ${ios?.question}`);
+  assert.match(faqs.find((f) => /iPhone or iPad/.test(f.question)).answer, /what's the service URL/, 'iOS FAQ points at the URL FAQ instead of the circular ask-here');
+});
+
 test('smarters/sky-glass FAQ ships disabled and matches once the admin adds the code', () => {
   const row = db.prepare('SELECT * FROM faqs WHERE question = ?')
     .get('How do I install Smarters or Sky Glass on the Firestick?');

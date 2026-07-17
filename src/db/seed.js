@@ -4,7 +4,7 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 21;
+const SEED_VERSION = 22;
 
 export const STARTER_FAQS = [
   {
@@ -47,8 +47,17 @@ export const STARTER_FAQS = [
   },
   {
     question: 'How do I install the app on an iPhone or iPad (iOS)?',
-    answer: 'On iPhone/iPad use Smarters Player Lite — install it free from the App Store:\nhttps://apps.apple.com/gb/app/smarters-player-lite/id1628995509\nOpen it, accept the terms and choose "Login with Xtream Codes API", then enter:\n- Any name you like\n- Your username and password (your normal service login)\n- The service URL (ask here or message the admin if you don\'t have it)\nTap Add User and your channels and VOD will load.',
+    answer: 'On iPhone/iPad use Smarters Player Lite — install it free from the App Store:\nhttps://apps.apple.com/gb/app/smarters-player-lite/id1628995509\nOpen it, accept the terms and choose "Login with Xtream Codes API", then enter:\n- Any name you like\n- Your username and password (your normal service login)\n- The service URL — don\'t have it? Ask me "what\'s the service URL?" and I\'ll sort you out\nTap Add User and your channels and VOD will load.',
     keywords: 'ios, iphone, ipad, apple, store, lite, url, install, installing, app, apps',
+  },
+  {
+    // Ships DISABLED — replace the two SERVICE-URL placeholders with the
+    // real login URLs, then enable. Different services use different URLs,
+    // so the username rule picks the right one.
+    question: 'What is the service URL to log in with?',
+    answer: "The service URL depends on which service you're on — check the username you log in with:\n- Randomly generated (a mix of letters and numbers): use SERVICE-URL-1\n- Starts with THM: use SERVICE-URL-2\nEnter it exactly as written, together with your normal username and password.\nNot sure which you are? Reply to this message with just your username (never your password!) and I'll tell you.",
+    keywords: 'url, urls, address, server, host, port, login, xtream, service, dns',
+    enabled: 0,
   },
   {
     question: 'How do I enable Developer Options or allow apps from unknown sources on Firestick?',
@@ -340,6 +349,8 @@ const V11_UPDATE =
   'On a Firestick: open the Downloader app, enter code 9804805 again and install the newest version straight over the old one — your settings are kept. On Android: open https://aftv.news/9804805 in your browser again. You can also message me /version to see the latest version.';
 const V11_WHICH_APP =
   'Use the Purple App as your main app. XC and Smarters are backups — install at least one of them too. The same login works in every app, so if one ever plays up, just switch to a backup and carry on.';
+const V12_IOS =
+  'On iPhone/iPad use Smarters Player Lite — install it free from the App Store:\nhttps://apps.apple.com/gb/app/smarters-player-lite/id1628995509\nOpen it, accept the terms and choose "Login with Xtream Codes API", then enter:\n- Any name you like\n- Your username and password (your normal service login)\n- The service URL (ask here or message the admin if you don\'t have it)\nTap Add User and your channels and VOD will load.';
 const V20_LANGUAGE =
   "While the video is playing, open the player controls (press OK on the remote or tap the screen) and look for the audio/track button — usually a headphones or speech-bubble icon. Pick English (or whichever language you want) from the list. The same login works in XC and Smarters too, and their players sometimes list audio tracks differently.\nIf only one language is listed, that copy only came with one audio track — reply with the exact title and the language you need and I'll flag it to the team to source a better copy.";
 const V19_VOD_REQUEST =
@@ -376,6 +387,7 @@ function previousDefaults(question) {
   if (question === 'Which Firestick is best / which one should I buy?') out.push(V18_FIRESTICK_BUY);
   if (question === 'How do I request a movie, series or VOD?') out.push(V19_VOD_REQUEST);
   if (question === 'The audio is in the wrong language — how do I change it?') out.push(V20_LANGUAGE);
+  if (question === 'How do I install the app on an iPhone or iPad (iOS)?') out.push(V12_IOS);
   return out;
 }
 
