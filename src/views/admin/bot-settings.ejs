@@ -104,6 +104,9 @@
     </select>
     <label for="offtopicMessage">Redirect message</label>
     <input id="offtopicMessage" name="offtopicMessage" type="text" maxlength="500" value="<%= s.offtopicMessage %>">
+    <label for="offtopicChatMinutes">Banter free pass: answer each user's FIRST off-topic question, then brush off for this many minutes (0 = always brush off)</label>
+    <input id="offtopicChatMinutes" name="offtopicChatMinutes" type="number" min="0" max="1440" value="<%= s.offtopicChatMinutes %>">
+    <p class="hint">Redirect mode only. The one-off answer is short, friendly and never asks anything back — the next off-topic question inside the window gets the redirect message above.</p>
     <label for="fallbackMessage">Fallback when nothing matched and the AI is off/unreachable (empty = stay silent)</label>
     <input id="fallbackMessage" name="fallbackMessage" type="text" maxlength="500" value="<%= s.fallbackMessage %>">
     <label for="unsureMessage">When a question IS about the app but the bot can't answer it (empty = stay silent)</label>

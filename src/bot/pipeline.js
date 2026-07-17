@@ -503,6 +503,33 @@ function stripMention(text) {
   return username ? text.replace(new RegExp(`@${username}`, 'gi'), '').trim() : text;
 }
 
+// Off-topic banter free pass: per user, the FIRST off-topic question in a
+// while gets one short friendly AI answer (small-talk mode — no questions
+// back); anything more inside the window falls through to the brush-off.
+const smallTalkUsed = new Map(); // userId -> timestamp the pass was spent
+
+async function maybeSmallTalk(ctx, question) {
+  const minutes = Number(getSetting('bot.offtopicChatMinutes')) || 0;
+  if (!minutes) return null;
+  const userId = ctx.from?.id;
+  if (!userId) return null;
+  const last = smallTalkUsed.get(userId) || 0;
+  if (Date.now() - last < minutes * 60 * 1000) return null;
+  // Spend the pass BEFORE calling: even a failed/suppressed attempt counts,
+  // so repeated off-topic messages can't farm AI calls.
+  smallTalkUsed.set(userId, Date.now());
+  if (smallTalkUsed.size > 2000) smallTalkUsed.clear();
+  try {
+    return await askAi(question, { smallTalk: true });
+  } catch {
+    return null; // AI busy/down/over budget → the brush-off answers instead
+  }
+}
+
+export function _resetSmallTalk() {
+  smallTalkUsed.clear();
+}
+
 // Core answering flow: FAQ first, then AI with strict-topic guardrails.
 // `history` carries conversation context (DM memory, or a group reply chain);
 // `skipFaq` is set for follow-up replies so the bot doesn't repeat the same
@@ -610,12 +637,25 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         }
 
         // Truly unrelated to the service — strict-topic rule kicked in.
-        setLogSource(logId, 'offtopic');
+        // Still logged as off-topic for the admin's scope-gap view, even when
+        // the banter free pass below sends a real answer.
         if (looksLikeQuestion(question)) recordUnanswered(question, ctx, 'offtopic', null);
         if (getSetting('bot.offtopicBehavior') === 'redirect') {
+          // Banter budget: the FIRST off-topic question in a while gets one
+          // short friendly answer; the next inside the window gets the witty
+          // brush-off with no AI call. Fun once, chat buddy never.
+          const banter = await maybeSmallTalk(ctx, question);
+          if (banter) {
+            setLogSource(logId, 'smalltalk');
+            await ctx.api.sendMessage(ctx.chat.id, banter, replyParams);
+            return 'smalltalk';
+          }
+          setLogSource(logId, 'offtopic');
           const msg = getSetting('bot.offtopicMessage');
           if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, replyParams);
+          return 'offtopic';
         }
+        setLogSource(logId, 'offtopic');
         return 'offtopic';
       } catch (err) {
         // Overloaded (queue full / waited too long / generation timed out):

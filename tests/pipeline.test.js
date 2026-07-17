@@ -9,7 +9,7 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-test-'));
 
 const { db } = await import('../src/db/db.js');
 const { setSetting } = await import('../src/settings.js');
-const { answer, handleDirectMessage, handleGroupMessage, replyContext, _resetProblemTriage } = await import('../src/bot/pipeline.js');
+const { answer, handleDirectMessage, handleGroupMessage, replyContext, _resetProblemTriage, _resetSmallTalk } = await import('../src/bot/pipeline.js');
 const { _aiQueueState } = await import('../src/ai/client.js');
 const { flushProblemAlerts, _resetProblemQueue, autoCloseSweep } = await import('../src/bot/problems.js');
 const { hub } = await import('../src/bot/hub.js');
@@ -1047,9 +1047,10 @@ test('escalation asks which service; the answer is saved and forwarded to the ad
   _resetProblemQueue();
 });
 
-test('a bare off-topic fragment never reaches the AI', async () => {
+test('a bare off-topic fragment never reaches the AI (banter pass off)', async () => {
   setSetting('bot.offtopicBehavior', 'redirect');
   setSetting('bot.offtopicMessage', 'App questions only please.');
+  setSetting('bot.offtopicChatMinutes', 0); // isolate the scope gate from the banter free pass
   lastAiRequest = null;
   const ctx = fakeCtx('Sausage', { userId: 5151 });
   const result = await answer(ctx, 'Sausage', { isDm: true, logId: null });
@@ -1103,9 +1104,10 @@ test('cooldown drops are logged; admins are never rate-limited', async () => {
   setSetting('bot.cooldownSeconds', 0);
 });
 
-test('chatty off-topic questions never reach the AI either', async () => {
+test('chatty off-topic questions never reach the AI either (banter pass off)', async () => {
   setSetting('bot.offtopicBehavior', 'redirect');
   setSetting('bot.offtopicMessage', 'App questions only please.');
+  setSetting('bot.offtopicChatMinutes', 0); // isolate the scope gate from the banter free pass
   lastAiRequest = null;
   const ctx = fakeCtx('Do you like pineapples', { userId: 5353 });
   const result = await answer(ctx, 'Do you like pineapples', { isDm: true, logId: null });
@@ -1510,4 +1512,76 @@ test('IMDb check: exact match canonicalizes silently, near-miss asks and honours
   const r6 = fakeCtx('Request: Dune (2021)', { userId: 99106 });
   await handleDirectMessage(r6);
   assert.equal(imdbHits, hitsBefore, 'no network call when disabled');
+});
+
+// ---- Off-topic banter free pass ---------------------------------------------
+
+test('banter free pass: first off-topic question gets one friendly answer, no questions back', async () => {
+  _resetSmallTalk();
+  setSetting('bot.offtopicBehavior', 'redirect');
+  setSetting('bot.offtopicMessage', 'Nice try 😄 — service questions only.');
+  setSetting('bot.offtopicChatMinutes', 30);
+  aiResponse = "Pineapple on pizza is a lifestyle choice I respect 🍍 Logins and buffering are more my thing though.";
+  const ctx = fakeCtx('do you like pineapples on pizza?', { userId: 55501 });
+  const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.equal(result, 'smalltalk');
+  assert.match(ctx.sent[0].msg, /lifestyle choice/);
+  // Fresh user + no scope signal means the ONLY AI call was the small-talk one.
+  const sysNotes = lastAiRequest.messages.filter((m) => m.role === 'system');
+  assert.equal(sysNotes.length, 2);
+  assert.match(sysNotes[1].content, /small talk/);
+  assert.match(sysNotes[1].content, /do NOT ask the user anything/);
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('a second off-topic question straight after gets the witty brush-off with no AI call', async () => {
+  const before = lastAiRequest;
+  const ctx = fakeCtx('ok but whats your favourite colour?', { userId: 55501 });
+  const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.equal(result, 'offtopic');
+  assert.equal(ctx.sent[0].msg, 'Nice try 😄 — service questions only.');
+  assert.equal(lastAiRequest, before, 'free pass spent — AI not called again');
+});
+
+test('another user still has their own free pass', async () => {
+  aiResponse = "Ha, couldn't tell you — the only tables I know are the EPG listings.";
+  const ctx = fakeCtx('who won the darts last night?', { userId: 55505 });
+  const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.equal(result, 'smalltalk');
+  assert.match(ctx.sent[0].msg, /EPG listings/);
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('banter that fishes with a question is suppressed — brush-off instead', async () => {
+  _resetSmallTalk();
+  aiResponse = 'Why do you want to know that?';
+  const ctx = fakeCtx('who won the darts last night?', { userId: 55502 });
+  const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.equal(result, 'offtopic');
+  assert.equal(ctx.sent[0].msg, 'Nice try 😄 — service questions only.');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('small-talk answers get trailing conversation-bait questions stripped', async () => {
+  _resetSmallTalk();
+  aiResponse = "Ha, no idea — I don't follow the football. I'm better with buffering fixes. What's your favourite team?";
+  const ctx = fakeCtx('who do you think wins the league?', { userId: 55503 });
+  const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.equal(result, 'smalltalk');
+  assert.ok(!ctx.sent[0].msg.includes('favourite team'), 'bait question removed');
+  assert.ok(!ctx.sent[0].msg.trimEnd().endsWith('?'), 'never ends on a question');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('offtopicChatMinutes 0 turns the free pass off entirely', async () => {
+  _resetSmallTalk();
+  setSetting('bot.offtopicChatMinutes', 0);
+  const before = lastAiRequest;
+  const ctx = fakeCtx('tell me a bedtime story?', { userId: 55504 });
+  const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.equal(result, 'offtopic');
+  assert.equal(ctx.sent[0].msg, 'Nice try 😄 — service questions only.');
+  assert.equal(lastAiRequest, before, 'no AI call at all');
+  setSetting('bot.offtopicChatMinutes', 30);
+  setSetting('bot.offtopicBehavior', 'silent');
 });

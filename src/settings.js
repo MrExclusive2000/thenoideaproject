@@ -16,6 +16,10 @@ export const DEFAULTS = {
   'bot.dmEnabled': true,
   'bot.offtopicBehavior': 'redirect', // silent | redirect
   'bot.offtopicMessage': "Can't help with that one 😂 I'm strictly service support — installs, logins, streams, payments. /help shows what I can do.",
+  // Banter budget: the FIRST off-topic question a user asks gets ONE short,
+  // friendly real answer; any more within this many minutes get the witty
+  // brush-off above instead. 0 = always brush off. Redirect mode only.
+  'bot.offtopicChatMinutes': 30,
   'bot.fallbackMessage': '', // empty = stay silent when nothing matched and AI is off/down
   // Sent when a message IS about the app/service but the bot can't answer it —
   // kinder than the off-topic line, and points the user to a human.

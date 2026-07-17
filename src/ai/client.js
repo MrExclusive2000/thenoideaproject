@@ -208,7 +208,10 @@ export function _aiQueueState() {
 // question is off-topic / unanswerable / suppressed by guardrails.
 // `assumeOnTopic`: the caller already knows this is a support request (problem
 // report trigger or FAQ near-miss) — stop the model from bailing with OFFTOPIC.
-export async function askAi(question, { history = [], assumeOnTopic = false } = {}) {
+// `smallTalk`: the caller is spending the user's one off-topic free pass —
+// permit ONE brief friendly answer to an off-topic message. Replies that are
+// (or end as) a question are suppressed: banter must never fish for more chat.
+export async function askAi(question, { history = [], assumeOnTopic = false, smallTalk = false } = {}) {
   if (!getSetting('ai.enabled')) return null;
   if (aiBudgetExceeded()) {
     const err = new Error('Daily AI budget reached');
@@ -225,17 +228,27 @@ export async function askAi(question, { history = [], assumeOnTopic = false } = 
           content: `The next user message is a support request about the service (a problem report or support question). It IS in scope — do not reply ${OFFTOPIC_SENTINEL}. Answer it using the knowledge, and ask for missing details if needed.`,
         }]
       : []),
+    ...(smallTalk
+      ? [{
+          role: 'system',
+          content: `Exception, just this once: the next user message is off-topic small talk, and you may answer it. Reply with one or two short, friendly, lightly witty sentences. If you do not genuinely know the answer (live scores, news, weather), say so playfully instead of guessing. You may add a short nudge that service questions are what you're really here for. Do NOT reply ${OFFTOPIC_SENTINEL}, and do NOT ask the user anything — no questions at all.`,
+        }]
+      : []),
     ...history.slice(-6),
     { role: 'user', content: String(question).slice(0, 2000) },
   ];
 
-  const { text } = await withAiSlot(() => chatCompletion(messages));
+  const { text } = await withAiSlot(() => chatCompletion(messages, smallTalk ? { maxTokens: 150 } : {}));
   let reply = cleanReply(text);
   if (!reply) return null;
   // A question may only BE the whole reply (one short clarifying question) —
   // a full answer ending in "any other questions?" is a dead end and would
   // be mistaken for a clarify prompt by the combine flow. Enforce in code.
   reply = stripDeadEndQuestion(reply);
+  // Banter gets no clarifying-question exception: a reply that is still a
+  // question ("Why do you ask?") is conversation-fishing — suppress it and
+  // let the caller fall back to the brush-off message.
+  if (smallTalk && reply.trimEnd().endsWith('?')) return null;
   // Guard only the instructions/rules — the KNOWLEDGE section is FAQ/guide
   // text the model is SUPPOSED to repeat, so checking against the full prompt
   // would kill correct answers that quote the knowledge.
