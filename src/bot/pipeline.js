@@ -407,6 +407,25 @@ export async function handleGroupMessage(ctx) {
     return;
   }
 
+  // The escalation ack asked which service the problem is on — capture the
+  // user's next non-question message as the answer, attach it to their
+  // escalated reports and forward it to the admins. A question instead
+  // ("why do you need that?") flows through normal answering, and a repeat
+  // complaint stays in the quiet already-escalated path — the ask stays
+  // armed either way; "that fixed it" was already handled above.
+  if (st?.awaitingService && !looksLikeQuestion(text) && !isProblem) {
+    setProblemState(ctx.from.id, { awaitingService: false, at: Date.now() });
+    const info = text.slice(0, 100);
+    db.prepare('UPDATE problem_reports SET service = ? WHERE tg_user_id = ? AND escalated = 1 AND resolved = 0')
+      .run(info, ctx.from.id);
+    setLogSource(logId, 'service-info');
+    if (getSetting('reports.alertProblems')) {
+      hub.notifyAdmins(`↳ @${ctx.from?.username || ctx.from?.first_name} says the escalated problem is on: "${info}"`).catch(() => {});
+    }
+    await ctx.api.sendMessage(ctx.chat.id, '👍 Passed that along to the team.', { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
+    return;
+  }
+
   let isConfirmation = false;
   if (!alreadyEscalated) {
     if (st) {
@@ -461,9 +480,13 @@ export async function handleGroupMessage(ctx) {
     });
     setLogSource(logId, 'escalated');
     const ack = getSetting('bot.problemFlaggedNote');
-    if (ack) {
-      await ctx.api.sendMessage(ctx.chat.id, ack, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
+    // Ask which service it's on — the answer goes to the admins too.
+    const serviceQ = getSetting('bot.problemServiceQuestion');
+    const ackFull = [ack, serviceQ].filter(Boolean).join('\n');
+    if (ackFull) {
+      await ctx.api.sendMessage(ctx.chat.id, ackFull, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
     }
+    if (serviceQ) setProblemState(ctx.from.id, { awaitingService: true });
     return;
   }
 

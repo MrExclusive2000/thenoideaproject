@@ -993,3 +993,43 @@ test('which-service flow: a bare username replied to the bot is answered with co
   assert.ok(msgs.some((m) => m.role === 'system' && /IS in scope/.test(m.content)), 'reply-to-bot forced on-topic');
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
+
+test('escalation asks which service; the answer is saved and forwarded to the admin', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('reports.alertProblems', true);
+  setSetting('reports.adminTelegramIds', [777]);
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
+  aiResponse = 'Try a different link for BBC1 or restart the app.';
+
+  const first = fakeCtx('buffering on bbc one', { chatType: 'group', userId: 95001 });
+  await handleGroupMessage(first);
+  assert.equal(first.sent.length, 1, 'first report answered with fixes');
+
+  const confirm = fakeCtx('still broken after all that', { chatType: 'group', userId: 95001 });
+  await handleGroupMessage(confirm);
+  assert.equal(confirm.sent.length, 1, 'escalation ack sent');
+  assert.match(confirm.sent[0].msg, /which service is this on/i, 'ack asks for the service');
+
+  const svc = fakeCtx('Thames', { chatType: 'group', userId: 95001 });
+  await handleGroupMessage(svc);
+  assert.equal(svc.sent.length, 1);
+  assert.match(svc.sent[0].msg, /Passed that along/, 'user thanked');
+  const row = db.prepare('SELECT service FROM problem_reports WHERE tg_user_id = 95001 AND escalated = 1').get();
+  assert.equal(row.service, 'Thames', 'service stored on the report');
+  await new Promise((r) => setTimeout(r, 10));
+  assert.ok(adminDms.some((d) => /escalated problem is on: "Thames"/.test(d.text)), 'admin got the service info');
+
+  // Captured exactly once — later chatter is not swallowed as service info.
+  const later = fakeCtx('cheers mate', { chatType: 'group', userId: 95001 });
+  await handleGroupMessage(later);
+  assert.equal(later.sent.length, 0, 'no repeat capture');
+
+  hub.api = null;
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+  _resetProblemTriage();
+  _resetProblemQueue();
+});

@@ -251,6 +251,11 @@ const migrations = [
   `
   ALTER TABLE problem_reports ADD COLUMN escalated INTEGER NOT NULL DEFAULT 0;
   `,
+  // v5 — which service the escalated problem is on (the bot asks the user
+  // after escalating and stores their answer)
+  `
+  ALTER TABLE problem_reports ADD COLUMN service TEXT;
+  `,
 ];
 
 export function migrate(db) {

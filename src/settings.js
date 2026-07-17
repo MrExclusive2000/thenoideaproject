@@ -25,6 +25,9 @@ export const DEFAULTS = {
   'bot.problemFollowupNote': "Still happening after trying these? Reply here and I'll flag it straight to the team.",
   // Sent when a confirmed problem is escalated to the admins. Empty = off.
   'bot.problemFlaggedNote': "✅ Flagged to the team — they'll look into it. No need to report it again.",
+  // Asked right after the flagged note so the admin knows which system to
+  // check; the user's next reply is captured and forwarded. Empty = off.
+  'bot.problemServiceQuestion': 'One more thing for the team — which service is this on? Reply with the service name, or the username you log in with (never the password).',
   // A confirmation that arrives faster than this many minutes after the fixes
   // gets one friendly "actually try it first" pushback instead of escalating.
   // 0 = off. Exceptions: detailed confirmations, fix-negations, known outages.
