@@ -4,13 +4,13 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 16;
+const SEED_VERSION = 17;
 
 export const STARTER_FAQS = [
   {
     question: 'What is this service and what do you get?',
-    answer: "Live TV channels, movies, series and sports — streamed through our apps on Firestick, Android phones/tablets and iPhone/iPad (the Purple App as your main one, XC and Smarters as backups, Smarters Player Lite on iOS). One login works across all your apps.\nInterested, or want pricing? Ask the admin here in the group, or message me /ticket and the team will get you set up.",
-    keywords: 'service, offer, offers, about, channels, movies, series, sports, package, deal, works, price, cost, trial, includes, included',
+    answer: "Live TV channels, sports, and a full VOD library of movies and series on demand — streamed through our apps on Firestick, Android phones/tablets and iPhone/iPad (the Purple App as your main one, XC and Smarters as backups, Smarters Player Lite on iOS). One login works across all your apps, and you can request VOD titles we don't have yet.\nInterested, or want pricing? Ask the admin here in the group, or message me /ticket and the team will get you set up.",
+    keywords: 'service, offer, offers, about, channels, movies, series, sports, vod, demand, package, deal, works, price, cost, trial, includes, included',
   },
   {
     // Owns the device-less phrasings ("don't know how to install the apps");
@@ -288,6 +288,8 @@ const V11_UPDATE =
   'On a Firestick: open the Downloader app, enter code 9804805 again and install the newest version straight over the old one — your settings are kept. On Android: open https://aftv.news/9804805 in your browser again. You can also message me /version to see the latest version.';
 const V11_WHICH_APP =
   'Use the Purple App as your main app. XC and Smarters are backups — install at least one of them too. The same login works in every app, so if one ever plays up, just switch to a backup and carry on.';
+const V16_WHAT_IS =
+  "Live TV channels, movies, series and sports — streamed through our apps on Firestick, Android phones/tablets and iPhone/iPad (the Purple App as your main one, XC and Smarters as backups, Smarters Player Lite on iOS). One login works across all your apps.\nInterested, or want pricing? Ask the admin here in the group, or message me /ticket and the team will get you set up.";
 const V13_WHICH_SERVICE =
   "Easy way to tell — look at the username you log in with:\n- If it's randomly generated (a mix of letters and numbers), you're on SERVICE-NAME-1.\n- If it starts with THM, you're on SERVICE-NAME-2.\nStill not sure? Ask here and we'll check for you.";
 
@@ -312,6 +314,7 @@ function previousDefaults(question) {
   if (question === 'How do I update the app to the latest version?') out.push(V10_UPDATE, V11_UPDATE);
   if (question === 'Which app should I use — Purple, XC or Smarters?') out.push(V11_WHICH_APP);
   if (question === 'Which service am I on?') out.push(V13_WHICH_SERVICE);
+  if (question === 'What is this service and what do you get?') out.push(V16_WHAT_IS);
   return out;
 }
 
