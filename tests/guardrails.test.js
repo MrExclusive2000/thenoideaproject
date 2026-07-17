@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion } from '../src/ai/guardrails.js';
+import { cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion, stripInvitationTail } from '../src/ai/guardrails.js';
 
 test('OFFTOPIC sentinel suppresses the reply', () => {
   assert.equal(cleanReply('OFFTOPIC'), null);
@@ -79,4 +79,40 @@ test('stripDeadEndQuestion leaves a pure clarifying question untouched', () => {
   // A question mark mid-reply is fine.
   const mid = 'Seeing "invalid user"? Check the username for extra spaces and try again.';
   assert.equal(stripDeadEndQuestion(mid), mid);
+});
+
+test('trailing "feel free to ask" invitation paragraphs are stripped', () => {
+  const madMax =
+    'While I don\'t have personal preferences, many fans consider "Mad Max: Fury Road" to be the standout film in the series. It\'s often cited as one of the best action movies ever made!\n\n' +
+    'If you\'re looking for recommendations or want more information on any of the Mad Max films, feel free to ask!';
+  const out = stripInvitationTail(madMax);
+  assert.doesNotMatch(out, /feel free/i);
+  assert.match(out, /best action movies ever made!/);
+});
+
+test('single-sentence invite tails are stripped too', () => {
+  assert.equal(
+    stripInvitationTail('Try a different link for the channel. Let me know if that fixes it!'),
+    'Try a different link for the channel.'
+  );
+  assert.equal(
+    stripInvitationTail('Clear the cache and restart. Happy to help with anything else.'),
+    'Clear the cache and restart.'
+  );
+  assert.equal(
+    stripInvitationTail("Restart the router first. I'm here if you get stuck."),
+    'Restart the router first.'
+  );
+});
+
+test('legit trailing advice is NOT mistaken for an invitation', () => {
+  const advice = 'Clear the app cache. If you have a VPN, turn it off.';
+  assert.equal(stripInvitationTail(advice), advice);
+  const steps = 'Open Settings, then Applications, and clear the cache of the app.';
+  assert.equal(stripInvitationTail(steps), steps);
+});
+
+test('a reply that is ONLY an invitation is left for other guards', () => {
+  const invite = 'Feel free to ask me anything!';
+  assert.equal(stripInvitationTail(invite), invite);
 });

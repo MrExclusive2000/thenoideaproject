@@ -582,7 +582,13 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         // like pineapples" — is off-script bait that small models chat along
         // with instead of refusing. Straight to off-topic handling, no AI
         // call spent.
-        const offScript = !assumeOnTopic && !history.length && !hasScopeSignal(question);
+        // Questions about the BOT's tastes ("which is your favourite mad max
+        // film", "do you like…") are chat, not support — even though words
+        // like film/movie are real VOD vocabulary. Route them down the
+        // off-topic path in code; the model can't be trusted to refuse them.
+        const opinionBait = /\b(?:your|ur) fav(?:ourite|orite)\b|\bdo (?:you|u) (?:like|love|prefer)\b/i.test(question)
+          && !looksLikeProblem(question) && !result.nearMiss;
+        const offScript = opinionBait || (!assumeOnTopic && !history.length && !hasScopeSignal(question));
         let reply = null;
         if (!offScript) {
           await ctx.replyWithChatAction?.('typing')?.catch?.(() => {});
@@ -626,7 +632,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         // to a human — never the dismissive off-topic line. In a DM we always
         // reply; in a group we only speak up if the admin chose 'redirect'
         // (silent mode means silent), so this can't get chatty.
-        if (assumeOnTopic || isLikelyInScope(question)) {
+        if (!opinionBait && (assumeOnTopic || isLikelyInScope(question))) {
           setLogSource(logId, 'unsure');
           recordUnanswered(question, ctx, 'ai-refused', null);
           if (isDm || getSetting('bot.offtopicBehavior') === 'redirect') {

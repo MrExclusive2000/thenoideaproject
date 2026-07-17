@@ -1585,3 +1585,27 @@ test('offtopicChatMinutes 0 turns the free pass off entirely', async () => {
   setSetting('bot.offtopicChatMinutes', 30);
   setSetting('bot.offtopicBehavior', 'silent');
 });
+
+test('AI answers never end with a keep-chatting invitation', async () => {
+  aiResponse = 'Clear the app cache and restart the Firestick. If you want more information on any of the fixes, feel free to ask!';
+  const ctx = fakeCtx('my app keeps crashing on firestick', { userId: 55510 });
+  const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.equal(result, 'ai');
+  assert.match(ctx.sent[0].msg, /Clear the app cache/);
+  assert.doesNotMatch(ctx.sent[0].msg, /feel free/i, 'invitation tail stripped');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('small-talk answers get invitation tails stripped as well', async () => {
+  _resetSmallTalk();
+  setSetting('bot.offtopicBehavior', 'redirect');
+  setSetting('bot.offtopicChatMinutes', 30);
+  aiResponse = "Fury Road, easily — even I know that one. If you want more Mad Max chat, feel free to ask!";
+  const ctx = fakeCtx('which is your favourite mad max film?', { userId: 55511 });
+  const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.equal(result, 'smalltalk');
+  assert.match(ctx.sent[0].msg, /Fury Road/);
+  assert.doesNotMatch(ctx.sent[0].msg, /feel free/i);
+  setSetting('bot.offtopicBehavior', 'silent');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});

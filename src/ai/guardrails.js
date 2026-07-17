@@ -64,6 +64,31 @@ export function stripDeadEndQuestion(reply) {
   return out;
 }
 
+// Models also love closing with "feel free to ask!" / "let me know if you
+// need anything else" — invitations to keep chatting that dodge the
+// question-mark rule above by ending in "!" or ".". The bot can't follow up
+// on its own and must not fish for conversation, so trailing invitation
+// sentences are cut whenever real content precedes them.
+// Concrete invite phrases only — a generic "if you need/have..." test would
+// also kill legit trailing advice like "If you have a VPN, turn it off."
+const INVITE_RE = /\b(feel free|let me know|just ask|ask away|don'?t hesitate|happy to (help|chat|assist)|any (other |more )?questions|i'?m (always )?here (to|if|for)|here to help|reach out|hit me up|shout if)\b/i;
+
+export function stripInvitationTail(reply) {
+  let out = String(reply || '').trimEnd();
+  for (let i = 0; i < 3; i++) {
+    // Last sentence: everything after the final sentence boundary (ignoring
+    // the terminator the reply itself ends with).
+    const body = out.replace(/[.!?]+$/, '');
+    const idx = Math.max(body.lastIndexOf('. '), body.lastIndexOf('! '), body.lastIndexOf('? '), body.lastIndexOf('\n'));
+    const last = out.slice(idx + 1).trim();
+    if (!INVITE_RE.test(last)) return out;
+    const candidate = out.slice(0, idx + 1).trimEnd();
+    if (candidate.length < 25) return out; // nothing of substance would remain
+    out = candidate;
+  }
+  return out;
+}
+
 // The model must never reveal its instructions, even when a group member asks
 // it to. Suppress any reply that quotes a meaningful chunk of the prompt.
 export function leaksSystemPrompt(reply, systemPrompt) {
