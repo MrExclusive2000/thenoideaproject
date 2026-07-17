@@ -347,6 +347,64 @@ test('a question reply after a problem report continues the conversation instead
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
 
+test('"That fixed it" resolves the report instead of escalating (live bug)', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
+
+  await handleGroupMessage(fakeCtx('bbc two is lagging', { chatType: 'group', userId: 94001 }));
+
+  const fixed = fakeCtx('That fixed it', { chatType: 'group', userId: 94001 });
+  fixed.message.reply_to_message = { message_id: 500, from: { id: 999 }, text: 'To clear the app cache…' };
+  await handleGroupMessage(fixed);
+
+  assert.equal(fixed.sent.length, 1);
+  assert.match(fixed.sent[0].msg, /glad it's sorted/i, 'friendly resolution ack, not an escalation');
+  assert.doesNotMatch(fixed.sent[0].msg, /Flagged to the team/);
+  await flushProblemAlerts();
+  assert.equal(adminDms.length, 0, 'no admin DM for a resolved problem');
+  const row = db.prepare('SELECT resolved FROM problem_reports WHERE tg_user_id = 94001').get();
+  assert.equal(row.resolved, 1, 'panel report marked resolved');
+  hub.api = null;
+});
+
+test('"still not fixed" is a confirmation, not a resolution', async () => {
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
+
+  await handleGroupMessage(fakeCtx('app keeps freezing on itv', { chatType: 'group', userId: 94002 }));
+  const confirm = fakeCtx('still not fixed mate', { chatType: 'group', userId: 94002 });
+  await handleGroupMessage(confirm);
+  assert.match(confirm.sent[0].msg, /Flagged to the team/);
+  await flushProblemAlerts();
+  assert.equal(adminDms.length, 1, 'escalated to admin');
+  hub.api = null;
+});
+
+test('a fix reported after escalation closes the loop for the admin too', async () => {
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
+
+  await handleGroupMessage(fakeCtx('sky sports is buffering', { chatType: 'group', userId: 94003 }));
+  await handleGroupMessage(fakeCtx('still buffering', { chatType: 'group', userId: 94003 }));
+  await flushProblemAlerts();
+  assert.equal(adminDms.length, 1, 'escalation DM sent');
+
+  await handleGroupMessage(fakeCtx('all good now, working now cheers', { chatType: 'group', userId: 94003 }));
+  const fixedDm = adminDms.find((d) => /now fixed/i.test(d.text));
+  assert.ok(fixedDm, 'admin told the user reports it fixed');
+  hub.api = null;
+});
+
 test('3 different users reporting within 15 minutes triggers an outage alert immediately', async () => {
   setSetting('bot.cooldownSeconds', 0);
   db.prepare('DELETE FROM problem_reports').run();

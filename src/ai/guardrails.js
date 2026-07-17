@@ -16,6 +16,16 @@ export function cleanReply(raw, { maxChars = 1500 } = {}) {
 
   // Reasoning models sometimes leak <think> blocks — never send those.
   text = text.replace(/<think>[\s\S]*?(<\/think>|$)/gi, '');
+
+  // Replies go out as plain text (no parse_mode) — models ignore the
+  // "no markdown" instruction often enough that literal **asterisks** would
+  // reach the chat, so strip common markdown instead of trusting them.
+  text = text
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '');
+
   text = text.replace(/^["'\s]+|["'\s]+$/g, '').trim();
 
   if (!text) return null;

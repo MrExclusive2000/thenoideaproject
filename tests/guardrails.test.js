@@ -12,6 +12,15 @@ test('think blocks are stripped', () => {
   assert.equal(cleanReply('<think>reasoning here</think>Open settings and clear the cache.'), 'Open settings and clear the cache.');
 });
 
+test('markdown syntax is stripped so no literal asterisks reach the chat', () => {
+  assert.equal(
+    cleanReply('1. Open **Settings**.\n2. Go to **Apps** > **Application Manager**.\n3. Tap `Clear Cache`.'),
+    '1. Open Settings.\n2. Go to Apps > Application Manager.\n3. Tap Clear Cache.'
+  );
+  assert.equal(cleanReply('### Fix\n__Restart__ the app first.'), 'Fix\nRestart the app first.');
+  assert.equal(cleanReply('HD needs 2*5 Mbps roughly'), 'HD needs 2*5 Mbps roughly', 'lone asterisks untouched');
+});
+
 test('preambles are removed', () => {
   assert.equal(cleanReply('Sure! Open settings and clear the cache.'), 'Open settings and clear the cache.');
   assert.equal(cleanReply('As an AI language model I cannot do that.'), null);

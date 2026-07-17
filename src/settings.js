@@ -25,6 +25,8 @@ export const DEFAULTS = {
   'bot.problemFollowupNote': "Still happening after trying these? Reply here and I'll flag it straight to the team.",
   // Sent when a confirmed problem is escalated to the admins. Empty = off.
   'bot.problemFlaggedNote': "✅ Flagged to the team — they'll look into it. No need to report it again.",
+  // Sent when the user says the problem is fixed. Empty = off.
+  'bot.problemResolvedNote': "Great — glad it's sorted! 👍",
   'bot.welcomeEnabled': false,
   'bot.welcomeText': 'Welcome {name}! Ask me anything about the app — or type /help to see what I can do.',
   'bot.cooldownSeconds': 15,

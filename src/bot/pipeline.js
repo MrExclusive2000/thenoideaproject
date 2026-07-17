@@ -11,6 +11,7 @@ import {
 } from './helpers.js';
 import { alertAdmins } from './reports.js';
 import { queueProblemAlert } from './problems.js';
+import { hub } from './hub.js';
 
 // Per-user answer cooldowns and short DM conversation memory.
 const cooldowns = new Map();
@@ -86,6 +87,11 @@ function saysStillBroken(text) {
 // "BBC 1 22:54", "since 9pm" — the details the bot asked for.
 function hasTimeDetail(text) {
   return /\b\d{1,2}[:.]\d{2}\b|\b\d{1,2}\s?(am|pm)\b/i.test(text);
+}
+
+// "that fixed it", "working now", "all good" — the problem is over.
+function saysResolved(text) {
+  return /\b(fixed|sorted|solved|resolved|working now|works now|all good|that (worked|did it)|back to normal|no more (buffering|freezing|lagging|issues?|problems?))\b/i.test(text);
 }
 
 // Test helper: clear triage memory between scenarios.
@@ -269,6 +275,24 @@ export async function handleGroupMessage(ctx) {
   let problemSuffix = null;
   const st = getProblemState(ctx.from.id);
   const alreadyEscalated = Boolean(st?.escalatedAt && Date.now() - st.escalatedAt < PROBLEM_WINDOW_MS);
+
+  // "That fixed it" closes the report — never escalate a resolution.
+  // (saysStillBroken wins on ambiguity like "still not fixed".)
+  if (st && saysResolved(text) && !saysStillBroken(text)) {
+    problemState.delete(ctx.from.id);
+    db.prepare('UPDATE problem_reports SET resolved = 1 WHERE tg_user_id = ? AND resolved = 0 AND ts > ?')
+      .run(ctx.from.id, now() - 2 * 3600);
+    setLogSource(logId, 'resolved');
+    if (alreadyEscalated) {
+      // The admin was pinged earlier — close that loop too.
+      hub.notifyAdmins(`✅ @${ctx.from?.username || ctx.from?.first_name} says their issue is now fixed: "${text.slice(0, 120)}"`).catch(() => {});
+    }
+    const note = getSetting('bot.problemResolvedNote');
+    if (note) {
+      await ctx.api.sendMessage(ctx.chat.id, note, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
+    }
+    return;
+  }
 
   let isConfirmation = false;
   if (!alreadyEscalated) {
