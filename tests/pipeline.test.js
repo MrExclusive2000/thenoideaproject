@@ -1196,52 +1196,61 @@ test('replying "cheers mate" to problem fixes resolves — it must NOT escalate'
   _resetProblemQueue();
 });
 
-test('service URLs are per-user: each side only ever sees its own', async () => {
+test('service URLs: the bot asks WHICH SERVICE and only gives that one', async () => {
   setSetting('bot.cooldownSeconds', 0);
   setSetting('services.name1', 'Flix');
   setSetting('services.url1', 'http://flix.example:8080');
   setSetting('services.name2', 'Thames');
   setSetting('services.url2', 'http://thm.example:8080');
   setSetting('services.prefix2', 'THM');
-  const t = Math.floor(Date.now() / 1000);
-  db.prepare("INSERT INTO customers (username, password_hash, telegram_user_id, active, created_at) VALUES ('x9k2p7', 'x', 98501, 1, ?)").run(t);
-  db.prepare("INSERT INTO customers (username, password_hash, telegram_user_id, active, created_at) VALUES ('THM900', 'x', 98502, 1, ?)").run(t);
 
-  // Linked customers: resolved instantly from their own username.
-  const c1 = fakeCtx('whats the service url?', { userId: 98501 });
-  await handleDirectMessage(c1);
-  assert.match(c1.sent[0].msg, /Flix/, 'service-1 customer gets service 1');
-  assert.match(c1.sent[0].msg, /flix\.example/);
-  assert.doesNotMatch(c1.sent[0].msg, /thm\.example/, "never the other service's URL");
-
-  const c2 = fakeCtx('I need my iPhone url', { userId: 98502 });
-  await handleDirectMessage(c2);
-  assert.match(c2.sent[0].msg, /Thames/);
-  assert.match(c2.sent[0].msg, /thm\.example/);
-  assert.doesNotMatch(c2.sent[0].msg, /flix\.example/);
-
-  // Unlinked: asked for the username, then given ONLY the matching URL.
-  const u1 = fakeCtx('what url do i log in with?', { userId: 98503 });
+  // Ask → which service? → name reply → ONLY that URL.
+  const u1 = fakeCtx('whats the service url?', { userId: 98501 });
   await handleDirectMessage(u1);
-  assert.match(u1.sent[0].msg, /Reply with just the username/, 'asked first');
+  assert.match(u1.sent[0].msg, /Which service are you on — Flix or Thames\?/, 'asked for the service');
   assert.doesNotMatch(u1.sent[0].msg, /example:8080/, 'no URLs in the ask');
-  const u2 = fakeCtx('its THM4821', { userId: 98503 });
+  const u2 = fakeCtx('flix', { userId: 98501 });
   await handleDirectMessage(u2);
-  assert.match(u2.sent[0].msg, /thm\.example/, 'prefix rule applied to the reply');
-  assert.doesNotMatch(u2.sent[0].msg, /flix\.example/);
+  assert.match(u2.sent[0].msg, /flix\.example/);
+  assert.doesNotMatch(u2.sent[0].msg, /thm\.example/, "never the other service's URL");
 
-  // Group flow works too, and the AI never has the URLs in its prompt.
+  // Other service by name; a THM username also works as the answer.
+  const v1 = fakeCtx('I need my iPhone url', { userId: 98502 });
+  await handleDirectMessage(v1);
+  assert.match(v1.sent[0].msg, /Which service are you on/);
+  const v2 = fakeCtx('im on thames', { userId: 98502 });
+  await handleDirectMessage(v2);
+  assert.match(v2.sent[0].msg, /thm\.example/);
+  assert.doesNotMatch(v2.sent[0].msg, /flix\.example/);
+
+  const w1 = fakeCtx('what url do i log in with?', { userId: 98503 });
+  await handleDirectMessage(w1);
+  const w2 = fakeCtx('THM4821', { userId: 98503 });
+  await handleDirectMessage(w2);
+  assert.match(w2.sent[0].msg, /thm\.example/, 'prefixed username answers the service question too');
+
+  // Unrecognised answer → one re-ask, then a graceful hand-off.
+  const x1 = fakeCtx('need the url', { userId: 98504 });
+  await handleDirectMessage(x1);
+  const x2 = fakeCtx('banana', { userId: 98504 });
+  await handleDirectMessage(x2);
+  assert.match(x2.sent[0].msg, /didn't catch that/, 're-asked once');
+  const x3 = fakeCtx('banana again', { userId: 98504 });
+  await handleDirectMessage(x3);
+  assert.match(x3.sent[0].msg, /admin will share/, 'gives up gracefully');
+  assert.doesNotMatch(x3.sent[0].msg, /example:8080/, 'no URL guessed');
+
+  // Group flow works the same way.
   db.prepare('INSERT OR REPLACE INTO allowed_chats (chat_id, title, enabled, added_at) VALUES (-100123, ?, 1, 0)').run('Test Group');
-  const g1 = fakeCtx('whats the service url', { chatType: 'group', userId: 98504 });
+  const g1 = fakeCtx('whats the service url', { chatType: 'group', userId: 98505 });
   await handleGroupMessage(g1);
-  assert.match(g1.sent[0].msg, /Reply with just the username/);
-  const g2 = fakeCtx('x7b2n9', { chatType: 'group', userId: 98504 });
+  assert.match(g1.sent[0].msg, /Which service are you on/);
+  const g2 = fakeCtx('flix mate', { chatType: 'group', userId: 98505 });
   await handleGroupMessage(g2);
-  assert.match(g2.sent[0].msg, /flix\.example/, 'random username → service 1');
+  assert.match(g2.sent[0].msg, /flix\.example/, 'name reply resolves in the group');
 
   setSetting('services.url1', '');
   setSetting('services.url2', '');
-  db.prepare('DELETE FROM customers WHERE telegram_user_id IN (98501, 98502)').run();
 });
 
 test('with no URLs configured, URL questions fall through to normal answering', async () => {

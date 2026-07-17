@@ -7,7 +7,7 @@ import { containsBannedWord } from '../ai/guardrails.js';
 import { state } from '../state.js';
 import {
   sendChunked, logMessage, setLogSource, recordUnanswered, chatAllowed,
-  isLikelyInScope, hasScopeSignal, recordProblem, extractProblemTopic, isAdminUser, linkedCustomer,
+  isLikelyInScope, hasScopeSignal, recordProblem, extractProblemTopic, isAdminUser,
 } from './helpers.js';
 import { alertAdmins } from './reports.js';
 import { queueProblemAlert, setProblemRearmHook, maybeAutoDegrade } from './problems.js';
@@ -56,10 +56,10 @@ function feedbackKeyboard() {
 // ---- Per-user service URLs --------------------------------------------------
 // A user must only ever receive the URL for THEIR service. The URLs live in
 // settings — deliberately outside the AI knowledge, so the model cannot hand
-// out the wrong one. Flow: linked customer → resolve from their username;
-// unknown → ask for the username and match the reply against the prefix rule.
+// out the wrong one. Flow: ask WHICH SERVICE they're on, then send that
+// service's URL and nothing else.
 const URL_TTL_MS = 10 * 60 * 1000;
-const pendingUrl = new Map(); // chatId:userId -> asked-at
+const pendingUrl = new Map(); // chatId:userId -> { at, attempts }
 
 function serviceConfig() {
   return {
@@ -73,66 +73,78 @@ export function isUrlRequest(text) {
   return /\burls?\b|\bdns\b|\b(server|service|login|host)\s+address\b/i.test(text);
 }
 
-function serviceForUsername(username) {
-  const s = serviceConfig();
-  const isTwo = s.prefix && String(username).trim().toUpperCase().startsWith(s.prefix.toUpperCase());
-  return isTwo ? s.two : s.one;
-}
-
 function urlReplyText(svc) {
   const label = svc.name ? `You're on ${svc.name} — your` : 'Your';
   return `🔗 ${label} service URL is:\n${svc.url}\nEnter it exactly as written, together with your usual username and password.`;
+}
+
+function urlAskText() {
+  const s = serviceConfig();
+  return s.one.name && s.two.name
+    ? `Which service are you on — ${s.one.name} or ${s.two.name}? Reply with the name and I'll send you the right URL. (Not sure? Ask me "which service am I on")`
+    : "Which service are you on? Reply with the name and I'll send you the right URL. (Not sure? Ask me \"which service am I on\")";
+}
+
+// Match the reply to a service: by name, by "1"/"2", or — since people paste
+// them anyway — by a prefixed username (THM… → service 2).
+function serviceFromReply(text) {
+  const s = serviceConfig();
+  const low = String(text).toLowerCase();
+  const hit1 = Boolean(s.one.name) && low.includes(s.one.name.toLowerCase());
+  const hit2 = Boolean(s.two.name) && low.includes(s.two.name.toLowerCase());
+  if (hit1 && !hit2) return s.one;
+  if (hit2 && !hit1) return s.two;
+  if (/\b(one|1)\b/.test(low) && !/\b(two|2)\b/.test(low)) return s.one;
+  if (/\b(two|2)\b/.test(low) && !/\b(one|1)\b/.test(low)) return s.two;
+  const cand = plainWords(text).sort((a, b) => b.length - a.length)[0] || '';
+  if (s.prefix && cand.length >= s.prefix.length + 2 && cand.toUpperCase().startsWith(s.prefix.toUpperCase())) return s.two;
+  return null;
 }
 
 // Returns true when the message was handled as a URL request.
 async function handleUrlRequest(ctx, logId, replyParams) {
   const s = serviceConfig();
   if (!s.one.url && !s.two.url) return false; // not configured — normal flow
-
-  const cust = linkedCustomer(ctx.from.id);
-  if (cust?.username) {
-    const svc = serviceForUsername(cust.username);
-    if (svc.url) {
-      setLogSource(logId, 'service-url');
-      await ctx.api.sendMessage(ctx.chat.id, urlReplyText(svc), replyParams).catch(() => {});
-      return true;
-    }
-  }
-  pendingUrl.set(`${ctx.chat.id}:${ctx.from.id}`, Date.now());
+  pendingUrl.set(`${ctx.chat.id}:${ctx.from.id}`, { at: Date.now(), attempts: 0 });
   if (pendingUrl.size > 500) {
     pendingUrl.delete(pendingUrl.keys().next().value);
   }
   setLogSource(logId, 'service-url');
-  await ctx.api.sendMessage(
-    ctx.chat.id,
-    "I'll give you the URL for YOUR account 👍 Reply with just the username you log in with (never your password!).",
-    replyParams
-  ).catch(() => {});
+  await ctx.api.sendMessage(ctx.chat.id, urlAskText(), replyParams).catch(() => {});
   return true;
 }
 
-// The username answer to the ask above. Returns true when handled.
-async function handleUrlUsernameReply(ctx, text, logId, replyParams) {
+// The which-service answer to the ask above. Returns true when handled.
+async function handleUrlServiceReply(ctx, text, logId, replyParams) {
   const key = `${ctx.chat.id}:${ctx.from.id}`;
-  const at = pendingUrl.get(key);
-  if (!at) return false;
-  if (looksLikeQuestion(text)) {
-    // They asked something else instead — let normal answering take it and
-    // drop the pending ask.
+  const st = pendingUrl.get(key);
+  if (!st) return false;
+  if (Date.now() - st.at >= URL_TTL_MS) {
     pendingUrl.delete(key);
     return false;
   }
-  pendingUrl.delete(key);
-  if (Date.now() - at >= URL_TTL_MS) return false;
-  // The username is the longest word in the reply ("its THM4821" → THM4821).
-  const cand = plainWords(text).sort((a, b) => b.length - a.length)[0] || '';
-  const svc = serviceForUsername(cand);
+  if (looksLikeQuestion(text)) {
+    // They asked something else ("which service am I on?") — normal
+    // answering takes it; the URL ask is dropped, they can ask again.
+    pendingUrl.delete(key);
+    return false;
+  }
+  const svc = serviceFromReply(text);
+  const send = (msg) => ctx.api.sendMessage(ctx.chat.id, msg, replyParams).catch(() => {});
   setLogSource(logId, 'service-url');
-  await ctx.api.sendMessage(
-    ctx.chat.id,
-    svc.url ? urlReplyText(svc) : 'The admin will share that one with you here 👍',
-    replyParams
-  ).catch(() => {});
+  if (svc && svc.url) {
+    pendingUrl.delete(key);
+    await send(urlReplyText(svc));
+  } else if (svc) {
+    pendingUrl.delete(key);
+    await send('The admin will share that one with you here 👍');
+  } else if (st.attempts < 1) {
+    st.attempts++;
+    await send(`Sorry, didn't catch that — ${urlAskText()}`);
+  } else {
+    pendingUrl.delete(key);
+    await send('No worries — the admin will share the right URL with you here 👍');
+  }
   return true;
 }
 
@@ -484,7 +496,7 @@ export async function handleGroupMessage(ctx) {
   // 'url' keyword and must not swallow these). Asking requires question form
   // or clear intent so group banter containing "url" doesn't trigger it.
   const groupReplyParams = { reply_parameters: { message_id: ctx.message.message_id } };
-  if (await handleUrlUsernameReply(ctx, text, logId, groupReplyParams)) return;
+  if (await handleUrlServiceReply(ctx, text, logId, groupReplyParams)) return;
   if (
     isUrlRequest(question) &&
     (mentioned || looksLikeQuestion(text) || /\b(need|want|give|send)\b/i.test(text)) &&
@@ -757,7 +769,7 @@ export async function handleDirectMessage(ctx) {
 
   // Per-user service URL flow: answer a pending username reply, or start the
   // flow when they ask for a URL — only ever THEIR service's URL.
-  if (await handleUrlUsernameReply(ctx, text, logId, {})) return;
+  if (await handleUrlServiceReply(ctx, text, logId, {})) return;
   if (isUrlRequest(text) && await handleUrlRequest(ctx, logId, {})) return;
 
   // A wave back beats the topic police: greetings and thanks get warm canned
