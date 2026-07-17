@@ -1388,3 +1388,28 @@ test('a second request or a problem report while the service ask is pending is N
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
   _resetProblemTriage();
 });
+
+test('natural "can we get X" is captured as a VOD request; service asks are not', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('services.name1', '');
+  setSetting('services.name2', '');
+  db.prepare('DELETE FROM vod_requests').run();
+  db.prepare('INSERT OR REPLACE INTO allowed_chats (chat_id, title, enabled, added_at) VALUES (-100123, ?, 1, 0)').run('Test Group');
+  lastAiRequest = null;
+
+  const ctx = fakeCtx('can we get The Batman?', { chatType: 'group', userId: 99001 });
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 1, 'acked');
+  assert.match(ctx.sent[0].msg, /The Batman/);
+  assert.equal(lastAiRequest, null, 'no AI call');
+  assert.ok(db.prepare("SELECT 1 FROM vod_requests WHERE title = 'The Batman'").get(), 'saved');
+
+  // "can i get this on my ipad" must stay an install question (iOS FAQ path),
+  // never a VOD row.
+  db.prepare(`INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at)
+              VALUES ('How do I install the app on an iPhone or iPad (iOS)?', 'Use Smarters Player Lite from the App Store.', 'ios, iphone, ipad, apple, store, lite, install, app, apps', 1, 0, 0, 0)`).run();
+  const ctx2 = fakeCtx('can i get this on my ipad?', { chatType: 'group', userId: 99002 });
+  await handleGroupMessage(ctx2);
+  assert.match(ctx2.sent[0].msg, /Smarters Player Lite/, 'answered as install question');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM vod_requests').get().n, 1, 'no bogus VOD row');
+});

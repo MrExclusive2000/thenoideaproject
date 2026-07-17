@@ -92,3 +92,24 @@ test('notifyRequestAdded falls back to a DM when the group send fails', async ()
   assert.equal(ok, true);
   assert.equal(sent[0].id, 602, 'DM fallback');
 });
+
+test('parseNaturalVodRequest captures "can we get X" but never service asks', async () => {
+  const { parseNaturalVodRequest } = await import('../src/bot/requests.js');
+  // Captured.
+  assert.equal(parseNaturalVodRequest('can we get The Batman'), 'The Batman');
+  assert.equal(parseNaturalVodRequest('Can you add Dune Part Two (2024)'), 'Dune Part Two (2024)');
+  assert.equal(parseNaturalVodRequest('any chance of adding Oppenheimer?'), 'Oppenheimer');
+  assert.equal(parseNaturalVodRequest('please add severance season 3'), 'severance season 3');
+  assert.equal(parseNaturalVodRequest('can we get the batman please?'), 'the batman');
+  assert.equal(parseNaturalVodRequest('could u put on maze runner'), 'maze runner');
+  // NOT captured — service/support asks and pronouns.
+  for (const q of [
+    'can we get the service url', 'can i get this on my ipad?', 'can we get a refund',
+    'can you add my mate to the group', 'can we get an invite', 'could you get it working',
+    'can i get a trial', 'can we get the app updated', 'can i get my login',
+    'can you get me sorted', 'can we get more screens', 'can i get the pin',
+    'how do i request a movie', 'i want to watch the batman',
+  ]) {
+    assert.equal(parseNaturalVodRequest(q), null, `should NOT capture: "${q}"`);
+  }
+});

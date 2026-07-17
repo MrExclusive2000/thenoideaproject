@@ -11,8 +11,11 @@ import {
 } from './helpers.js';
 import { alertAdmins } from './reports.js';
 import { queueProblemAlert, setProblemRearmHook, maybeAutoDegrade } from './problems.js';
-import { parseVodRequest, recordVodRequest, setRequestService } from './requests.js';
+import { parseVodRequest, parseNaturalVodRequest, recordVodRequest, setRequestService } from './requests.js';
 import { hub } from './hub.js';
+
+// Both request shapes: the taught "Request: Title" and natural "can we get X".
+const anyVodRequest = (t) => parseVodRequest(t) || parseNaturalVodRequest(t);
 
 // Per-user answer cooldowns and short DM conversation memory.
 const cooldowns = new Map();
@@ -124,7 +127,7 @@ async function handleUrlServiceReply(ctx, text, logId, replyParams) {
     pendingUrl.delete(key);
     return false;
   }
-  if (looksLikeQuestion(text) || parseVodRequest(text) || looksLikeProblem(text) || looksLikeGreeting(text) || looksLikeThanks(text)) {
+  if (looksLikeQuestion(text) || anyVodRequest(text) || looksLikeProblem(text) || looksLikeGreeting(text) || looksLikeThanks(text)) {
     // They moved on — a question ("which service am I on?"), a VOD request,
     // a problem report, a greeting. Normal answering takes it; the URL ask
     // is dropped, they can ask again.
@@ -206,7 +209,7 @@ async function handleVodServiceReply(ctx, text, logId, replyParams) {
   // and let the normal flow take the message. A NEW "Request: ..." must be
   // captured (it re-arms its own ask), a problem report belongs to triage,
   // greetings/thanks to their canned replies.
-  if (looksLikeQuestion(text) || parseVodRequest(text) || looksLikeProblem(text) || looksLikeGreeting(text) || looksLikeThanks(text)) {
+  if (looksLikeQuestion(text) || anyVodRequest(text) || looksLikeProblem(text) || looksLikeGreeting(text) || looksLikeThanks(text)) {
     pendingVodService.delete(key);
     return false;
   }
@@ -588,7 +591,7 @@ export async function handleGroupMessage(ctx) {
   // Capture it: save for the panel, ack the requester (asking which service
   // it's for when two are configured), DM the admins.
   {
-    const vodTitle = parseVodRequest(text);
+    const vodTitle = anyVodRequest(text);
     if (vodTitle) {
       setLogSource(logId, 'vod-request');
       await ctx.api.sendMessage(ctx.chat.id, captureVodRequest(ctx, vodTitle), groupReplyParams).catch(() => {});
@@ -876,7 +879,7 @@ export async function handleDirectMessage(ctx) {
 
   // "Request: Title (Year)" works in DMs too.
   {
-    const vodTitle = parseVodRequest(text);
+    const vodTitle = anyVodRequest(text);
     if (vodTitle) {
       setLogSource(logId, 'vod-request');
       await ctx.reply(captureVodRequest(ctx, vodTitle)).catch(() => {});

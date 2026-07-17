@@ -20,6 +20,27 @@ export function parseVodRequest(text) {
   return title;
 }
 
+// Natural-language requests: "can we get The Batman", "can you add Dune 2",
+// "any chance of adding Oppenheimer", "please add severance season 3".
+const NATURAL_REQ = /^\s*(?:please |pls |plz )?(?:any chance (?:of |we can |you can )?(?:getting |adding |putting (?:on |up )?)?|(?:can|could|cud) (?:we|you|u|i) (?:get|add|have|put on|put up|upload) |(?:please|pls|plz) add )\s*(.{2,100}?)[\s?!.]*$/i;
+
+// Words that mean a "can we get ..." is about the SERVICE, not a title —
+// URLs, logins, devices, refunds. These flow to the normal FAQ/AI handling.
+const NOT_VOD_TOPIC = /\b(urls?|codes?|links?|login|logins|password|passwords|account|accounts|sub|subs|subscription|trial|refund|refunds|discount|invite|invites|invited|help|support|admin|app|apps|apk|update|updates|updated|guide|guides|service|services|multiroom|multi ?room|stream|streams|connection|connections|screen|screens|firestick|fire stick|iphone|ipad|ios|android|phone|tablet|tv|telly|samsung|lg|box|device|devices|working|fixed|sorted|access|pin)\b/i;
+
+export function parseNaturalVodRequest(text) {
+  if (/\n/.test(String(text))) return null; // single-line asks only
+  const m = String(text).match(NATURAL_REQ);
+  if (!m) return null;
+  let title = m[1].trim().replace(/\s+/g, ' ').replace(/\s*\b(please|pls|plz|thanks|thank you|ta|mate|m8)$/i, '').trim();
+  if (title.length < 2 || title.length > 100) return null;
+  // "can we get this sorted" / "can you add me" — pronouns, not titles.
+  if (/^(it|this|that|them|these|those|me|us|my|your|our|in|on|at|to|back|going|him|her)\b/i.test(title)) return null;
+  if (NOT_A_TITLE.test(title)) return null;
+  if (NOT_VOD_TOPIC.test(title)) return null;
+  return title;
+}
+
 const normTitle = (t) => String(t).toLowerCase().replace(/[^a-z0-9]/g, '');
 
 // Returns { ack, requestId, deduped } — ack is always sendable text.
