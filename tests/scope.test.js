@@ -30,6 +30,7 @@ test('device-setup and app questions are in scope', () => {
     'what is this service',
     'how much does it cost',
     'can i get a trial',
+    'will ufc be on tonight',
   ]) {
     assert.ok(isLikelyInScope(q), `should be in scope: ${q}`);
   }

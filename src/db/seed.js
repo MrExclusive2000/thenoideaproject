@@ -4,7 +4,7 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 19;
+const SEED_VERSION = 20;
 
 export const STARTER_FAQS = [
   {
@@ -86,9 +86,14 @@ export const STARTER_FAQS = [
     keywords: 'language, languages, audio, track, tracks, dubbed, dub, subtitles, subs, spanish, french, german, italian, arabic, hindi, english, foreign, movie, film, episode, copy, only',
   },
   {
+    question: 'Where can I watch live sports and events (UFC, boxing, PPV, football)?',
+    answer: "Big live events are shown on the sports and PPV channels in Live TV — they usually go live shortly before the event starts, so check around fight or kickoff time. The sports guide in the customer panel shows what's on and where.\nMissed it? Big events usually land in VOD shortly after — check the VOD section, and if it's not there send a request: post \"Request: <event name>\" here or message me /ticket.",
+    keywords: 'ufc, boxing, fight, ppv, sports, sport, football, match, event, events, live, tonight, watch, channel, vod',
+  },
+  {
     question: 'How do I request a movie, series or VOD?',
-    answer: 'Send the exact title and year (for series: which season), e.g. "Request: Inception (2010)". Post it in the group or open a ticket with me in a private chat (/ticket). Requests are added in batches — give it a little time and check the VOD section again. There are also VOD recommendations in the customer panel.',
-    keywords: 'vod, request, movie, movies, film, series, show, season, episode, add, missing',
+    answer: 'Send the exact title and year (for series: which season), e.g. "Request: Inception (2010)". Post it in the group or open a ticket with me in a private chat (/ticket). Requests are added in batches — give it a little time and check the VOD section again.\nWondering if something WILL be on VOD (a new film, last night\'s event)? Check the VOD section first — new titles and event replays are added regularly — and if it\'s not there, request it the same way. There are also VOD recommendations in the customer panel.',
+    keywords: 'vod, request, movie, movies, film, series, show, season, episode, add, missing, available, replay, replays',
   },
   {
     question: "A channel or stream isn't working — what do I do?",
@@ -293,6 +298,8 @@ const V11_UPDATE =
   'On a Firestick: open the Downloader app, enter code 9804805 again and install the newest version straight over the old one — your settings are kept. On Android: open https://aftv.news/9804805 in your browser again. You can also message me /version to see the latest version.';
 const V11_WHICH_APP =
   'Use the Purple App as your main app. XC and Smarters are backups — install at least one of them too. The same login works in every app, so if one ever plays up, just switch to a backup and carry on.';
+const V19_VOD_REQUEST =
+  'Send the exact title and year (for series: which season), e.g. "Request: Inception (2010)". Post it in the group or open a ticket with me in a private chat (/ticket). Requests are added in batches — give it a little time and check the VOD section again. There are also VOD recommendations in the customer panel.';
 const V18_FIRESTICK_BUY =
   "Any current Firestick runs our apps. Quick guide:\n- Best value: Fire TV Stick 4K — smooth, handles 4K streams, usually the sweet spot on price.\n- Fastest: Fire TV Stick 4K Max — worth it if you want the snappiest menus.\n- Budget: the basic Fire TV Stick or Lite is fine for HD viewing.\nAvoid very old sticks (2016 and earlier) — they struggle with modern apps. Whichever you get, setup takes two minutes: ask me how to install and I'll walk you through it.";
 const V16_WHAT_IS =
@@ -323,6 +330,7 @@ function previousDefaults(question) {
   if (question === 'Which service am I on?') out.push(V13_WHICH_SERVICE);
   if (question === 'What is this service and what do you get?') out.push(V16_WHAT_IS);
   if (question === 'Which Firestick is best / which one should I buy?') out.push(V18_FIRESTICK_BUY);
+  if (question === 'How do I request a movie, series or VOD?') out.push(V19_VOD_REQUEST);
   return out;
 }
 

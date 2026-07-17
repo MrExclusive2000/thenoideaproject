@@ -132,7 +132,7 @@ const STRONG_SCOPE_TERMS = new Set([
   'login', 'password', 'username', 'invalid', 'subscription', 'renew', 'renewal', 'expiry', 'expired',
   'pay', 'payment', 'paying', 'crypto', 'litecoin', 'ltc', 'wallet', 'exodus',
   'vpn', 'router', 'ethernet', 'panel', 'portal', 'developer', 'url',
-  'service', 'price', 'prices', 'cost', 'costs', 'trial',
+  'service', 'price', 'prices', 'cost', 'costs', 'trial', 'ufc', 'ppv',
 ]);
 
 export function isLikelyInScope(text) {
