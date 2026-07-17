@@ -1,6 +1,6 @@
 import { db, now } from '../db/db.js';
 import { getSetting } from '../settings.js';
-import { tokens } from '../faq/matcher.js';
+import { tokens, tokensMatch } from '../faq/matcher.js';
 
 export const TG_MAX = 4096;
 
@@ -142,6 +142,21 @@ export function isLikelyInScope(text) {
     if (STRONG_SCOPE_TERMS.has(t)) return true;
     if (vocab.has(t)) hits++;
     if (hits >= 2) return true;
+  }
+  return false;
+}
+
+// Loosest possible scope check: does the message contain even ONE piece of
+// support vocabulary? Fuzzy, so "signed" counts via the "sign" keyword and
+// typos still land. Used to decide whether the AI should see a message at
+// all — a message with zero vocabulary, no problem signal and no
+// conversation context gives the model nothing on-topic to work with.
+export function hasScopeSignal(text) {
+  const vocab = scopeVocab();
+  const toks = new Set(tokens(text));
+  for (const t of toks) if (vocab.has(t)) return true;
+  for (const t of toks) {
+    for (const v of vocab) if (tokensMatch(t, v)) return true;
   }
   return false;
 }

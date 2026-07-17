@@ -1055,7 +1055,7 @@ test('a bare DM fragment mid-conversation still reaches the AI', async () => {
   setSetting('bot.cooldownSeconds', 0);
   // First exchange: the model asks its one clarifying question (DM history saved).
   aiResponse = 'Which service are you on — reply with your username?';
-  const ctx = fakeCtx('which one am i signed up to?', { userId: 5252 });
+  const ctx = fakeCtx('which service am i signed up to?', { userId: 5252 });
   await answer(ctx, ctx.message.text, { isDm: true, logId: null });
 
   // The bare username answer must go to the AI with the conversation attached.
@@ -1093,4 +1093,23 @@ test('cooldown drops are logged; admins are never rate-limited', async () => {
   assert.equal(a2.sent.length, 1, 'admin rapid follow-up answered too');
 
   setSetting('bot.cooldownSeconds', 0);
+});
+
+test('chatty off-topic questions never reach the AI either', async () => {
+  setSetting('bot.offtopicBehavior', 'redirect');
+  setSetting('bot.offtopicMessage', 'App questions only please.');
+  lastAiRequest = null;
+  const ctx = fakeCtx('Do you like pineapples', { userId: 5353 });
+  const result = await answer(ctx, 'Do you like pineapples', { isDm: true, logId: null });
+  assert.equal(result, 'offtopic');
+  assert.equal(lastAiRequest, null, 'no AI call — nothing to anchor the question');
+  assert.equal(ctx.sent[0].msg, 'App questions only please.');
+
+  // A support question with only FUZZY vocabulary still reaches the AI.
+  lastAiRequest = null;
+  const ctx2 = fakeCtx('why does it keep bufferring so much on my box?', { userId: 5354 });
+  const result2 = await answer(ctx2, ctx2.message.text, { isDm: true, logId: null });
+  assert.equal(result2, 'ai', 'typo vocabulary still counts as a scope signal');
+  assert.ok(lastAiRequest, 'AI consulted');
+  setSetting('bot.offtopicBehavior', 'silent');
 });

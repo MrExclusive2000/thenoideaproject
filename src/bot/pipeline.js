@@ -7,7 +7,7 @@ import { containsBannedWord } from '../ai/guardrails.js';
 import { state } from '../state.js';
 import {
   sendChunked, logMessage, setLogSource, recordUnanswered, chatAllowed,
-  isLikelyInScope, recordProblem, extractProblemTopic, isAdminUser,
+  isLikelyInScope, hasScopeSignal, recordProblem, extractProblemTopic, isAdminUser,
 } from './helpers.js';
 import { alertAdmins } from './reports.js';
 import { queueProblemAlert, setProblemRearmHook, maybeAutoDegrade } from './problems.js';
@@ -229,16 +229,15 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         // means we already KNOW this is on-topic — stop the model bailing to
         // OFFTOPIC on legit questions (e.g. "how do I enable developer options").
         const assumeOnTopic = forceOnTopic || looksLikeProblem(question) || Boolean(result.nearMiss) || isLikelyInScope(question);
-        // A bare fragment with no support vocabulary, no question form and no
-        // conversation to give it meaning ("Sausage") only baits the model
-        // into off-script chat — go straight to the off-topic handling
-        // without spending an AI call. Mid-conversation fragments (answers
-        // to a clarifying question) still go through: they have history.
-        const bareFragment =
-          !assumeOnTopic && !looksLikeQuestion(question) && !history.length &&
-          question.trim().split(/\s+/).length <= 3;
+        // The AI only sees messages with SOMETHING to anchor them: a scope
+        // signal (one fuzzy vocabulary hit is enough), a problem/near-miss,
+        // or an ongoing conversation. Anything else — "Sausage", "do you
+        // like pineapples" — is off-script bait that small models chat along
+        // with instead of refusing. Straight to off-topic handling, no AI
+        // call spent.
+        const offScript = !assumeOnTopic && !history.length && !hasScopeSignal(question);
         let reply = null;
-        if (!bareFragment) {
+        if (!offScript) {
           await ctx.replyWithChatAction?.('typing')?.catch?.(() => {});
           reply = await askAi(question, { history, assumeOnTopic });
         }
