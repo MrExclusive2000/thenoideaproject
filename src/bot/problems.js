@@ -59,6 +59,40 @@ export function _resetProblemQueue() {
   }
 }
 
+// ---- Admin resolve → tell the reporter -------------------------------------
+// When the admin presses Resolve in the panel, close the loop with the user:
+// tag them in the group the report came from (an HTML tg://user mention, so
+// it pings even members without an @username), falling back to a DM if the
+// group send fails. Template configurable; empty = resolve silently.
+
+const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+export async function notifyResolved(report) {
+  const template = String(getSetting('bot.problemResolvedByAdminMessage') || '').trim();
+  if (!template || !hub.online || !report?.tg_user_id) return false;
+
+  const mention = `<a href="tg://user?id=${report.tg_user_id}">${escHtml(report.tg_user || 'there')}</a>`;
+  const body = escHtml(template)
+    .replace(/\{name\}/g, mention)
+    .replace(/\{topic\}/g, escHtml(report.topic || 'reported'))
+    .replace(/\s+,/g, ',')
+    .replace(/ {2,}/g, ' ')
+    .trim();
+
+  const targets = [report.chat_id, report.tg_user_id].filter(Boolean);
+  for (const target of targets) {
+    try {
+      await hub.send(target, body, { parse_mode: 'HTML' });
+      // A late "no, still broken" from them should escalate directly.
+      rearmHook?.(report.tg_user_id);
+      return true;
+    } catch {
+      // try the next target (group first, then DM)
+    }
+  }
+  return false;
+}
+
 // ---- Automatic degradation -------------------------------------------------
 // Several DIFFERENT people reporting service-wide symptoms (buffering,
 // streams not loading, login failures) inside a short window almost always

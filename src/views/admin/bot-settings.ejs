@@ -71,6 +71,10 @@
     <label for="problemServiceQuestion">Ask which service the escalated problem is on (empty = off)</label>
     <input id="problemServiceQuestion" name="problemServiceQuestion" type="text" maxlength="500" value="<%= s.problemServiceQuestion %>">
     <p class="hint">Sent together with the flagged note. The user's next reply is saved on the report and forwarded to you by DM.</p>
+
+    <label for="problemResolvedByAdminMessage">Tell the reporter when YOU resolve their report in the panel (empty = resolve silently)</label>
+    <input id="problemResolvedByAdminMessage" name="problemResolvedByAdminMessage" type="text" maxlength="500" value="<%= s.problemResolvedByAdminMessage %>">
+    <p class="hint">Placeholders: {name} tags the reporter, {topic} is the detected symptom. Sent in the group the report came from, with a DM fallback.</p>
     <label for="problemResolvedNote">Reply when they say it's fixed ("that fixed it", "working now") (empty = off)</label>
     <input id="problemResolvedNote" name="problemResolvedNote" type="text" maxlength="500" value="<%= s.problemResolvedNote %>">
     <label for="problemNudgeMinutes">"Actually try it first" pushback: nudge instead of escalating when they confirm within this many minutes (0 = off)</label>

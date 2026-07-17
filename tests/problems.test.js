@@ -9,7 +9,7 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-problems-'))
 const { db } = await import('../src/db/db.js');
 const { setSetting } = await import('../src/settings.js');
 const { recordProblem } = await import('../src/bot/helpers.js');
-const { queueProblemAlert, flushProblemAlerts, _resetProblemQueue, maybeAutoDegrade, degradeRecoverySweep } = await import('../src/bot/problems.js');
+const { queueProblemAlert, flushProblemAlerts, _resetProblemQueue, maybeAutoDegrade, degradeRecoverySweep, notifyResolved } = await import('../src/bot/problems.js');
 const { getSetting } = await import('../src/settings.js');
 const { hub } = await import('../src/bot/hub.js');
 
@@ -174,4 +174,44 @@ test('auto-degradation recovers by itself once reports stop', async () => {
   hub.api = null;
   setSetting('service.status', 'operational');
   setSetting('service.note', '');
+});
+
+test('notifyResolved tags the reporter in the group with the filled template', async () => {
+  const sent = [];
+  hub.api = { sendMessage: async (chatId, text, extra) => { sent.push({ chatId, text, extra }); return { message_id: 1 }; } };
+  const ok = await notifyResolved({
+    id: 1, chat_id: -100999, tg_user_id: 4242, tg_user: 'doctor', topic: 'buffering', resolved: 0,
+  });
+  assert.equal(ok, true);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].chatId, -100999, 'sent to the group the report came from');
+  assert.match(sent[0].text, /tg:\/\/user\?id=4242/, 'real mention that pings without an @username');
+  assert.match(sent[0].text, /doctor/);
+  assert.match(sent[0].text, /buffering issue/, '{topic} filled in');
+  assert.equal(sent[0].extra.parse_mode, 'HTML');
+  hub.api = null;
+});
+
+test('notifyResolved falls back to a DM when the group send fails', async () => {
+  const sent = [];
+  hub.api = {
+    sendMessage: async (chatId, text) => {
+      if (chatId === -100999) throw new Error('bot was removed from the group');
+      sent.push({ chatId, text });
+      return { message_id: 1 };
+    },
+  };
+  const ok = await notifyResolved({ id: 2, chat_id: -100999, tg_user_id: 4243, tg_user: 'doc2', topic: null });
+  assert.equal(ok, true);
+  assert.equal(sent[0].chatId, 4243, 'DM fallback used');
+  hub.api = null;
+});
+
+test('notifyResolved is silent when the template is empty or the bot is offline', async () => {
+  setSetting('bot.problemResolvedByAdminMessage', '');
+  hub.api = { sendMessage: async () => { throw new Error('must not be called'); } };
+  assert.equal(await notifyResolved({ id: 3, chat_id: -1, tg_user_id: 1, tg_user: 'x' }), false);
+  setSetting('bot.problemResolvedByAdminMessage', '✅ {name} — fixed, try again.');
+  hub.api = null;
+  assert.equal(await notifyResolved({ id: 3, chat_id: -1, tg_user_id: 1, tg_user: 'x' }), false);
 });

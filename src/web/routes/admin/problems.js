@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { db, now } from '../../../db/db.js';
 import { audit, formatDate } from '../../../util.js';
 import { flash } from '../../middleware.js';
+import { notifyResolved } from '../../../bot/problems.js';
 
 export const problemsRouter = Router();
 
@@ -21,8 +22,18 @@ problemsRouter.get('/problems', (req, res) => {
   res.render('admin/problems', { title: 'Problem reports', reports, hot, show, formatDate });
 });
 
-problemsRouter.post('/problems/:id/resolve', (req, res) => {
-  db.prepare('UPDATE problem_reports SET resolved = 1 WHERE id = ?').run(req.params.id);
+problemsRouter.post('/problems/:id/resolve', async (req, res) => {
+  const r = db.prepare('SELECT * FROM problem_reports WHERE id = ?').get(req.params.id);
+  if (!r || r.resolved) {
+    res.redirect('/admin/problems');
+    return;
+  }
+  db.prepare('UPDATE problem_reports SET resolved = 1 WHERE id = ?').run(r.id);
+  audit('admin', res.locals.admin.username, 'problems.resolve', String(r.id), req.ip);
+  const notified = await notifyResolved(r).catch(() => false);
+  flash(req, 'ok', notified
+    ? `Resolved — ${r.tg_user || 'the reporter'} has been told it's fixed.`
+    : 'Marked resolved. (Reporter not notified — bot offline or the message template is empty.)');
   res.redirect('/admin/problems');
 });
 
