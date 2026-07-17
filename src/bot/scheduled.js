@@ -38,6 +38,37 @@ export async function sweepScheduledBroadcasts() {
   }
 }
 
+// ---- Rotating group promos --------------------------------------------------
+// Every N days at a set hour, post the next message from the promo pool to
+// the group — recommend-a-friend, renewals, multi-room. Rotation keeps it
+// from feeling like a bot stuck on repeat; the admin owns the pool.
+
+export async function promoSweep() {
+  if (!getSetting('promo.enabled') || !hub.online) return;
+  const msgs = getSetting('promo.messages') || [];
+  if (!msgs.length) return;
+  const intervalS = Math.max(1, Number(getSetting('promo.intervalDays')) || 3) * 86400;
+  const last = Number(getSetting('promo.lastSentAt')) || 0;
+  const t = now();
+  if (t - last < intervalS) return;
+  const hourRaw = Number(getSetting('promo.hour'));
+  const hour = Number.isFinite(hourRaw) ? Math.max(0, Math.min(23, hourRaw)) : 19;
+  if (new Date().getUTCHours() !== hour) return;
+
+  const idx = (Number(getSetting('promo.nextIndex')) || 0) % msgs.length;
+  const body = String(msgs[idx]);
+  try {
+    const results = await hub.sendToAllowedChats(body);
+    const ok = results.filter((r) => r.ok).length;
+    db.prepare('INSERT INTO broadcasts (body, status, result, sent_at, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(body, ok > 0 ? 'sent' : 'failed', results.map((r) => `${r.chat}: ${r.ok ? 'sent' : 'failed'}`).join('; '), t, 'promo', t);
+    setSetting('promo.lastSentAt', t);
+    setSetting('promo.nextIndex', idx + 1);
+  } catch {
+    // bot hiccup — retry on the next minute within the hour
+  }
+}
+
 // ---- Customer expiry messages ----------------------------------------------
 // Reminder BEFORE expiry, one upsell ON/after expiry day. Both templated
 // ({name}, {days}); an empty template switches that message off. Only

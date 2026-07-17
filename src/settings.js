@@ -84,6 +84,18 @@ export const DEFAULTS = {
   'files.autoAnnounce': false,
 
   'reports.adminTelegramIds': [],
+  // Rotating group promos ("recommend us", renewals) every N days.
+  'promo.enabled': false,
+  'promo.intervalDays': 3,
+  'promo.hour': 19, // UTC hour to post at
+  'promo.nextIndex': 0,
+  'promo.lastSentAt': 0,
+  'promo.messages': [
+    "😄 Enjoying the service? Tell your mates! Send me /invite and I'll give you a personal invite link for this group — they'll need their own login, so point them at the admin or have them message me /ticket.",
+    '👋 Quick reminder: I answer questions instantly — installs, buffering fixes, logins, what to watch it on. Just ask here in the group or DM me. /help shows everything I can do.',
+    '📅 Renewals and new signups take minutes — message the admin here or send me /ticket. Paying with crypto is easier than it sounds; the step-by-step guide does the hard part.',
+    '📺 Watching on more than one TV? Multi-room is available — ask the admin about adding a second stream to your plan.',
+  ],
   // Weekly AI-drafted FAQ suggestions from unanswered questions.
   'suggest.faqs': true,
   'suggest.lastRunAt': 0,

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { db, now } from '../../../db/db.js';
+import { getSetting, setSettings } from '../../../settings.js';
 import { hub } from '../../../bot/hub.js';
 import { audit, formatDate } from '../../../util.js';
 import { flash } from '../../middleware.js';
@@ -14,9 +15,33 @@ broadcastsRouter.get('/broadcasts', (req, res) => {
     broadcasts,
     scheduled,
     serverNow: new Date().toISOString().slice(0, 16).replace('T', ' '),
+    promo: {
+      enabled: getSetting('promo.enabled'),
+      intervalDays: getSetting('promo.intervalDays'),
+      hour: getSetting('promo.hour'),
+      messages: (getSetting('promo.messages') || []).join('\n---\n'),
+    },
     formatDate,
     botOnline: hub.online,
   });
+});
+
+broadcastsRouter.post('/broadcasts/promo', (req, res) => {
+  const messages = String(req.body.messages || '')
+    .split(/\n\s*---\s*\n?/)
+    .map((m) => m.trim())
+    .filter(Boolean)
+    .slice(0, 10)
+    .map((m) => m.slice(0, 1000));
+  setSettings({
+    'promo.enabled': req.body.enabled === '1' && messages.length > 0,
+    'promo.intervalDays': Math.max(1, Math.min(30, Number(req.body.intervalDays) || 3)),
+    'promo.hour': Math.max(0, Math.min(23, Number(req.body.hour) || 0)),
+    'promo.messages': messages,
+  });
+  audit('admin', res.locals.admin.username, 'promo.settings', `${messages.length} message(s), every ${req.body.intervalDays}d`, req.ip);
+  flash(req, 'ok', messages.length ? 'Promo rotation saved.' : 'Promo rotation saved (no messages — rotation off).');
+  res.redirect('/admin/broadcasts');
 });
 
 // Compute the next occurrence of HH:MM (optionally on a weekday) in UTC.

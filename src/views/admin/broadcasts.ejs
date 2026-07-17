@@ -82,6 +82,31 @@
 </div>
 
 <div class="card">
+  <h2>Recurring promos</h2>
+  <p class="hint">Every so often, nudge the group — recommend a friend (/invite), renewals, multi-room. Messages rotate in order so it never repeats itself back-to-back. Separate messages with a line containing only <code>---</code>.</p>
+  <form method="post" action="/admin/broadcasts/promo">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <div class="checkline">
+      <input type="checkbox" id="promoEnabled" name="enabled" value="1" <%= promo.enabled ? 'checked' : '' %>>
+      <label for="promoEnabled">Post a promo on rotation</label>
+    </div>
+    <div class="row">
+      <div>
+        <label for="intervalDays">Every (days)</label>
+        <input id="intervalDays" name="intervalDays" type="number" min="1" max="30" value="<%= promo.intervalDays %>">
+      </div>
+      <div>
+        <label for="promoHour">At (hour, UTC)</label>
+        <input id="promoHour" name="hour" type="number" min="0" max="23" value="<%= promo.hour %>">
+      </div>
+    </div>
+    <label for="promoMessages">Message pool (rotates top to bottom)</label>
+    <textarea id="promoMessages" name="messages" rows="10" maxlength="10000"><%= promo.messages %></textarea>
+    <p><button type="submit">Save promo rotation</button></p>
+  </form>
+</div>
+
+<div class="card">
   <h2>History</h2>
   <table class="list">
     <tr><th>Message</th><th>By</th><th>Status</th><th>When</th><th></th></tr>

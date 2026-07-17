@@ -147,3 +147,38 @@ test('the weekly sweep DMs the admin and respects the toggle', async () => {
   assert.equal(sent.length, 0, 'toggle off = no runs');
   setSetting('suggest.faqs', true);
 });
+
+test('promo rotation: posts on cadence, rotates the pool, respects hour and toggle', async () => {
+  const { promoSweep } = await import('../src/bot/scheduled.js');
+  setSetting('promo.enabled', true);
+  setSetting('promo.intervalDays', 1);
+  setSetting('promo.hour', new Date().getUTCHours());
+  setSetting('promo.messages', ['Promo A — /invite your mates!', 'Promo B — renewals take minutes.']);
+  setSetting('promo.lastSentAt', 0);
+  setSetting('promo.nextIndex', 0);
+
+  await promoSweep();
+  assert.equal(sent.length, 1, 'due promo posted');
+  assert.match(sent[0].text, /Promo A/);
+  const hist = db.prepare("SELECT * FROM broadcasts WHERE created_by = 'promo'").get();
+  assert.equal(hist.status, 'sent', 'promo recorded in history');
+
+  await promoSweep();
+  assert.equal(sent.length, 1, 'not re-posted within the interval');
+
+  setSetting('promo.lastSentAt', now() - 2 * 86400);
+  await promoSweep();
+  assert.equal(sent.length, 2, 'next cycle fires');
+  assert.match(sent[1].text, /Promo B/, 'pool rotates');
+
+  setSetting('promo.lastSentAt', 0);
+  setSetting('promo.hour', (new Date().getUTCHours() + 3) % 24);
+  await promoSweep();
+  assert.equal(sent.length, 2, 'wrong hour = no post');
+
+  setSetting('promo.hour', new Date().getUTCHours());
+  setSetting('promo.enabled', false);
+  await promoSweep();
+  assert.equal(sent.length, 2, 'toggle off = silent');
+  setSetting('promo.enabled', false);
+});
