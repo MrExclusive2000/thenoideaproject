@@ -7,7 +7,7 @@ import { containsBannedWord } from '../ai/guardrails.js';
 import { state } from '../state.js';
 import {
   sendChunked, logMessage, setLogSource, recordUnanswered, chatAllowed,
-  isLikelyInScope, hasScopeSignal, recordProblem, extractProblemTopic, isAdminUser,
+  isLikelyInScope, hasScopeSignal, recordProblem, extractProblemTopic, isAdminUser, linkedCustomer,
 } from './helpers.js';
 import { alertAdmins } from './reports.js';
 import { queueProblemAlert, setProblemRearmHook, maybeAutoDegrade } from './problems.js';
@@ -53,6 +53,89 @@ function feedbackKeyboard() {
   return new InlineKeyboard().text('👍', 'fb:up').text('👎', 'fb:down');
 }
 
+// ---- Per-user service URLs --------------------------------------------------
+// A user must only ever receive the URL for THEIR service. The URLs live in
+// settings — deliberately outside the AI knowledge, so the model cannot hand
+// out the wrong one. Flow: linked customer → resolve from their username;
+// unknown → ask for the username and match the reply against the prefix rule.
+const URL_TTL_MS = 10 * 60 * 1000;
+const pendingUrl = new Map(); // chatId:userId -> asked-at
+
+function serviceConfig() {
+  return {
+    one: { name: String(getSetting('services.name1') || '').trim(), url: String(getSetting('services.url1') || '').trim() },
+    two: { name: String(getSetting('services.name2') || '').trim(), url: String(getSetting('services.url2') || '').trim() },
+    prefix: String(getSetting('services.prefix2') || 'THM').trim(),
+  };
+}
+
+export function isUrlRequest(text) {
+  return /\burls?\b|\bdns\b|\b(server|service|login|host)\s+address\b/i.test(text);
+}
+
+function serviceForUsername(username) {
+  const s = serviceConfig();
+  const isTwo = s.prefix && String(username).trim().toUpperCase().startsWith(s.prefix.toUpperCase());
+  return isTwo ? s.two : s.one;
+}
+
+function urlReplyText(svc) {
+  const label = svc.name ? `You're on ${svc.name} — your` : 'Your';
+  return `🔗 ${label} service URL is:\n${svc.url}\nEnter it exactly as written, together with your usual username and password.`;
+}
+
+// Returns true when the message was handled as a URL request.
+async function handleUrlRequest(ctx, logId, replyParams) {
+  const s = serviceConfig();
+  if (!s.one.url && !s.two.url) return false; // not configured — normal flow
+
+  const cust = linkedCustomer(ctx.from.id);
+  if (cust?.username) {
+    const svc = serviceForUsername(cust.username);
+    if (svc.url) {
+      setLogSource(logId, 'service-url');
+      await ctx.api.sendMessage(ctx.chat.id, urlReplyText(svc), replyParams).catch(() => {});
+      return true;
+    }
+  }
+  pendingUrl.set(`${ctx.chat.id}:${ctx.from.id}`, Date.now());
+  if (pendingUrl.size > 500) {
+    pendingUrl.delete(pendingUrl.keys().next().value);
+  }
+  setLogSource(logId, 'service-url');
+  await ctx.api.sendMessage(
+    ctx.chat.id,
+    "I'll give you the URL for YOUR account 👍 Reply with just the username you log in with (never your password!).",
+    replyParams
+  ).catch(() => {});
+  return true;
+}
+
+// The username answer to the ask above. Returns true when handled.
+async function handleUrlUsernameReply(ctx, text, logId, replyParams) {
+  const key = `${ctx.chat.id}:${ctx.from.id}`;
+  const at = pendingUrl.get(key);
+  if (!at) return false;
+  if (looksLikeQuestion(text)) {
+    // They asked something else instead — let normal answering take it and
+    // drop the pending ask.
+    pendingUrl.delete(key);
+    return false;
+  }
+  pendingUrl.delete(key);
+  if (Date.now() - at >= URL_TTL_MS) return false;
+  // The username is the longest word in the reply ("its THM4821" → THM4821).
+  const cand = plainWords(text).sort((a, b) => b.length - a.length)[0] || '';
+  const svc = serviceForUsername(cand);
+  setLogSource(logId, 'service-url');
+  await ctx.api.sendMessage(
+    ctx.chat.id,
+    svc.url ? urlReplyText(svc) : 'The admin will share that one with you here 👍',
+    replyParams
+  ).catch(() => {});
+  return true;
+}
+
 // Greetings and pleasantries get warmth, never the off-topic brush-off.
 // Deterministic on purpose: a whole message made of greeting words is a
 // greeting; mixed messages ("hey, my app won't open") flow on as normal.
@@ -87,7 +170,9 @@ export function looksLikeThanks(text) {
 
 export function looksLikeQuestion(text) {
   if (text.includes('?')) return true;
-  const starters = /^(how|what|why|when|where|which|who|can|does|do|is|are|will|help|anyone|any1|pls|please)\b/i;
+  // "whats" (no apostrophe) must count too — \b never fires inside it, so
+  // the contracted forms need listing explicitly.
+  const starters = /^(how|hows|what|whats|why|when|whens|where|wheres|which|who|whos|can|does|do|is|are|will|help|anyone|any1|pls|please)\b/i;
   return starters.test(text.trim());
 }
 
@@ -395,6 +480,17 @@ export async function handleGroupMessage(ctx) {
     if (announcement || getSetting('bot.ignoreAdmins')) return;
   }
 
+  // Per-user service URL flow (before FAQ/AI — the iOS FAQ also carries the
+  // 'url' keyword and must not swallow these). Asking requires question form
+  // or clear intent so group banter containing "url" doesn't trigger it.
+  const groupReplyParams = { reply_parameters: { message_id: ctx.message.message_id } };
+  if (await handleUrlUsernameReply(ctx, text, logId, groupReplyParams)) return;
+  if (
+    isUrlRequest(question) &&
+    (mentioned || looksLikeQuestion(text) || /\b(need|want|give|send)\b/i.test(text)) &&
+    await handleUrlRequest(ctx, logId, groupReplyParams)
+  ) return;
+
   // Greeting or thanks aimed AT the bot (mention or reply) gets the warm
   // reply — but never while problem triage is mid-flight for this user:
   // "cheers" after fixes belongs to the resolution logic below.
@@ -658,6 +754,11 @@ export async function handleDirectMessage(ctx) {
     return;
   }
   bumpCooldown(ctx.from.id);
+
+  // Per-user service URL flow: answer a pending username reply, or start the
+  // flow when they ask for a URL — only ever THEIR service's URL.
+  if (await handleUrlUsernameReply(ctx, text, logId, {})) return;
+  if (isUrlRequest(text) && await handleUrlRequest(ctx, logId, {})) return;
 
   // A wave back beats the topic police: greetings and thanks get warm canned
   // replies (configurable) and never reach the AI or the off-topic path.

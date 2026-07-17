@@ -41,6 +41,35 @@
   </div>
 
   <div class="card">
+    <h2>Services &amp; login URLs</h2>
+    <p class="hint">Fill these in and the bot hands out login URLs <strong>per user</strong>: a linked customer gets the URL matching their username automatically; anyone else is asked for their username first. A user on service 1 never sees service 2's URL. The URLs are kept out of the AI entirely, so it can't leak them. Empty = the flow stays off.</p>
+    <div class="row">
+      <div>
+        <label for="serviceName1">Service 1 name (random usernames)</label>
+        <input id="serviceName1" name="serviceName1" type="text" maxlength="60" value="<%= s.serviceName1 %>" placeholder="e.g. Flix">
+      </div>
+      <div>
+        <label for="serviceUrl1">Service 1 URL</label>
+        <input id="serviceUrl1" name="serviceUrl1" type="text" maxlength="200" value="<%= s.serviceUrl1 %>" placeholder="http://host:8080">
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label for="serviceName2">Service 2 name (prefixed usernames)</label>
+        <input id="serviceName2" name="serviceName2" type="text" maxlength="60" value="<%= s.serviceName2 %>">
+      </div>
+      <div>
+        <label for="serviceUrl2">Service 2 URL</label>
+        <input id="serviceUrl2" name="serviceUrl2" type="text" maxlength="200" value="<%= s.serviceUrl2 %>">
+      </div>
+      <div>
+        <label for="servicePrefix2">Service 2 username prefix</label>
+        <input id="servicePrefix2" name="servicePrefix2" type="text" maxlength="20" value="<%= s.servicePrefix2 %>">
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>Instructions (the bot's persona and rules)</h2>
     <p class="hint">This is the system prompt for the AI. Describe your app, tone, and anything the bot should or shouldn't say. FAQ entries and guides are automatically added as knowledge.</p>
     <textarea name="instructions" rows="8" maxlength="8000"><%= s.instructions %></textarea>

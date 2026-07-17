@@ -88,6 +88,14 @@ export const DEFAULTS = {
   'files.autoAnnounce': false,
 
   'reports.adminTelegramIds': [],
+  // Per-user service URLs. Deliberately kept OUT of the FAQ/AI knowledge:
+  // a user only ever receives the URL matching THEIR username (prefix rule),
+  // never the other service's. Empty URLs = the flow stays off.
+  'services.name1': '',
+  'services.url1': '',
+  'services.name2': '',
+  'services.url2': '',
+  'services.prefix2': 'THM', // usernames starting with this → service 2
   // Rotating group promos ("recommend us", renewals) every N days.
   'promo.enabled': false,
   'promo.intervalDays': 3,
