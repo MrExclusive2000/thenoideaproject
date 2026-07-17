@@ -7,7 +7,7 @@ Live bot status (online / no token / error / **conflict** = same token running t
 
 ## Bot settings
 - **Enabled / DM toggle** — master switches.
-- **Response mode** — *mentions only*, *questions & problem reports* (default: answers when mentioned, when a message looks like a question, when it reads like a problem report such as "buffering on bbc1" / "purple not working", or when a FAQ matches it confidently), or *everything*.
+- **Response mode** — *mentions only*, *questions & problem reports* (default: answers when mentioned, when a message looks like a question, when it reads like a problem report such as "buffering on bbc1" / "purple not working", or when a FAQ matches it confidently), or *everything*. General conversation is left alone: statements without question/problem shape are never touched, generic words like "down"/"problem" only count when the service is also mentioned ("calm down mate" is safe), and off-topic questions mid-banter are silently dropped by the AI's on-topic check. In a very chatty group, switch to *mentions only* to stop the bot evaluating every question-shaped message.
 - **Instructions** — the AI's persona/system prompt. Describe the app, the tone, refund policy, whatever it should know and how it should behave. FAQs and guides are appended automatically as knowledge.
 - **Off-topic behaviour** — the AI is hard-instructed to answer **only** app questions; anything else it flags internally and the bot either stays silent (default) or sends your short redirect line.
 - **Fallback message** — sent when nothing matched and the AI is off/unreachable (empty = silence).

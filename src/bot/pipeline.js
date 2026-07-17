@@ -39,8 +39,16 @@ export function looksLikeQuestion(text) {
 
 // Support groups mostly post problem STATEMENTS ("buffering on bbc1",
 // "purple not working") — treat those as requests for help too.
+// Two tiers so general chat can't trigger it: unambiguous problem phrases
+// count on their own; generic words ("calm DOWN mate", "the PROBLEM with
+// him is...") only count when the message also mentions the service.
+const STRONG_PROBLEM =
+  /\b(buffer(ing|s)?|freez\w*|frozen|lag(gy|ging|s)?|stutter\w*|glitch\w*|crash\w*|playback|black ?screen|no (sound|audio|picture|video|streams?|channels?|epg|vod)|invalid|unauthori[sz]ed|logged (out|off)|wrong password|access denied|not work\w*|(doesnt|dont|isnt|aint|stopped) work\w*|wont (work|load|play|open|start)|cant (log ?in|sign in|watch|open|play|stream|connect)|keeps? (stopping|buffering|freezing|crashing|cutting|loading)|(is|are|was|were|gone|went|still) down|offline)\b/i;
+const WEAK_PROBLEM = /\b(down|error|issues?|problems?|stuck|loading|broken)\b/i;
+
 export function looksLikeProblem(text) {
-  return /\b(buffer(ing|s)?|freez\w*|frozen|lag(gy|ging|s)?|stutter\w*|glitch\w*|crash\w*|stuck|loading|offline|down|error|issue|problem|broken|playback|black ?screen|no (sound|audio|picture|video)|invalid|unauthori[sz]ed|logged (out|off)|wrong password|access denied|not work\w*|(doesnt|dont|isnt|aint|stopped) work\w*|wont (work|load|play|open|start)|cant (log ?in|sign in|watch|open|play|stream|connect)|keeps? (stopping|buffering|freezing|crashing|cutting))\b/i.test(text);
+  if (STRONG_PROBLEM.test(text)) return true;
+  return WEAK_PROBLEM.test(text) && isLikelyInScope(text);
 }
 
 // Lead problem answers with the known-issue banner when the admin has set a

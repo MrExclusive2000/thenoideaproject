@@ -250,6 +250,54 @@ test('plain chatter in the group is left alone', async () => {
   assert.equal(lastAiRequest, before, 'AI was not even called');
 });
 
+test('banter containing generic problem words does not trigger the problem flow', async () => {
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  const before = lastAiRequest;
+  for (const [i, text] of ['calm down mate its friday', 'the problem with him is he never pays', 'im stuck at work til 8'].entries()) {
+    const ctx = fakeCtx(text, { chatType: 'group', userId: 97001 + i });
+    await handleGroupMessage(ctx);
+    assert.equal(ctx.sent.length, 0, `no reply to: ${text}`);
+  }
+  assert.equal(lastAiRequest, before, 'AI never called for banter');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM problem_reports').get().n, 0, 'no phantom problem reports');
+});
+
+test('generic problem words DO count when the service is mentioned', async () => {
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  aiResponse = 'Try restarting the app, then switch to a backup app with the same login.';
+  const ctx = fakeCtx('getting an error on purple again', { chatType: 'group', userId: 97010 });
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 1, 'service-scoped error report answered');
+  assert.ok(db.prepare('SELECT 1 FROM problem_reports WHERE tg_user_id = 97010').get(), 'recorded');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('"the app is down" still counts as a problem without generic-word context', async () => {
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  const ctx = fakeCtx('bbc one is down', { chatType: 'group', userId: 97020 });
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 1, '"is down" phrasing recognized');
+  assert.ok(db.prepare('SELECT 1 FROM problem_reports WHERE tg_user_id = 97020').get());
+});
+
+test('an off-topic question mid-banter is silently ignored via the AI verdict', async () => {
+  aiResponse = 'OFFTOPIC';
+  setSetting('bot.offtopicBehavior', 'silent');
+  const ctx = fakeCtx('anyone coming to the pub later?', { chatType: 'group', userId: 97030 });
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 0, 'social question left to the humans');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('a support question mid-banter still gets answered', async () => {
+  const ctx = fakeCtx('lol anyway how do i update the app on my firestick?', { chatType: 'group', userId: 97040 });
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 1, 'real question answered mid-conversation');
+});
+
 test('statement matching a FAQ confidently is answered even without problem words', async () => {
   const ctx = fakeCtx('need the install code for firestick downloader m8', { chatType: 'group', userId: 7777 });
   await handleGroupMessage(ctx);
