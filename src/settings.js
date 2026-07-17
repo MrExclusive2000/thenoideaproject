@@ -25,6 +25,11 @@ export const DEFAULTS = {
   'bot.problemFollowupNote': "Still happening after trying these? Reply here and I'll flag it straight to the team.",
   // Sent when a confirmed problem is escalated to the admins. Empty = off.
   'bot.problemFlaggedNote': "✅ Flagged to the team — they'll look into it. No need to report it again.",
+  // A confirmation that arrives faster than this many minutes after the fixes
+  // gets one friendly "actually try it first" pushback instead of escalating.
+  // 0 = off. Exceptions: detailed confirmations, fix-negations, known outages.
+  'bot.problemNudgeMinutes': 3,
+  'bot.problemNudgeMessage': "That was quick! 😄 Some of those steps take a few minutes to do properly — a router restart alone takes two. Give them a real go, and if it's still playing up afterwards, reply here and I'll flag it straight to the team.",
   // Sent when the user says the problem is fixed. Empty = off.
   'bot.problemResolvedNote': "Great — glad it's sorted! 👍",
   // Sent when the AI is overloaded (queue full or generation timed out).

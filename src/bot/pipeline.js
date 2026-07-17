@@ -348,6 +348,27 @@ export async function handleGroupMessage(ctx) {
   }
 
   if (isConfirmation) {
+    // Physics check: the fixes take minutes to actually try. A confirmation
+    // that arrives too fast gets ONE friendly pushback instead of escalating —
+    // unless the user brings details, negates a specific fix (checking your
+    // password IS quick), or there's a known outage.
+    const nudgeMinutes = Number(getSetting('bot.problemNudgeMinutes')) || 0;
+    const sinceAnswer = st?.answeredAt ? Date.now() - st.answeredAt : null;
+    const tooQuick = nudgeMinutes > 0 && sinceAnswer !== null && sinceAnswer < nudgeMinutes * 60000;
+    if (
+      tooQuick && !st.nudgedAt &&
+      !negatesFixes(text) && !hasTimeDetail(text) &&
+      getSetting('service.status') === 'operational'
+    ) {
+      setProblemState(ctx.from.id, { at: Date.now(), nudgedAt: Date.now() });
+      setLogSource(logId, 'nudged');
+      const nudge = getSetting('bot.problemNudgeMessage');
+      if (nudge) {
+        await ctx.api.sendMessage(ctx.chat.id, nudge, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
+      }
+      return;
+    }
+
     // The user tried the fixes (or told us it's still broken) — NOW it goes
     // to the admins, and the user gets an ack instead of the same FAQ again.
     setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: Date.now() });
@@ -403,10 +424,12 @@ export async function handleGroupMessage(ctx) {
 
   const outcome = await answer(ctx, question, { isDm: false, logId, history, skipFaq: isFollowUp, suffix: problemSuffix, prefix: problemPrefix });
 
-  // Only mark the report answered when a real answer actually went out.
+  // Only mark the report answered when a real answer actually went out —
+  // and remember WHEN, so too-quick confirmations can be nudged.
   if (problemId) {
-    db.prepare('UPDATE problem_reports SET answered = ? WHERE id = ?')
-      .run(['faq', 'ai'].includes(outcome) ? 1 : 0, problemId);
+    const gotAnswer = ['faq', 'ai'].includes(outcome);
+    db.prepare('UPDATE problem_reports SET answered = ? WHERE id = ?').run(gotAnswer ? 1 : 0, problemId);
+    if (gotAnswer) setProblemState(ctx.from.id, { answeredAt: Date.now() });
   }
 }
 

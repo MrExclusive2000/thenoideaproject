@@ -64,6 +64,11 @@
     <input id="problemFlaggedNote" name="problemFlaggedNote" type="text" maxlength="500" value="<%= s.problemFlaggedNote %>">
     <label for="problemResolvedNote">Reply when they say it's fixed ("that fixed it", "working now") (empty = off)</label>
     <input id="problemResolvedNote" name="problemResolvedNote" type="text" maxlength="500" value="<%= s.problemResolvedNote %>">
+    <label for="problemNudgeMinutes">"Actually try it first" pushback: nudge instead of escalating when they confirm within this many minutes (0 = off)</label>
+    <input id="problemNudgeMinutes" name="problemNudgeMinutes" type="number" min="0" max="60" value="<%= s.problemNudgeMinutes %>">
+    <label for="problemNudgeMessage">The pushback message (sent at most once per report)</label>
+    <input id="problemNudgeMessage" name="problemNudgeMessage" type="text" maxlength="500" value="<%= s.problemNudgeMessage %>">
+    <p class="hint">Skipped when they give details (channel + time), say a specific check was fine ("username is right"), or when you've set a known service issue — no gaslighting during a real outage.</p>
   </div>
 
   <div class="card">

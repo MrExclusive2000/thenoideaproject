@@ -40,6 +40,9 @@ before(async () => {
   setSetting('ai.baseUrl', `http://127.0.0.1:${aiServer.address().port}/v1`);
   setSetting('ai.model', 'test-model');
   setSetting('ai.enabled', true);
+  // Most triage tests confirm instantly on purpose; the too-quick nudge has
+  // its own dedicated tests that switch this on.
+  setSetting('bot.problemNudgeMinutes', 0);
 
   db.prepare(`INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at)
               VALUES ('How do I install on Firestick?', 'Use the Downloader app with our code.', 'install, firestick, downloader', 1, 0, 0, 0)`).run();
@@ -596,6 +599,89 @@ test('"its fine now" after a report is a resolution, not an escalation', async (
   assert.match(fine.sent[0].msg, /glad it's sorted/i);
   await flushProblemAlerts();
   assert.equal(adminDms.length, 0, 'no escalation for a resolution');
+  hub.api = null;
+});
+
+test('a suspiciously fast "still happening" gets one nudge, then escalates', async () => {
+  setSetting('bot.problemNudgeMinutes', 3);
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
+
+  await handleGroupMessage(fakeCtx('buffering on itv tonight lads', { chatType: 'group', userId: 99001 }));
+
+  // 20 seconds after a 7-step fix list? Didn't try it.
+  const quick = fakeCtx('still buffering', { chatType: 'group', userId: 99001 });
+  await handleGroupMessage(quick);
+  assert.equal(quick.sent.length, 1);
+  assert.match(quick.sent[0].msg, /That was quick/, 'pushback instead of escalation');
+  await flushProblemAlerts();
+  assert.equal(adminDms.length, 0, 'admin not pinged for an untried fix');
+
+  // Second confirmation escalates — one nudge only, then trust.
+  const again = fakeCtx('mate its still buffering', { chatType: 'group', userId: 99001 });
+  await handleGroupMessage(again);
+  assert.match(again.sent[0].msg, /Flagged to the team/);
+  await flushProblemAlerts();
+  assert.equal(adminDms.length, 1);
+  setSetting('bot.problemNudgeMinutes', 0);
+  hub.api = null;
+});
+
+test('fast confirmations with real details skip the nudge', async () => {
+  setSetting('bot.problemNudgeMinutes', 3);
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
+
+  await handleGroupMessage(fakeCtx('sky main event keeps freezing', { chatType: 'group', userId: 99002 }));
+  const details = fakeCtx('still doing it, sky main event 21:45', { chatType: 'group', userId: 99002 });
+  await handleGroupMessage(details);
+  assert.match(details.sent[0].msg, /Flagged to the team/, 'details beat the timer');
+  await flushProblemAlerts();
+  assert.equal(adminDms.length, 1);
+  setSetting('bot.problemNudgeMinutes', 0);
+  hub.api = null;
+});
+
+test('during a known outage fast confirmations escalate — no gaslighting', async () => {
+  setSetting('bot.problemNudgeMinutes', 3);
+  setSetting('service.status', 'degraded');
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
+
+  await handleGroupMessage(fakeCtx('everything is buffering for me', { chatType: 'group', userId: 99003 }));
+  const confirm = fakeCtx('yep still buffering', { chatType: 'group', userId: 99003 });
+  await handleGroupMessage(confirm);
+  assert.match(confirm.sent[0].msg, /Flagged to the team/);
+  await flushProblemAlerts();
+  assert.equal(adminDms.length, 1);
+  setSetting('service.status', 'operational');
+  setSetting('bot.problemNudgeMinutes', 0);
+  hub.api = null;
+});
+
+test('confirmations after a realistic delay escalate without a nudge', async () => {
+  setSetting('bot.problemNudgeMinutes', 0.0005); // 30ms window for the test
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
+
+  await handleGroupMessage(fakeCtx('bbc news is buffering', { chatType: 'group', userId: 99004 }));
+  await new Promise((r) => setTimeout(r, 80));
+  const later = fakeCtx('still buffering', { chatType: 'group', userId: 99004 });
+  await handleGroupMessage(later);
+  assert.match(later.sent[0].msg, /Flagged to the team/, 'waited long enough — no nudge');
+  setSetting('bot.problemNudgeMinutes', 0);
   hub.api = null;
 });
 
