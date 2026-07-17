@@ -4,19 +4,27 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 9;
+const SEED_VERSION = 10;
 
 export const STARTER_FAQS = [
   {
+    // Owns the device-less phrasings ("don't know how to install the apps");
+    // the device FAQs below keep only their distinctive vocabulary.
+    question: 'How do I install the apps?',
+    answer: "Depends on your device:\n📺 Firestick: install the Downloader app from the Amazon store, open it and enter code 9804805, click Go, then install the Purple App (plus XC or Smarters as backups — same login works in all).\n📱 Android phone/tablet: open our Android installer link (ask here or check the customer panel if you don't have it) and pick the Purple App.\nThen open the app and log in with your service details. If your device blocks the install, say so and I'll walk you through allowing it.",
+    keywords: 'install, installing, installed, app, apps, get, setup, put',
+    priority: 1,
+  },
+  {
     question: 'How do I install the app on my Firestick?',
     answer: 'Install the Downloader app from the Amazon app store, open it and enter code 9804805, then click Go. That page has all our apps — install the Purple App as your main one, plus XC or Smarters as backups (the same login works in all of them).\nIf the Firestick blocks the install: Settings > My Fire TV > About > click the device name 7–10 times to unlock Developer Options, then enable both options in there and go back to Downloader.\nOnce installed, open the app and log in with your service details. Full walkthrough is in the Firestick guide.',
-    keywords: 'install, installing, app, apps, get, firestick, fire, stick, downloader, setup, tv, code, 9804805, sideload',
+    keywords: 'firestick, fire, stick, downloader, tv, code, 9804805, sideload, app, apps',
     priority: 2,
   },
   {
     question: 'How do I install the app on an Android phone or tablet?',
     answer: 'Open our Android installer link on your device (ask here or check the customer panel if you don’t have it), pick the app you want — we recommend the Purple App — and allow installs from unknown sources if your phone asks (the prompt varies by model). Install it, open it, and log in with your service details.',
-    keywords: 'android, phone, tablet, mobile, apk, installer, install, app, apps, samsung, pixel',
+    keywords: 'android, phone, tablet, mobile, apk, installer, samsung, pixel, app, apps',
   },
   {
     question: 'How do I enable Developer Options or allow apps from unknown sources on Firestick?',
