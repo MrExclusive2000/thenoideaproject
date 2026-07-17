@@ -1038,3 +1038,34 @@ test('escalation asks which service; the answer is saved and forwarded to the ad
   _resetProblemTriage();
   _resetProblemQueue();
 });
+
+test('a bare off-topic fragment never reaches the AI', async () => {
+  setSetting('bot.offtopicBehavior', 'redirect');
+  setSetting('bot.offtopicMessage', 'App questions only please.');
+  lastAiRequest = null;
+  const ctx = fakeCtx('Sausage', { userId: 5151 });
+  const result = await answer(ctx, 'Sausage', { isDm: true, logId: null });
+  assert.equal(result, 'offtopic');
+  assert.equal(lastAiRequest, null, 'no AI call spent on junk');
+  assert.equal(ctx.sent[0].msg, 'App questions only please.');
+  setSetting('bot.offtopicBehavior', 'silent');
+});
+
+test('a bare DM fragment mid-conversation still reaches the AI', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  // First exchange: the model asks its one clarifying question (DM history saved).
+  aiResponse = 'Which service are you on — reply with your username?';
+  const ctx = fakeCtx('which one am i signed up to?', { userId: 5252 });
+  await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+
+  // The bare username answer must go to the AI with the conversation attached.
+  aiResponse = 'THM means Thames — that is your service.';
+  lastAiRequest = null;
+  const ctx2 = fakeCtx('THM4821', { userId: 5252 });
+  const result = await answer(ctx2, 'THM4821', { isDm: true, logId: null });
+  assert.equal(result, 'ai');
+  assert.ok(lastAiRequest, 'AI called despite the bare fragment');
+  assert.ok(lastAiRequest.messages.some((m) => m.role === 'assistant' && /Which service/.test(m.content)), 'clarify question in context');
+  assert.match(ctx2.sent[0].msg, /Thames/);
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});

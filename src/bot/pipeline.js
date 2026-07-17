@@ -221,14 +221,25 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
       alertAdmins('budget', '⚠️ The daily AI budget has been reached — until midnight UTC the bot only answers exact FAQ matches.');
     } else {
       try {
-        await ctx.replyWithChatAction?.('typing')?.catch?.(() => {});
         const historyKey = `${ctx.chat.id}:${ctx.from.id}`;
         const history = providedHistory ?? (isDm ? (dmHistory.get(historyKey) || []) : []);
         // A problem report, an FAQ near-miss, or plain app/device vocabulary
         // means we already KNOW this is on-topic — stop the model bailing to
         // OFFTOPIC on legit questions (e.g. "how do I enable developer options").
         const assumeOnTopic = forceOnTopic || looksLikeProblem(question) || Boolean(result.nearMiss) || isLikelyInScope(question);
-        const reply = await askAi(question, { history, assumeOnTopic });
+        // A bare fragment with no support vocabulary, no question form and no
+        // conversation to give it meaning ("Sausage") only baits the model
+        // into off-script chat — go straight to the off-topic handling
+        // without spending an AI call. Mid-conversation fragments (answers
+        // to a clarifying question) still go through: they have history.
+        const bareFragment =
+          !assumeOnTopic && !looksLikeQuestion(question) && !history.length &&
+          question.trim().split(/\s+/).length <= 3;
+        let reply = null;
+        if (!bareFragment) {
+          await ctx.replyWithChatAction?.('typing')?.catch?.(() => {});
+          reply = await askAi(question, { history, assumeOnTopic });
+        }
 
         if (reply) {
           setLogSource(logId, 'ai');
