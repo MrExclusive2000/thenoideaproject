@@ -45,6 +45,9 @@ before(async () => {
   setSetting('bot.problemNudgeMinutes', 0);
   // Auto-degradation has its own dedicated tests; keep it out of the rest.
   setSetting('problems.degradeThreshold', 0);
+  // IMDb checking has its own dedicated test with a local mock server —
+  // everything else must never touch the network.
+  setSetting('vod.imdbCheck', false);
 
   db.prepare(`INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at)
               VALUES ('How do I install on Firestick?', 'Use the Downloader app with our code.', 'install, firestick, downloader', 1, 0, 0, 0)`).run();
@@ -1198,16 +1201,18 @@ test('replying "cheers mate" to problem fixes resolves — it must NOT escalate'
 
 test('service URLs: the bot asks WHICH SERVICE and only gives that one', async () => {
   setSetting('bot.cooldownSeconds', 0);
-  setSetting('services.name1', 'Flix');
-  setSetting('services.url1', 'http://flix.example:8080');
-  setSetting('services.name2', 'Exclusive');
-  setSetting('services.url2', 'http://exclusive.example:8080');
+  // Real mapping: service 1 = Exclusive (random usernames),
+  // service 2 = Flix (THM-prefixed or name-style usernames).
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.url1', 'http://exclusive.example:8080');
+  setSetting('services.name2', 'Flix');
+  setSetting('services.url2', 'http://flix.example:8080');
   setSetting('services.prefix2', 'THM');
 
   // Ask → which service? → name reply → ONLY that URL.
   const u1 = fakeCtx('whats the service url?', { userId: 98501 });
   await handleDirectMessage(u1);
-  assert.match(u1.sent[0].msg, /Which service are you on — Flix or Exclusive\?/, 'asked for the service');
+  assert.match(u1.sent[0].msg, /Which service are you on — Exclusive or Flix\?/, 'asked for the service');
   assert.doesNotMatch(u1.sent[0].msg, /example:8080/, 'no URLs in the ask');
   const u2 = fakeCtx('flix', { userId: 98501 });
   await handleDirectMessage(u2);
@@ -1227,7 +1232,28 @@ test('service URLs: the bot asks WHICH SERVICE and only gives that one', async (
   await handleDirectMessage(w1);
   const w2 = fakeCtx('THM4821', { userId: 98503 });
   await handleDirectMessage(w2);
-  assert.match(w2.sent[0].msg, /exclusive\.example/, 'prefixed username answers the service question too');
+  assert.match(w2.sent[0].msg, /flix\.example/, 'THM username → Flix (service 2)');
+
+  // "Don't know" → asks for the username → classified per the rule.
+  const d1 = fakeCtx('i need the url', { userId: 98510 });
+  await handleDirectMessage(d1);
+  const d2 = fakeCtx('dont know', { userId: 98510 });
+  await handleDirectMessage(d2);
+  assert.match(d2.sent[0].msg, /USERNAME you log in with/, 'moved to the username question');
+  assert.doesNotMatch(d2.sent[0].msg, /example:8080/);
+  const d3 = fakeCtx('x9k2p7', { userId: 98510 });
+  await handleDirectMessage(d3);
+  assert.match(d3.sent[0].msg, /exclusive\.example/, 'random letters/numbers → Exclusive');
+  assert.doesNotMatch(d3.sent[0].msg, /flix\.example/);
+
+  const e1 = fakeCtx('can i have the url', { userId: 98511 });
+  await handleDirectMessage(e1);
+  const e2 = fakeCtx('no idea mate', { userId: 98511 });
+  await handleDirectMessage(e2);
+  assert.match(e2.sent[0].msg, /USERNAME/, 'no idea also moves on');
+  const e3 = fakeCtx('its ashley99', { userId: 98511 });
+  await handleDirectMessage(e3);
+  assert.match(e3.sent[0].msg, /flix\.example/, 'name-style username → Flix');
 
   // Unrecognised answer → one re-ask, then a graceful hand-off.
   const x1 = fakeCtx('need the url', { userId: 98504 });
@@ -1412,4 +1438,76 @@ test('natural "can we get X" is captured as a VOD request; service asks are not'
   await handleGroupMessage(ctx2);
   assert.match(ctx2.sent[0].msg, /Smarters Player Lite/, 'answered as install question');
   assert.equal(db.prepare('SELECT COUNT(*) n FROM vod_requests').get().n, 1, 'no bogus VOD row');
+});
+
+test('IMDb check: exact match canonicalizes silently, near-miss asks and honours the answer', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('services.name1', '');
+  setSetting('services.name2', '');
+  db.prepare('DELETE FROM vod_requests').run();
+
+  // Local IMDb mock.
+  let imdbHits = 0;
+  let imdbFixture = { d: [{ id: 'tt1877830', l: 'The Batman', y: 2022, q: 'feature' }] };
+  const imdbServer = http.createServer((req, res) => {
+    imdbHits++;
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify(imdbFixture));
+  });
+  await new Promise((r) => imdbServer.listen(0, '127.0.0.1', r));
+  setSetting('vod.imdbBase', `http://127.0.0.1:${imdbServer.address().port}`);
+  setSetting('vod.imdbCheck', true);
+
+  // Exact (case/punctuation-insensitive) → canonicalized silently, no question.
+  const r1 = fakeCtx('can we get the batman', { userId: 99101 });
+  await handleDirectMessage(r1);
+  assert.match(r1.sent[0].msg, /The Batman \(2022\)/, 'title upgraded with proper name + year');
+  assert.doesNotMatch(r1.sent[0].msg, /did you mean/i, 'no confirmation needed for an exact hit');
+  assert.ok(db.prepare("SELECT 1 FROM vod_requests WHERE title = 'The Batman (2022)'").get(), 'canonical stored');
+
+  // Near-miss → recorded as typed, then asks. "yes" upgrades the title and
+  // merges with the existing canonical row.
+  imdbFixture = { d: [{ id: 'tt1877830', l: 'The Batman', y: 2022, q: 'feature' }] };
+  const r2 = fakeCtx('Request: batman film with pattinson', { userId: 99102 });
+  await handleDirectMessage(r2);
+  assert.match(r2.sent[0].msg, /did you mean The Batman \(2022\)\?/i, 'asked to confirm');
+  assert.ok(db.prepare("SELECT 1 FROM vod_requests WHERE title = 'batman film with pattinson'").get(), 'recorded as typed until confirmed');
+  const y = fakeCtx('yes', { userId: 99102 });
+  await handleDirectMessage(y);
+  assert.match(y.sent[0].msg, /Locked in as The Batman \(2022\)/);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM vod_requests').get().n, 1, 'merged into the existing canonical row');
+  assert.equal(db.prepare('SELECT ask_count FROM vod_requests').get().ask_count, 2, 'ask counts combined');
+
+  // "no" keeps the typed title.
+  imdbFixture = { d: [{ id: 'tt0372784', l: 'Batman Begins', y: 2005, q: 'feature' }] };
+  const r3 = fakeCtx('Request: gotham knight saga', { userId: 99103 });
+  await handleDirectMessage(r3);
+  assert.match(r3.sent[0].msg, /did you mean Batman Begins \(2005\)\?/i);
+  const n = fakeCtx('no', { userId: 99103 });
+  await handleDirectMessage(n);
+  assert.match(n.sent[0].msg, /kept it as "gotham knight saga"/);
+  assert.ok(db.prepare("SELECT 1 FROM vod_requests WHERE title = 'gotham knight saga'").get());
+
+  // A corrected title in the reply replaces the typed one.
+  const r4 = fakeCtx('Request: dark night rises film', { userId: 99104 });
+  await handleDirectMessage(r4);
+  const c = fakeCtx('The Dark Knight Rises (2012)', { userId: 99104 });
+  await handleDirectMessage(c);
+  assert.match(c.sent[0].msg, /Noted as "The Dark Knight Rises \(2012\)"/);
+  assert.ok(db.prepare("SELECT 1 FROM vod_requests WHERE title = 'The Dark Knight Rises (2012)'").get());
+
+  // IMDb down → captured as typed, no confirmation, request never lost.
+  imdbServer.close();
+  const r5 = fakeCtx('Request: Oppenheimer (2023)', { userId: 99105 });
+  await handleDirectMessage(r5);
+  assert.match(r5.sent[0].msg, /Oppenheimer/);
+  assert.doesNotMatch(r5.sent[0].msg, /did you mean/i);
+  assert.ok(db.prepare("SELECT 1 FROM vod_requests WHERE title = 'Oppenheimer (2023)'").get(), 'recorded despite IMDb being down');
+
+  // Toggle off → no lookups at all.
+  const hitsBefore = imdbHits;
+  setSetting('vod.imdbCheck', false);
+  const r6 = fakeCtx('Request: Dune (2021)', { userId: 99106 });
+  await handleDirectMessage(r6);
+  assert.equal(imdbHits, hitsBefore, 'no network call when disabled');
 });

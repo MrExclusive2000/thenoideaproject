@@ -11,7 +11,7 @@ import {
 } from './helpers.js';
 import { alertAdmins } from './reports.js';
 import { queueProblemAlert, setProblemRearmHook, maybeAutoDegrade } from './problems.js';
-import { parseVodRequest, parseNaturalVodRequest, recordVodRequest, setRequestService } from './requests.js';
+import { parseVodRequest, parseNaturalVodRequest, recordVodRequest, setRequestService, lookupImdb, canonicalizeRequest } from './requests.js';
 import { hub } from './hub.js';
 
 // Both request shapes: the taught "Request: Title" and natural "can we get X".
@@ -85,9 +85,24 @@ function urlReplyText(svc) {
 function urlAskText() {
   const s = serviceConfig();
   return s.one.name && s.two.name
-    ? `Which service are you on — ${s.one.name} or ${s.two.name}? Reply with the name and I'll send you the right URL. (Not sure? Ask me "which service am I on")`
-    : "Which service are you on? Reply with the name and I'll send you the right URL. (Not sure? Ask me \"which service am I on\")";
+    ? `Which service are you on — ${s.one.name} or ${s.two.name}? Reply with the name and I'll send you the right URL. (Not sure? Just say "don't know" and I'll work it out from your username)`
+    : 'Which service are you on? Reply with the name and I\'ll send you the right URL. (Not sure? Just say "don\'t know" and I\'ll work it out from your username)';
 }
+
+// Classify a USERNAME into a service: THM-prefixed or name-like ("ashley",
+// "john99") → service 2; random letters/numbers ("x9k2p7") → service 1.
+function serviceForUsername(username) {
+  const s = serviceConfig();
+  const t = String(username).trim();
+  if (s.prefix && t.length > s.prefix.length && t.toUpperCase().startsWith(s.prefix.toUpperCase())) return s.two;
+  const core = t.replace(/[^a-zA-Z0-9]/g, '');
+  const nameWithTrailingDigits = /^[a-zA-Z]{3,}\d*$/.test(core);
+  const vowely = /[aeiou]/i.test(core.replace(/\d/g, '').slice(0, 6));
+  if (nameWithTrailingDigits && vowely) return s.two; // "ashley", "john99"
+  return s.one; // "x9k2p7", "kxtvbq" — random mix
+}
+
+const DONT_KNOW = /\b(dont know|don'?t know|do not know|not sure|no idea|dunno|idk|unsure|no clue)\b/i;
 
 // Match the reply to a service: by name, by "1"/"2", or — since people paste
 // them anyway — by a prefixed username (THM… → service 2).
@@ -109,7 +124,7 @@ function serviceFromReply(text) {
 async function handleUrlRequest(ctx, logId, replyParams) {
   const s = serviceConfig();
   if (!s.one.url && !s.two.url) return false; // not configured — normal flow
-  pendingUrl.set(`${ctx.chat.id}:${ctx.from.id}`, { at: Date.now(), attempts: 0 });
+  pendingUrl.set(`${ctx.chat.id}:${ctx.from.id}`, { at: Date.now(), attempts: 0, stage: 'service' });
   if (pendingUrl.size > 500) {
     pendingUrl.delete(pendingUrl.keys().next().value);
   }
@@ -134,9 +149,27 @@ async function handleUrlServiceReply(ctx, text, logId, replyParams) {
     pendingUrl.delete(key);
     return false;
   }
-  const svc = serviceFromReply(text);
   const send = (msg) => ctx.api.sendMessage(ctx.chat.id, msg, replyParams).catch(() => {});
   setLogSource(logId, 'service-url');
+
+  // Stage 2: they told us their USERNAME — classify it. Random letters and
+  // numbers → service 1; THM-prefixed or a name-style username → service 2.
+  if (st.stage === 'username') {
+    pendingUrl.delete(key);
+    const cand = plainWords(text).sort((a, b) => b.length - a.length)[0] || '';
+    const svc = serviceForUsername(cand);
+    await send(svc.url ? urlReplyText(svc) : 'The admin will share that one with you here 👍');
+    return true;
+  }
+
+  // Stage 1: which service? "Don't know" moves to the username question.
+  if (DONT_KNOW.test(text)) {
+    st.stage = 'username';
+    st.at = Date.now();
+    await send("No problem — what's the USERNAME you log in with? (just the username, never the password) I'll work out which service you're on.");
+    return true;
+  }
+  const svc = serviceFromReply(text);
   if (svc && svc.url) {
     pendingUrl.delete(key);
     await send(urlReplyText(svc));
@@ -145,7 +178,7 @@ async function handleUrlServiceReply(ctx, text, logId, replyParams) {
     await send('The admin will share that one with you here 👍');
   } else if (st.attempts < 1) {
     st.attempts++;
-    await send(`Sorry, didn't catch that — ${urlAskText()}`);
+    await send(`Sorry, didn't catch that — ${urlAskText()} (Not sure? Just say "don't know")`);
   } else {
     pendingUrl.delete(key);
     await send('No worries — the admin will share the right URL with you here 👍');
@@ -182,21 +215,96 @@ function peekVodService(userId) {
   return k && Date.now() - k.at < URL_TTL_MS ? k.name : null;
 }
 
-// Capture a VOD request and, when appropriate, ask which service it's for.
-// Returns the full reply text to send.
-function captureVodRequest(ctx, title) {
-  const { ack, requestId, deduped } = recordVodRequest(ctx, title);
-  if (deduped || !twoServicesNamed() || !getSetting('bot.requestServiceQuestion')) return ack;
+// Which-service follow-up for a captured request: auto-tag from recent
+// memory, or arm the ask. Returns the text to append to the ack ('' = none).
+function maybeArmServiceAsk(ctx, requestId) {
+  if (!twoServicesNamed() || !getSetting('bot.requestServiceQuestion')) return '';
   const known = peekVodService(ctx.from.id);
   if (known) {
     setRequestService(requestId, known);
-    return `${ack}\n(noted for ${known} 👍)`;
+    return `\n(noted for ${known} 👍)`;
   }
   pendingVodService.set(`${ctx.chat.id}:${ctx.from.id}`, { requestId, at: Date.now(), attempts: 0 });
   if (pendingVodService.size > 500) {
     pendingVodService.delete(pendingVodService.keys().next().value);
   }
-  return `${ack}\n${vodServiceAskText()}`;
+  return `\n${vodServiceAskText()}`;
+}
+
+// IMDb "is this correct?" confirmations awaiting a yes/no/corrected-title.
+const pendingVodConfirm = new Map(); // chatId:userId -> { requestId, original, canonical, at }
+
+// Capture a VOD request and, when appropriate, ask which service it's for.
+// Checks the title against IMDb first: an exact match is canonicalized
+// silently ("the batman" → "The Batman (2022)"); a DIFFERING best guess asks
+// the requester to confirm before the title is rewritten. IMDb being off,
+// slow or clueless changes nothing — the request is always recorded.
+async function captureVodRequest(ctx, title) {
+  const hit = await lookupImdb(title);
+  let useTitle = title;
+  let confirm = null;
+  if (hit) {
+    const tNorm = title.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const noYear = hit.title.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const withYear = hit.canonical.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (tNorm === noYear || tNorm === withYear) useTitle = hit.canonical;
+    else confirm = hit.canonical;
+  }
+  const { ack, requestId, deduped } = recordVodRequest(ctx, useTitle);
+  if (confirm && !deduped) {
+    pendingVodConfirm.set(`${ctx.chat.id}:${ctx.from.id}`, { requestId, original: title, canonical: confirm, at: Date.now() });
+    if (pendingVodConfirm.size > 500) {
+      pendingVodConfirm.delete(pendingVodConfirm.keys().next().value);
+    }
+    return `${ack}\n🎬 Just to check — did you mean ${confirm}? (yes / no / the correct title)`;
+  }
+  if (deduped) return ack;
+  return ack + maybeArmServiceAsk(ctx, requestId);
+}
+
+// The yes/no/corrected-title answer to the IMDb check. Returns true when
+// handled.
+async function handleVodConfirmReply(ctx, text, logId, replyParams) {
+  const key = `${ctx.chat.id}:${ctx.from.id}`;
+  const st = pendingVodConfirm.get(key);
+  if (!st) return false;
+  if (Date.now() - st.at >= URL_TTL_MS) { pendingVodConfirm.delete(key); return false; }
+  const send = (msg) => ctx.api.sendMessage(ctx.chat.id, msg, replyParams).catch(() => {});
+  const w = plainWords(text);
+  // "yes" family — but "thats wrong" / "right, it's actually X" must NOT
+  // count, so multi-word forms are only accepted with an affirmative tail.
+  const saysYes =
+    (w.length > 0 && /^(yes|yeah|yep|yup|y|correct|aye|exactly|si)$/i.test(w[0]) && !w.includes('wrong') && !w.includes('not')) ||
+    (w[0] === 'thats' && /^(it|right|correct|the)$/i.test(w[1] || '')) ||
+    (w[0] === 'spot' && w[1] === 'on') ||
+    (w[0] === 'right' && w.length === 1);
+  if (saysYes) {
+    pendingVodConfirm.delete(key);
+    setLogSource(logId, 'vod-request');
+    const survivingId = canonicalizeRequest(st.requestId, st.canonical);
+    await send(`👍 Locked in as ${st.canonical}.${maybeArmServiceAsk(ctx, survivingId)}`);
+    return true;
+  }
+  if (w.length && /^(no|nah|nope|wrong)$/i.test(w[0]) && w.length <= 4) {
+    pendingVodConfirm.delete(key);
+    setLogSource(logId, 'vod-request');
+    await send(`No worries — kept it as "${st.original}".${maybeArmServiceAsk(ctx, st.requestId)}`);
+    return true;
+  }
+  // Anything that stands on its own means they've moved on — the request
+  // stays recorded exactly as they typed it.
+  if (looksLikeQuestion(text) || anyVodRequest(text) || looksLikeProblem(text) || looksLikeGreeting(text) || looksLikeThanks(text)) {
+    pendingVodConfirm.delete(key);
+    return false;
+  }
+  // A bare title reply IS the correction ("no its the batman" was caught
+  // above; "batman begins (2005)" lands here).
+  pendingVodConfirm.delete(key);
+  setLogSource(logId, 'vod-request');
+  const corrected = text.trim().replace(/\s+/g, ' ').slice(0, 200);
+  const survivingId = canonicalizeRequest(st.requestId, corrected);
+  await send(`👍 Noted as "${corrected}".${maybeArmServiceAsk(ctx, survivingId)}`);
+  return true;
 }
 
 // The which-service answer to the VOD ask. Returns true when handled.
@@ -580,6 +688,7 @@ export async function handleGroupMessage(ctx) {
   // or clear intent so group banter containing "url" doesn't trigger it.
   const groupReplyParams = { reply_parameters: { message_id: ctx.message.message_id } };
   if (await handleUrlServiceReply(ctx, text, logId, groupReplyParams)) return;
+  if (await handleVodConfirmReply(ctx, text, logId, groupReplyParams)) return;
   if (await handleVodServiceReply(ctx, text, logId, groupReplyParams)) return;
   if (
     isUrlRequest(question) &&
@@ -594,7 +703,7 @@ export async function handleGroupMessage(ctx) {
     const vodTitle = anyVodRequest(text);
     if (vodTitle) {
       setLogSource(logId, 'vod-request');
-      await ctx.api.sendMessage(ctx.chat.id, captureVodRequest(ctx, vodTitle), groupReplyParams).catch(() => {});
+      await ctx.api.sendMessage(ctx.chat.id, await captureVodRequest(ctx, vodTitle), groupReplyParams).catch(() => {});
       return;
     }
   }
@@ -874,6 +983,7 @@ export async function handleDirectMessage(ctx) {
   // Per-user service URL flow: answer a pending username reply, or start the
   // flow when they ask for a URL — only ever THEIR service's URL.
   if (await handleUrlServiceReply(ctx, text, logId, {})) return;
+  if (await handleVodConfirmReply(ctx, text, logId, {})) return;
   if (await handleVodServiceReply(ctx, text, logId, {})) return;
   if (isUrlRequest(text) && await handleUrlRequest(ctx, logId, {})) return;
 
@@ -882,7 +992,7 @@ export async function handleDirectMessage(ctx) {
     const vodTitle = anyVodRequest(text);
     if (vodTitle) {
       setLogSource(logId, 'vod-request');
-      await ctx.reply(captureVodRequest(ctx, vodTitle)).catch(() => {});
+      await ctx.reply(await captureVodRequest(ctx, vodTitle)).catch(() => {});
       return;
     }
   }

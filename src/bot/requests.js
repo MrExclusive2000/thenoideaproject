@@ -43,6 +43,47 @@ export function parseNaturalVodRequest(text) {
 
 const normTitle = (t) => String(t).toLowerCase().replace(/[^a-z0-9]/g, '');
 
+// Look the title up on IMDb's public suggestion endpoint (the one their own
+// search box uses — no API key). Returns { title, year, canonical } for the
+// best film/series hit, or null when off, down, slow or no match — callers
+// must treat null as "behave exactly as without IMDb". Hard 2.5s timeout so
+// a wobbly IMDb never delays a request.
+export async function lookupImdb(title) {
+  if (!getSetting('vod.imdbCheck')) return null;
+  const base = String(getSetting('vod.imdbBase') || 'https://v2.sg.media-imdb.com').replace(/\/+$/, '');
+  const q = String(title).toLowerCase().trim().slice(0, 60);
+  const first = q.replace(/[^a-z0-9]/g, '')[0] || 'a';
+  try {
+    const res = await fetch(`${base}/suggestion/${first}/${encodeURIComponent(q)}.json`, {
+      signal: AbortSignal.timeout(2500),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const hit = (data?.d || []).find((x) => /^tt/.test(x?.id || '') && x.l && x.y && x.q !== 'video game');
+    return hit ? { title: hit.l, year: hit.y, canonical: `${hit.l} (${hit.y})` } : null;
+  } catch {
+    return null;
+  }
+}
+
+// Rename a request to its confirmed/corrected title. If another OPEN request
+// already carries that title, the two merge (ask counts combine) — returns
+// the surviving row id either way.
+export function canonicalizeRequest(requestId, newTitle) {
+  const r = db.prepare('SELECT * FROM vod_requests WHERE id = ?').get(requestId);
+  if (!r) return requestId;
+  const norm = normTitle(newTitle);
+  if (norm === r.norm_title) return requestId;
+  const other = db.prepare("SELECT * FROM vod_requests WHERE norm_title = ? AND status = 'open' AND id != ?").get(norm, requestId);
+  if (other) {
+    db.prepare('UPDATE vod_requests SET ask_count = ask_count + ? WHERE id = ?').run(r.ask_count, other.id);
+    db.prepare('DELETE FROM vod_requests WHERE id = ?').run(requestId);
+    return other.id;
+  }
+  db.prepare('UPDATE vod_requests SET title = ?, norm_title = ? WHERE id = ?').run(String(newTitle).slice(0, 200), norm, requestId);
+  return requestId;
+}
+
 // Returns { ack, requestId, deduped } — ack is always sendable text.
 export function recordVodRequest(ctx, title) {
   const t = now();

@@ -26,6 +26,11 @@
     <label for="requestAckMessage">Reply when someone posts "Request: Title" ({title} — empty = silent)</label>
     <input id="requestAckMessage" name="requestAckMessage" type="text" maxlength="500" value="<%= s.requestAckMessage %>">
 
+    <div class="checkline">
+      <input type="checkbox" id="imdbCheck" name="imdbCheck" value="1" <%= s.imdbCheck ? 'checked' : '' %>>
+      <label for="imdbCheck">Check requests against IMDb — exact hits get the proper title &amp; year, near-misses ask "did you mean …? (yes/no)"</label>
+    </div>
+
     <label for="requestServiceQuestion">Ask which service a request is for (empty = don't ask; only when two services are named)</label>
     <input id="requestServiceQuestion" name="requestServiceQuestion" type="text" maxlength="500" value="<%= s.requestServiceQuestion %>">
     <p class="hint">The two service names come from <strong>Services &amp; login URLs</strong> above. The requester's answer is saved on the request and shown in the panel.</p>
@@ -66,7 +71,7 @@
     </div>
     <div class="row">
       <div>
-        <label for="serviceName2">Service 2 name (prefixed usernames)</label>
+        <label for="serviceName2">Service 2 name (THM-prefixed or name-style usernames)</label>
         <input id="serviceName2" name="serviceName2" type="text" maxlength="60" value="<%= s.serviceName2 %>">
       </div>
       <div>

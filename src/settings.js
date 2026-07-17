@@ -96,6 +96,11 @@ export const DEFAULTS = {
   // Asked after capturing a request when two services are configured, so the
   // admin knows which library to add it to. Empty = don't ask.
   'bot.requestServiceQuestion': 'Which service is this for?',
+  // Check captured titles against IMDb's public suggestion endpoint: exact
+  // hits are canonicalized ("the batman" → "The Batman (2022)"), differing
+  // guesses ask the requester to confirm. Off/slow/no-match = no change.
+  'vod.imdbCheck': true,
+  'vod.imdbBase': 'https://v2.sg.media-imdb.com',
   // Per-user service URLs. Deliberately kept OUT of the FAQ/AI knowledge:
   // a user only ever receives the URL matching THEIR username (prefix rule),
   // never the other service's. Empty URLs = the flow stays off.
