@@ -27,6 +27,9 @@ export const DEFAULTS = {
   'bot.problemFlaggedNote': "✅ Flagged to the team — they'll look into it. No need to report it again.",
   // Sent when the user says the problem is fixed. Empty = off.
   'bot.problemResolvedNote': "Great — glad it's sorted! 👍",
+  // Sent when the AI is overloaded (queue full or generation timed out).
+  // Empty = stay silent.
+  'bot.busyMessage': "I'm helping a lot of people right now 😅 — give me a minute and send your question again.",
   'bot.welcomeEnabled': false,
   'bot.welcomeText': 'Welcome {name}! Ask me anything about the app — or type /help to see what I can do.',
   'bot.cooldownSeconds': 15,
@@ -39,6 +42,9 @@ export const DEFAULTS = {
   'ai.maxTokens': 350,
   'ai.temperature': 0.3,
   'ai.timeoutSeconds': 90,
+  // How many AI generations may run at once. Keep at 1 for CPU Ollama; raise
+  // only if your endpoint genuinely serves parallel requests (GPU, cloud).
+  'ai.maxConcurrent': 1,
 
   'faq.threshold': 0.5,
 

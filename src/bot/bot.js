@@ -52,9 +52,15 @@ export async function startBot() {
     }
   });
 
-  bot.on('message:text', async (ctx) => {
-    if (ctx.chat.type === 'private') return handleDirectMessage(ctx);
-    return handleGroupMessage(ctx);
+  // Fire-and-forget so one slow AI answer never blocks other users' messages
+  // — FAQ replies stay instant while a generation is in flight. The AI itself
+  // is protected by its own concurrency gate in ai/client.js.
+  bot.on('message:text', (ctx) => {
+    const handled = ctx.chat.type === 'private' ? handleDirectMessage(ctx) : handleGroupMessage(ctx);
+    handled.catch((err) => {
+      console.error('handler error:', err.message);
+      state.bot.lastError = String(err.message || err).slice(0, 300);
+    });
   });
 
   bot.catch((err) => {

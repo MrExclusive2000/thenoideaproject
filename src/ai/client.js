@@ -89,15 +89,18 @@ async function chatCompletion(messages, { maxTokens, temperature, timeoutMs } = 
     // Node's bare "fetch failed" hides the real cause — surface it, plus the
     // most common configuration traps.
     const cause = err.cause?.code || err.cause?.message || err.name || err.message;
+    const isTimeout = /TimeoutError|AbortError/i.test(String(cause));
     let hint = '';
-    if (/TimeoutError|AbortError/i.test(String(cause))) {
-      hint = ` — the model did not answer within ${Math.round(timeoutMs / 1000)}s. It is probably too slow for this hardware: switch to a smaller/faster model (e.g. llama3.1:8b or qwen2.5:7b — avoid gemma3 on CPU, it re-reads the whole prompt every message), or raise the timeout in AI settings.`;
+    if (isTimeout) {
+      hint = ` — the model did not answer within ${Math.round(timeoutMs / 1000)}s. It is probably too slow or overloaded for this hardware: switch to a smaller/faster model (e.g. llama3.1:8b or qwen2.5:7b — avoid gemma3 on CPU, it re-reads the whole prompt every message), or raise the timeout in AI settings.`;
     } else if (/WRONG_VERSION_NUMBER|SSL|TLS/i.test(String(cause)) && baseUrl.startsWith('https://')) {
       hint = ' — the endpoint answered with plain HTTP, not SSL: change https:// to http:// in the AI base URL.';
     } else if (/127\.0\.0\.1|localhost/.test(baseUrl)) {
       hint = " — note: inside the server's container, 127.0.0.1 is the container itself, NOT your node. Use your node's LAN IP or Docker gateway (often 172.17.0.1), and start Ollama with OLLAMA_HOST=0.0.0.0 so it accepts outside connections.";
     }
-    throw new Error(`AI endpoint unreachable at ${baseUrl} (${cause})${hint}`);
+    const wrapped = new Error(`AI endpoint unreachable at ${baseUrl} (${cause})${hint}`);
+    if (isTimeout) wrapped.code = 'AI_TIMEOUT';
+    throw wrapped;
   }
 
   if (!res.ok) {
@@ -112,6 +115,69 @@ async function chatCompletion(messages, { maxTokens, temperature, timeoutMs } = 
   const tokensUsed = data?.usage?.total_tokens ?? 0;
   usageStmt.run(today(), tokensUsed);
   return { text, tokensUsed };
+}
+
+// Concurrency gate for the AI endpoint. A CPU Ollama typically serves ONE
+// generation at a time — firing requests in parallel just makes them all time
+// out. Excess calls wait in line (waiting IS the retry); when the line is
+// unreasonably long, callers get an instant BUSY instead of a slow failure.
+const MAX_QUEUE = 8;
+const QUEUE_WAIT_MS = 90 * 1000;
+let activeCalls = 0;
+const aiQueue = [];
+
+function pumpAiQueue() {
+  const maxConcurrent = Math.max(1, Number(getSetting('ai.maxConcurrent')) || 1);
+  while (activeCalls < maxConcurrent && aiQueue.length) {
+    const entry = aiQueue.shift();
+    if (entry.cancelled) continue;
+    clearTimeout(entry.timer);
+    entry.start();
+  }
+}
+
+function withAiSlot(fn) {
+  return new Promise((resolve, reject) => {
+    const entry = {
+      cancelled: false,
+      timer: null,
+      start: async () => {
+        activeCalls++;
+        try {
+          resolve(await fn());
+        } catch (err) {
+          reject(err);
+        } finally {
+          activeCalls--;
+          pumpAiQueue();
+        }
+      },
+    };
+    const maxConcurrent = Math.max(1, Number(getSetting('ai.maxConcurrent')) || 1);
+    if (activeCalls < maxConcurrent) {
+      entry.start();
+      return;
+    }
+    if (aiQueue.length >= MAX_QUEUE) {
+      const err = new Error('AI queue is full');
+      err.code = 'AI_BUSY';
+      reject(err);
+      return;
+    }
+    entry.timer = setTimeout(() => {
+      entry.cancelled = true;
+      const err = new Error(`AI request waited ${Math.round(QUEUE_WAIT_MS / 1000)}s in the queue without a free slot`);
+      err.code = 'AI_BUSY';
+      reject(err);
+    }, QUEUE_WAIT_MS);
+    entry.timer.unref?.();
+    aiQueue.push(entry);
+  });
+}
+
+// Test helper: report gate state.
+export function _aiQueueState() {
+  return { activeCalls, queued: aiQueue.length };
 }
 
 // Answer a support question. Returns cleaned reply text, or null when the
@@ -139,7 +205,7 @@ export async function askAi(question, { history = [], assumeOnTopic = false } = 
     { role: 'user', content: String(question).slice(0, 2000) },
   ];
 
-  const { text } = await chatCompletion(messages);
+  const { text } = await withAiSlot(() => chatCompletion(messages));
   let reply = cleanReply(text);
   if (!reply) return null;
   // Guard only the instructions/rules — the KNOWLEDGE section is FAQ/guide
@@ -166,7 +232,7 @@ export async function testAiConnection() {
 // unreachable so the report always goes out.
 export async function composeDigest(statsText) {
   try {
-    const { text } = await chatCompletion(
+    const { text } = await withAiSlot(() => chatCompletion(
       [
         {
           role: 'system',
@@ -179,7 +245,7 @@ export async function composeDigest(statsText) {
         { role: 'user', content: statsText },
       ],
       { maxTokens: 400, temperature: 0.4 }
-    );
+    ));
     const cleaned = cleanReply(text, { maxChars: 3000 });
     if (cleaned) return { body: cleaned, ai: true };
   } catch {

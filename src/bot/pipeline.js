@@ -221,6 +221,19 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         }
         return 'offtopic';
       } catch (err) {
+        // Overloaded (queue full / waited too long / generation timed out):
+        // tell the user honestly instead of going silent. Queued requests that
+        // DID get a slot never land here — waiting in line is the retry.
+        if (err.code === 'AI_BUSY' || err.code === 'AI_TIMEOUT') {
+          setLogSource(logId, 'busy');
+          const busy = getSetting('bot.busyMessage');
+          if (busy) await ctx.api.sendMessage(ctx.chat.id, busy, replyParams).catch(() => {});
+          if (err.code === 'AI_TIMEOUT') {
+            state.bot.lastError = `AI: ${err.message}`;
+            alertAdmins('error', `⏱ AI overloaded/slow: ${String(err.message).slice(0, 200)}`);
+          }
+          return 'busy';
+        }
         console.error('AI error:', err.message);
         state.bot.lastError = `AI: ${err.message}`;
         alertAdmins('error', `❌ AI endpoint problem: ${String(err.message).slice(0, 200)}`);

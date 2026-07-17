@@ -45,6 +45,11 @@
         <input id="timeoutSeconds" name="timeoutSeconds" type="number" min="10" max="600" value="<%= s.timeoutSeconds %>">
       </div>
       <div>
+        <label for="maxConcurrent">Parallel AI answers (1 for CPU Ollama)</label>
+        <input id="maxConcurrent" name="maxConcurrent" type="number" min="1" max="8" value="<%= s.maxConcurrent %>">
+        <p class="hint">Extra questions wait in line automatically; when the line is full the bot replies with the "busy" message from Bot settings.</p>
+      </div>
+      <div>
         <label for="dailyBudget">Daily AI call budget (0 = unlimited)</label>
         <input id="dailyBudget" name="dailyBudget" type="number" min="0" max="100000" value="<%= s.dailyBudget %>">
       </div>

@@ -10,6 +10,7 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-test-'));
 const { db } = await import('../src/db/db.js');
 const { setSetting } = await import('../src/settings.js');
 const { answer, handleDirectMessage, handleGroupMessage, replyContext, _resetProblemTriage } = await import('../src/bot/pipeline.js');
+const { _aiQueueState } = await import('../src/ai/client.js');
 const { flushProblemAlerts, _resetProblemQueue } = await import('../src/bot/problems.js');
 const { hub } = await import('../src/bot/hub.js');
 const { state } = await import('../src/state.js');
@@ -17,6 +18,7 @@ const { state } = await import('../src/state.js');
 // Mock OpenAI-compatible endpoint: replies based on the question content.
 let aiServer;
 let aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+let aiDelayMs = 0;
 let lastAiRequest = null;
 
 before(async () => {
@@ -25,11 +27,13 @@ before(async () => {
     req.on('data', (c) => (body += c));
     req.on('end', () => {
       lastAiRequest = JSON.parse(body);
-      res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify({
-        choices: [{ message: { content: aiResponse } }],
-        usage: { total_tokens: 42 },
-      }));
+      setTimeout(() => {
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({
+          choices: [{ message: { content: aiResponse } }],
+          usage: { total_tokens: 42 },
+        }));
+      }, aiDelayMs);
     });
   });
   await new Promise((resolve) => aiServer.listen(0, '127.0.0.1', resolve));
@@ -127,6 +131,41 @@ test('a reply quoting the RULES section is still suppressed as a leak', async ()
   const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
   assert.notEqual(result, 'ai', 'instruction leak blocked');
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('simultaneous users queue for the single AI slot — nobody is dropped', async () => {
+  setSetting('ai.maxConcurrent', 1);
+  setSetting('bot.cooldownSeconds', 0);
+  aiDelayMs = 150;
+  aiResponse = 'Restart the app first, then check your connection.';
+
+  let peakActive = 0;
+  const watcher = setInterval(() => {
+    peakActive = Math.max(peakActive, _aiQueueState().activeCalls);
+  }, 10);
+  const ctxs = [96001, 96002, 96003].map((userId) =>
+    fakeCtx('why does my screen go black on vod?', { userId }));
+  await Promise.all(ctxs.map((ctx) => answer(ctx, ctx.message.text, { isDm: true, logId: null })));
+  clearInterval(watcher);
+
+  for (const ctx of ctxs) {
+    assert.equal(ctx.sent.length, 1, 'every queued user got their answer');
+    assert.match(ctx.sent[0].msg, /Restart the app/);
+  }
+  assert.ok(peakActive <= 1, `never more than 1 concurrent AI call (saw ${peakActive})`);
+  aiDelayMs = 0;
+});
+
+test('AI overload/timeout gets an honest busy reply instead of silence', async () => {
+  setSetting('ai.timeoutSeconds', 0.2); // 200ms
+  aiDelayMs = 600;
+  const ctx = fakeCtx('what does error 403 in the app mean?', { userId: 96010 });
+  const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.equal(result, 'busy');
+  assert.equal(ctx.sent.length, 1);
+  assert.match(ctx.sent[0].msg, /helping a lot of people/i);
+  aiDelayMs = 0;
+  setSetting('ai.timeoutSeconds', 90);
 });
 
 test('open ticket routes DM text into the ticket thread', async () => {

@@ -24,6 +24,7 @@ settingsRouter.get('/bot', (req, res) => {
       offtopicMessage: getSetting('bot.offtopicMessage'),
       fallbackMessage: getSetting('bot.fallbackMessage'),
       unsureMessage: getSetting('bot.unsureMessage'),
+      busyMessage: getSetting('bot.busyMessage'),
       problemFollowupNote: getSetting('bot.problemFollowupNote'),
       problemFlaggedNote: getSetting('bot.problemFlaggedNote'),
       problemResolvedNote: getSetting('bot.problemResolvedNote'),
@@ -47,6 +48,7 @@ settingsRouter.post('/bot', (req, res) => {
     'bot.offtopicMessage': String(b.offtopicMessage || '').slice(0, 500),
     'bot.fallbackMessage': String(b.fallbackMessage || '').slice(0, 500),
     'bot.unsureMessage': String(b.unsureMessage || '').slice(0, 500),
+    'bot.busyMessage': String(b.busyMessage || '').slice(0, 500),
     'bot.problemFollowupNote': String(b.problemFollowupNote || '').slice(0, 500),
     'bot.problemFlaggedNote': String(b.problemFlaggedNote || '').slice(0, 500),
     'bot.problemResolvedNote': String(b.problemResolvedNote || '').slice(0, 500),
@@ -100,6 +102,7 @@ settingsRouter.get('/ai', (req, res) => {
       maxTokens: getSetting('ai.maxTokens'),
       temperature: getSetting('ai.temperature'),
       timeoutSeconds: getSetting('ai.timeoutSeconds'),
+      maxConcurrent: getSetting('ai.maxConcurrent'),
       dailyBudget: getSetting('bot.aiDailyBudget'),
     },
     testResult: req.session.aiTestResult || null,
@@ -117,6 +120,7 @@ settingsRouter.post('/ai', (req, res) => {
     'ai.maxTokens': Math.max(50, Math.min(4000, Number(b.maxTokens) || 350)),
     'ai.temperature': Math.max(0, Math.min(2, Number(b.temperature) ?? 0.3)),
     'ai.timeoutSeconds': Math.max(10, Math.min(600, Number(b.timeoutSeconds) || 90)),
+    'ai.maxConcurrent': Math.max(1, Math.min(8, Number(b.maxConcurrent) || 1)),
     'bot.aiDailyBudget': Math.max(0, Math.min(100000, Number(b.dailyBudget) || 0)),
   });
   audit('admin', res.locals.admin.username, 'settings.ai.update', '', req.ip);
