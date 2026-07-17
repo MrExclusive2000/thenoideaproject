@@ -32,6 +32,12 @@ export const DEFAULTS = {
   'bot.problemNudgeMessage': "That was quick! 😄 Some of those steps take a few minutes to do properly — a router restart alone takes two. Give them a real go, and if it's still playing up afterwards, reply here and I'll flag it straight to the team.",
   // Sent when the user says the problem is fixed. Empty = off.
   'bot.problemResolvedNote': "Great — glad it's sorted! 👍",
+  // Reports answered but never confirmed auto-close after this many minutes
+  // (0 = off). Escalated reports are never auto-closed.
+  'bot.problemAutoCloseMinutes': 60,
+  // Sent once when auto-closing ({name} and {topic} are filled in; empty =
+  // close silently). A reply to it escalates straight to the admins.
+  'bot.problemAutoCloseMessage': "Haven't heard back {name}, so I'm assuming the {topic} issue got sorted — closing it off 👍 Still happening? Just reply here and I'll flag it straight to the team.",
   // Sent when the AI is overloaded (queue full or generation timed out).
   // Empty = stay silent.
   'bot.busyMessage': "I'm helping a lot of people right now 😅 — give me a minute and send your question again.",

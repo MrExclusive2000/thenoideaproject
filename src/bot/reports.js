@@ -3,6 +3,7 @@ import { getSetting, setSetting } from '../settings.js';
 import { composeDigest, aiUsageToday } from '../ai/client.js';
 import { hub } from './hub.js';
 import { vetSweep } from './joiners.js';
+import { autoCloseSweep } from './problems.js';
 
 // Instant alerts, throttled per type so a flapping error can't flood DMs.
 const lastAlert = new Map();
@@ -149,6 +150,7 @@ export function startSchedulers() {
     if (Date.now() - lastVetAt > 15 * 60 * 1000) {
       lastVetAt = Date.now();
       vetSweep().catch((err) => console.error('vet sweep failed:', err.message));
+      autoCloseSweep().catch((err) => console.error('auto-close sweep failed:', err.message));
     }
   }, 60 * 1000);
   timer.unref();

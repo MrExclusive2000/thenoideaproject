@@ -10,7 +10,7 @@ import {
   isLikelyInScope, recordProblem, extractProblemTopic,
 } from './helpers.js';
 import { alertAdmins } from './reports.js';
-import { queueProblemAlert } from './problems.js';
+import { queueProblemAlert, setProblemRearmHook } from './problems.js';
 import { hub } from './hub.js';
 
 // Per-user answer cooldowns and short DM conversation memory.
@@ -124,6 +124,12 @@ export function _resetProblemTriage() {
   problemState.clear();
   lastOutageAlertAt = 0;
 }
+
+// When auto-close messages a user ("assuming it's sorted — reply if not"),
+// re-arm their triage state so a late "still broken" escalates directly.
+setProblemRearmHook((userId) => {
+  problemState.set(userId, { at: Date.now(), escalatedAt: null, answeredAt: null, nudgedAt: Date.now() });
+});
 
 let lastOutageAlertAt = 0;
 function checkOutage() {
@@ -373,6 +379,9 @@ export async function handleGroupMessage(ctx) {
     // to the admins, and the user gets an ack instead of the same FAQ again.
     setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: Date.now() });
     recordProblem(ctx, text, { answered: true });
+    // Everything open from this user now belongs to the escalation — the
+    // auto-close sweep must never touch reports the admin was pinged about.
+    db.prepare('UPDATE problem_reports SET escalated = 1 WHERE tg_user_id = ? AND resolved = 0').run(ctx.from.id);
     // Give the admin the original report alongside the confirmation.
     const alertText = st?.firstText && st.firstText !== text ? `${st.firstText} — ${text}` : text;
     queueProblemAlert({

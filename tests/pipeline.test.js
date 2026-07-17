@@ -11,7 +11,7 @@ const { db } = await import('../src/db/db.js');
 const { setSetting } = await import('../src/settings.js');
 const { answer, handleDirectMessage, handleGroupMessage, replyContext, _resetProblemTriage } = await import('../src/bot/pipeline.js');
 const { _aiQueueState } = await import('../src/ai/client.js');
-const { flushProblemAlerts, _resetProblemQueue } = await import('../src/bot/problems.js');
+const { flushProblemAlerts, _resetProblemQueue, autoCloseSweep } = await import('../src/bot/problems.js');
 const { hub } = await import('../src/bot/hub.js');
 const { state } = await import('../src/state.js');
 
@@ -682,6 +682,71 @@ test('confirmations after a realistic delay escalate without a nudge', async () 
   await handleGroupMessage(later);
   assert.match(later.sent[0].msg, /Flagged to the team/, 'waited long enough — no nudge');
   setSetting('bot.problemNudgeMinutes', 0);
+  hub.api = null;
+});
+
+test('a report with no reply auto-closes with a message, and a late reply escalates', async () => {
+  setSetting('bot.problemAutoCloseMinutes', 60);
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  const sent = [];
+  hub.api = { sendMessage: async (id, text, extra) => { sent.push({ id, text, extra }); return { message_id: 1 }; } };
+
+  await handleGroupMessage(fakeCtx('itv keeps buffering for me', { chatType: 'group', userId: 99201 }));
+  // An hour passes with no confirmation…
+  db.prepare('UPDATE problem_reports SET ts = ts - 3700 WHERE tg_user_id = 99201').run();
+  _resetProblemTriage(); // in-memory window expired too
+
+  await autoCloseSweep();
+  const row = db.prepare('SELECT * FROM problem_reports WHERE tg_user_id = 99201').get();
+  assert.equal(row.resolved, 1, 'closed as presumed fixed');
+  const closing = sent.find((m) => /assuming/.test(m.text));
+  assert.ok(closing, 'closing message posted to the group');
+  assert.match(closing.text, /@tester/);
+  assert.match(closing.text, /buffering issue got sorted/);
+
+  await autoCloseSweep();
+  assert.equal(sent.filter((m) => /assuming/.test(m.text)).length, 1, 'not repeated on the next sweep');
+
+  // "no still broken" after the closing message goes straight to the admin.
+  const late = fakeCtx('nah still buffering', { chatType: 'group', userId: 99201 });
+  await handleGroupMessage(late);
+  assert.match(late.sent[0].msg, /Flagged to the team/);
+  await flushProblemAlerts();
+  assert.ok(sent.some((m) => m.id === 777 && /still buffering/.test(m.text)), 'admin DM sent');
+
+  setSetting('bot.problemAutoCloseMinutes', 0);
+  hub.api = null;
+});
+
+test('escalated reports are never auto-closed; ancient backlog closes silently', async () => {
+  setSetting('bot.problemAutoCloseMinutes', 60);
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  const sent = [];
+  hub.api = { sendMessage: async (id, text) => { sent.push({ id, text }); return { message_id: 1 }; } };
+
+  // Escalated: report + confirm.
+  await handleGroupMessage(fakeCtx('sky is buffering', { chatType: 'group', userId: 99202 }));
+  await handleGroupMessage(fakeCtx('still buffering mate', { chatType: 'group', userId: 99202 }));
+  db.prepare('UPDATE problem_reports SET ts = ts - 7200 WHERE tg_user_id = 99202').run();
+
+  // Ancient unescalated backlog row (2 days old).
+  db.prepare(`INSERT INTO problem_reports (chat_id, chat_title, tg_user_id, tg_user, text, topic, answered, ts)
+              VALUES (-100123, 'Test Group', 99203, 'olduser', 'freezing on bbc', 'freezing', 1, ${Math.floor(Date.now() / 1000) - 2 * 86400})`).run();
+
+  sent.length = 0;
+  await autoCloseSweep();
+
+  const escalated = db.prepare('SELECT resolved FROM problem_reports WHERE tg_user_id = 99202 AND escalated = 1').all();
+  assert.ok(escalated.length >= 1);
+  assert.ok(escalated.every((r) => r.resolved === 0), 'escalated reports left open for the admin');
+  assert.equal(db.prepare('SELECT resolved FROM problem_reports WHERE tg_user_id = 99203').get().resolved, 1, 'ancient row closed');
+  assert.equal(sent.length, 0, 'no messages for escalated or ancient rows');
+
+  setSetting('bot.problemAutoCloseMinutes', 0);
   hub.api = null;
 });
 

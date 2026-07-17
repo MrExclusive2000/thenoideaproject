@@ -1,3 +1,4 @@
+import { db, now } from '../db/db.js';
 import { getSetting } from '../settings.js';
 import { hub } from './hub.js';
 
@@ -54,5 +55,54 @@ export function _resetProblemQueue() {
   if (problemTimer) {
     clearTimeout(problemTimer);
     problemTimer = null;
+  }
+}
+
+// ---- Auto-close ------------------------------------------------------------
+// Silence usually means resolved: reports that were answered but never
+// confirmed get closed after bot.problemAutoCloseMinutes, with one friendly
+// group message that doubles as a last chance — the pipeline re-arms the
+// user's triage state so a late "no, still broken" escalates directly.
+// Escalated reports are NEVER auto-closed; those are in the admin's hands.
+
+let rearmHook = null;
+export function setProblemRearmHook(fn) {
+  rearmHook = fn;
+}
+
+export async function autoCloseSweep() {
+  const minutes = Number(getSetting('bot.problemAutoCloseMinutes')) || 0;
+  if (!minutes) return;
+  const t = now();
+  const stale = db.prepare('SELECT * FROM problem_reports WHERE resolved = 0 AND escalated = 0 AND ts < ?')
+    .all(t - minutes * 60);
+  if (!stale.length) return;
+
+  const template = String(getSetting('bot.problemAutoCloseMessage') || '');
+  const ancient = t - 24 * 3600;
+  const toMessage = new Map(); // one message per chat+user, not per report
+
+  for (const r of stale) {
+    db.prepare('UPDATE problem_reports SET resolved = 1 WHERE id = ?').run(r.id);
+    // Ancient backlog and never-answered reports close silently.
+    if (r.ts < ancient || !r.answered || !r.chat_id) continue;
+    const key = `${r.chat_id}:${r.tg_user_id}`;
+    if (!toMessage.has(key)) toMessage.set(key, r);
+  }
+
+  if (!template.trim() || !hub.online) return;
+  for (const r of toMessage.values()) {
+    const msg = template
+      .replace(/\{name\}/g, r.tg_user ? `@${r.tg_user}` : '')
+      .replace(/\{topic\}/g, r.topic || 'reported')
+      .replace(/\s+,/g, ',')
+      .replace(/ {2,}/g, ' ')
+      .trim();
+    try {
+      await hub.send(r.chat_id, msg);
+      rearmHook?.(r.tg_user_id);
+    } catch (err) {
+      console.error('auto-close message failed:', err.message);
+    }
   }
 }

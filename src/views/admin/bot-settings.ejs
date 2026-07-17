@@ -69,6 +69,11 @@
     <label for="problemNudgeMessage">The pushback message (sent at most once per report)</label>
     <input id="problemNudgeMessage" name="problemNudgeMessage" type="text" maxlength="500" value="<%= s.problemNudgeMessage %>">
     <p class="hint">Skipped when they give details (channel + time), say a specific check was fine ("username is right"), or when you've set a known service issue — no gaslighting during a real outage.</p>
+    <label for="problemAutoCloseMinutes">Auto-close: assume silence = fixed after this many minutes (0 = off)</label>
+    <input id="problemAutoCloseMinutes" name="problemAutoCloseMinutes" type="number" min="0" max="1440" value="<%= s.problemAutoCloseMinutes %>">
+    <label for="problemAutoCloseMessage">Closing message (<code>{name}</code> and <code>{topic}</code> are filled in; empty = close silently)</label>
+    <input id="problemAutoCloseMessage" name="problemAutoCloseMessage" type="text" maxlength="500" value="<%= s.problemAutoCloseMessage %>">
+    <p class="hint">Only applies to reports that never reached you — escalated reports stay open for you to resolve. If they reply to the closing message, it goes straight to you.</p>
   </div>
 
   <div class="card">

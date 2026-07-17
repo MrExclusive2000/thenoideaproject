@@ -246,6 +246,11 @@ const migrations = [
   );
   CREATE INDEX idx_joiners_status ON group_joiners(status, joined_at);
   `,
+  // v4 — escalated flag so auto-close never touches reports the admin was
+  // pinged about
+  `
+  ALTER TABLE problem_reports ADD COLUMN escalated INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 export function migrate(db) {
