@@ -285,6 +285,11 @@ const migrations = [
   );
   ALTER TABLE customers ADD COLUMN upsell_sent_at INTEGER;
   `,
+  // v8 — per-message ticket delivery state: 1 delivered, 0 stranded (bot
+  // offline / user never DMed the bot), NULL for customer-sent messages
+  `
+  ALTER TABLE ticket_messages ADD COLUMN delivered INTEGER;
+  `,
 ];
 
 export function migrate(db) {

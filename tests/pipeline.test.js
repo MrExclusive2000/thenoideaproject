@@ -1113,3 +1113,26 @@ test('chatty off-topic questions never reach the AI either', async () => {
   assert.ok(lastAiRequest, 'AI consulted');
   setSetting('bot.offtopicBehavior', 'silent');
 });
+
+test('stranded ticket replies auto-deliver when the customer next messages the bot', async () => {
+  const t = Math.floor(Date.now() / 1000);
+  db.prepare("INSERT INTO tickets (telegram_user_id, tg_username, subject, status, created_at, updated_at) VALUES (98111, 'ben', 'help', 'pending', ?, ?)").run(t, t);
+  const ticketId = db.prepare('SELECT id FROM tickets WHERE telegram_user_id = 98111').get().id;
+  db.prepare("INSERT INTO ticket_messages (ticket_id, sender, body, ts, delivered) VALUES (?, 'admin:boss', 'Your new login is ready — check the portal.', ?, 0)").run(ticketId, t);
+
+  const ctx = fakeCtx('thanks any update?', { userId: 98111 });
+  await handleDirectMessage(ctx);
+
+  assert.ok(ctx.sent.length >= 2, 'stranded reply + ticket ack both sent');
+  assert.match(ctx.sent[0].msg, /Your new login is ready/, 'stranded admin reply delivered first');
+  assert.match(ctx.sent[0].msg, /ticket #/, 'labelled as a support reply');
+  assert.match(ctx.sent[ctx.sent.length - 1].msg, /Added to your ticket/, 'normal ticket ack still sent');
+  const row = db.prepare('SELECT delivered FROM ticket_messages WHERE ticket_id = ? AND sender = ?').get(ticketId, 'admin:boss');
+  assert.equal(row.delivered, 1, 'marked delivered');
+
+  // Second message must not re-deliver it.
+  const ctx2 = fakeCtx('cheers', { userId: 98111 });
+  await handleDirectMessage(ctx2);
+  assert.ok(ctx2.sent.every((s) => !/Your new login is ready/.test(s.msg)), 'not delivered twice');
+  db.prepare('DELETE FROM tickets WHERE id = ?').run(ticketId);
+});

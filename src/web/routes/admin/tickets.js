@@ -29,27 +29,60 @@ ticketsRouter.get('/tickets/:id', (req, res) => {
   res.render('admin/ticket-view', { title: `Ticket #${ticket.id}`, ticket, messages, formatDate, botOnline: hub.online });
 });
 
+// Why a delivery attempt failed, in words the admin can act on.
+function deliveryHint(err) {
+  return /403|blocked|initiate|chat not found|deactivated/i.test(String(err?.message))
+    ? " — Telegram only lets the bot DM people who have messaged it first. The reply is saved and will be DELIVERED AUTOMATICALLY the moment they message the bot (or use Resend later)."
+    : '';
+}
+
+async function deliverTicketMessage(ticket, messageId, body) {
+  try {
+    await hub.send(ticket.telegram_user_id, `💬 Support reply (ticket #${ticket.id}):\n\n${body}\n\nReply here to continue the conversation.`);
+    db.prepare('UPDATE ticket_messages SET delivered = 1 WHERE id = ?').run(messageId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, err };
+  }
+}
+
 ticketsRouter.post('/tickets/:id/reply', async (req, res) => {
   const ticket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(req.params.id);
   const body = String(req.body.body || '').trim().slice(0, 3500);
   if (!ticket || !body) return res.redirect(`/admin/tickets/${req.params.id}`);
 
-  db.prepare('INSERT INTO ticket_messages (ticket_id, sender, body, ts) VALUES (?, ?, ?, ?)')
+  const info = db.prepare('INSERT INTO ticket_messages (ticket_id, sender, body, ts, delivered) VALUES (?, ?, ?, ?, 0)')
     .run(ticket.id, `admin:${res.locals.admin.username}`, body, now());
   db.prepare("UPDATE tickets SET status = 'pending', updated_at = ? WHERE id = ?").run(now(), ticket.id);
   audit('admin', res.locals.admin.username, 'ticket.reply', `#${ticket.id}`, req.ip);
 
-  // Relay to the customer over Telegram when possible.
-  if (ticket.telegram_user_id && hub.online) {
-    try {
-      await hub.send(ticket.telegram_user_id, `💬 Support reply (ticket #${ticket.id}):\n\n${body}\n\nReply here to continue the conversation.`);
-      flash(req, 'ok', 'Reply saved and sent to the customer on Telegram.');
-    } catch (err) {
-      flash(req, 'err', `Reply saved, but Telegram delivery failed: ${err.message}`);
-    }
+  // Relay to the customer over Telegram — and be HONEST about the outcome:
+  // the message stays marked undelivered until Telegram actually accepted it.
+  if (!ticket.telegram_user_id) {
+    flash(req, 'err', 'Reply saved but NOT delivered — this ticket has no Telegram account attached, so the customer cannot receive it.');
+  } else if (!hub.online) {
+    flash(req, 'err', 'Reply saved but NOT delivered — the bot is offline. Use Resend when it is back (or it auto-delivers when the customer next messages the bot).');
   } else {
-    flash(req, 'ok', 'Reply saved. (No linked Telegram account to deliver it to — they will not see it unless they contact the bot.)');
+    const result = await deliverTicketMessage(ticket, info.lastInsertRowid, body);
+    flash(req, result.ok ? 'ok' : 'err', result.ok
+      ? 'Reply delivered to the customer on Telegram. ✓'
+      : `Reply saved but NOT delivered: ${result.err.message}${deliveryHint(result.err)}`);
   }
+  res.redirect(`/admin/tickets/${ticket.id}`);
+});
+
+ticketsRouter.post('/tickets/:id/resend/:msgId', async (req, res) => {
+  const ticket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(req.params.id);
+  const msg = db.prepare('SELECT * FROM ticket_messages WHERE id = ? AND ticket_id = ?').get(req.params.msgId, req.params.id);
+  if (!ticket || !msg) return res.redirect('/admin/tickets');
+  if (!ticket.telegram_user_id || !hub.online) {
+    flash(req, 'err', !ticket.telegram_user_id ? 'No Telegram account attached to this ticket.' : 'Bot is offline.');
+    return res.redirect(`/admin/tickets/${ticket.id}`);
+  }
+  const result = await deliverTicketMessage(ticket, msg.id, msg.body);
+  flash(req, result.ok ? 'ok' : 'err', result.ok
+    ? 'Delivered. ✓'
+    : `Still not delivered: ${result.err.message}${deliveryHint(result.err)}`);
   res.redirect(`/admin/tickets/${ticket.id}`);
 });
 

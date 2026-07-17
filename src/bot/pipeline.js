@@ -568,6 +568,20 @@ export async function handleDirectMessage(ctx) {
     "SELECT * FROM tickets WHERE telegram_user_id = ? AND status != 'closed' ORDER BY id DESC LIMIT 1"
   ).get(ctx.from.id);
   if (openTicket) {
+    // The customer is talking to us — deliver any admin replies that were
+    // stranded earlier (bot offline, or Telegram refused to DM them before
+    // they ever messaged the bot). This is the self-healing path.
+    const strandedReplies = db.prepare(
+      "SELECT * FROM ticket_messages WHERE ticket_id = ? AND sender LIKE 'admin%' AND delivered = 0 ORDER BY id"
+    ).all(openTicket.id);
+    for (const m of strandedReplies) {
+      try {
+        await ctx.reply(`💬 Support reply (ticket #${openTicket.id}):\n\n${m.body}`);
+        db.prepare('UPDATE ticket_messages SET delivered = 1 WHERE id = ?').run(m.id);
+      } catch {
+        break; // still failing — keep them queued
+      }
+    }
     db.prepare('INSERT INTO ticket_messages (ticket_id, sender, body, ts) VALUES (?, ?, ?, ?)')
       .run(openTicket.id, 'customer', text.slice(0, 3500), now());
     db.prepare("UPDATE tickets SET status = 'open', updated_at = ? WHERE id = ?").run(now(), openTicket.id);

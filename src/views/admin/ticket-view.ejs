@@ -8,6 +8,11 @@
   · opened <%= formatDate(ticket.created_at) %> · <a href="/admin/tickets">← all tickets</a>
 </p>
 
+<% const stranded = messages.filter((m) => m.sender.startsWith('admin') && m.delivered === 0); %>
+<% if (stranded.length) { %>
+<div class="flash flash-err">⚠️ <%= stranded.length %> repl<%= stranded.length > 1 ? 'ies have' : 'y has' %> NOT reached the customer yet. It delivers automatically the moment they message the bot — or press Resend below.</div>
+<% } %>
+
 <div class="card">
   <% for (const m of messages) { %>
   <div style="margin-bottom:14px">
@@ -15,8 +20,16 @@
       <strong style="color:<%= m.sender.startsWith('admin') ? 'var(--accent)' : 'var(--text)' %>">
         <%= m.sender.startsWith('admin') ? m.sender.replace('admin:', '') + ' (admin)' : 'customer' %>
       </strong> · <%= formatDate(m.ts) %>
+      <% if (m.sender.startsWith('admin') && m.delivered === 1) { %><span class="badge badge-ok">delivered ✓</span><% } %>
+      <% if (m.sender.startsWith('admin') && m.delivered === 0) { %><span class="badge badge-bad">not delivered</span><% } %>
     </div>
     <div style="white-space:pre-wrap"><%= m.body %></div>
+    <% if (m.sender.startsWith('admin') && m.delivered === 0) { %>
+    <form method="post" action="/admin/tickets/<%= ticket.id %>/resend/<%= m.id %>" style="margin-top:4px">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <button class="btn-ghost btn-sm">Resend</button>
+    </form>
+    <% } %>
   </div>
   <% } %>
 </div>
