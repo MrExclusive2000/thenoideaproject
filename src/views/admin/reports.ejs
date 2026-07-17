@@ -44,6 +44,23 @@
     <div class="checkline"><input type="checkbox" id="alertProblems" name="alertProblems" value="1" <%= s.alertProblems ? 'checked' : '' %>><label for="alertProblems">Problem reports in the group (buffering, channels down…) — batched, with outage detection</label></div>
     <div class="checkline"><input type="checkbox" id="alertBannedWords" name="alertBannedWords" value="1" <%= s.alertBannedWords ? 'checked' : '' %>><label for="alertBannedWords">Banned-word triggers</label></div>
 
+    <h2>Automatic degradation</h2>
+    <p class="hint">When this many <strong>different people</strong> report service-wide problems (buffering, streams not loading, login failures) within the window, the service status flips to <em>degraded</em> automatically — reporters see the known-issue banner, and you get a DM. Complaints about a single episode or movie never count. The status clears itself once reports stop; a status you set by hand is never touched.</p>
+    <div class="row">
+      <div>
+        <label for="degradeThreshold">People reporting (0 = off)</label>
+        <input id="degradeThreshold" name="degradeThreshold" type="number" min="0" max="50" value="<%= s.degradeThreshold %>">
+      </div>
+      <div>
+        <label for="degradeWindowMinutes">Within (minutes)</label>
+        <input id="degradeWindowMinutes" name="degradeWindowMinutes" type="number" min="5" max="120" value="<%= s.degradeWindowMinutes %>">
+      </div>
+      <div>
+        <label for="degradeRecoverMinutes">Auto-clear after quiet (minutes)</label>
+        <input id="degradeRecoverMinutes" name="degradeRecoverMinutes" type="number" min="5" max="720" value="<%= s.degradeRecoverMinutes %>">
+      </div>
+    </div>
+
     <h2>AI digest</h2>
     <div class="row">
       <div>

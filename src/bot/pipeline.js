@@ -10,7 +10,7 @@ import {
   isLikelyInScope, recordProblem, extractProblemTopic, isAdminUser,
 } from './helpers.js';
 import { alertAdmins } from './reports.js';
-import { queueProblemAlert, setProblemRearmHook } from './problems.js';
+import { queueProblemAlert, setProblemRearmHook, maybeAutoDegrade } from './problems.js';
 import { hub } from './hub.js';
 
 // Per-user answer cooldowns and short DM conversation memory.
@@ -155,6 +155,13 @@ setProblemRearmHook((userId) => {
 
 let lastOutageAlertAt = 0;
 function checkOutage() {
+  // Widespread symptoms flip the service status automatically (with its own
+  // admin alert); the plain outage ping below stays as the fallback for
+  // content-issue storms or when auto-degradation is switched off.
+  if (maybeAutoDegrade()) {
+    lastOutageAlertAt = Date.now();
+    return;
+  }
   if (Date.now() - lastOutageAlertAt < 30 * 60 * 1000) return;
   const distinct = db.prepare(
     'SELECT COUNT(DISTINCT tg_user_id) n FROM problem_reports WHERE ts > ?'
@@ -180,7 +187,7 @@ function stripMention(text) {
 // FAQ instead of continuing the conversation. `suffix` is appended to any
 // actual answer (e.g. "flagged to the team" after a problem report).
 // Exported so tests can drive it with a fake ctx.
-export async function answer(ctx, question, { isDm, logId, history: providedHistory = null, skipFaq = false, suffix = null, prefix = null }) {
+export async function answer(ctx, question, { isDm, logId, history: providedHistory = null, skipFaq = false, suffix = null, prefix = null, assumeOnTopic: forceOnTopic = false }) {
   const faqs = db.prepare('SELECT * FROM faqs WHERE enabled = 1').all();
   const threshold = Number(getSetting('faq.threshold')) || 0.5;
   const result = skipFaq ? { match: null, nearMiss: null } : matchFaq(question, faqs, threshold);
@@ -190,6 +197,16 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
   if (result.match) {
     db.prepare('UPDATE faqs SET hit_count = hit_count + 1 WHERE id = ?').run(result.match.id);
     setLogSource(logId, 'faq');
+    // FAQ answers join the DM conversation memory too, so a bare follow-up
+    // ("THM4821" after the which-service FAQ) reaches the AI with context.
+    if (isDm) {
+      const historyKey = `${ctx.chat.id}:${ctx.from.id}`;
+      dmHistory.set(historyKey, [
+        ...(dmHistory.get(historyKey) || []),
+        { role: 'user', content: question },
+        { role: 'assistant', content: String(result.match.answer).slice(0, 1500) },
+      ].slice(-6));
+    }
     const sent = await sendChunked(ctx.api, ctx.chat.id, withSuffix(result.match.answer), {
       ...replyParams,
       reply_markup: feedbackKeyboard(),
@@ -210,7 +227,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         // A problem report, an FAQ near-miss, or plain app/device vocabulary
         // means we already KNOW this is on-topic — stop the model bailing to
         // OFFTOPIC on legit questions (e.g. "how do I enable developer options").
-        const assumeOnTopic = looksLikeProblem(question) || Boolean(result.nearMiss) || isLikelyInScope(question);
+        const assumeOnTopic = forceOnTopic || looksLikeProblem(question) || Boolean(result.nearMiss) || isLikelyInScope(question);
         const reply = await askAi(question, { history, assumeOnTopic });
 
         if (reply) {
@@ -463,8 +480,10 @@ export async function handleGroupMessage(ctx) {
     setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: null, firstText: text.slice(0, 200) });
     problemId = recordProblem(ctx, text, { answered: false });
     problemSuffix = getSetting('bot.problemFollowupNote') || null;
-    problemPrefix = serviceStatusLine();
+    // Outage/degradation check BEFORE building the banner: the report that
+    // tips the threshold gets the known-issue banner on its own answer.
     checkOutage();
+    problemPrefix = serviceStatusLine();
   }
 
   if (!shouldAnswer) return;
@@ -483,7 +502,10 @@ export async function handleGroupMessage(ctx) {
     ];
   }
 
-  const outcome = await answer(ctx, question, { isDm: false, logId, history, skipFaq: isFollowUp, suffix: problemSuffix, prefix: problemPrefix });
+  // Replying to the bot's own message is by definition an on-topic
+  // conversation — a bare "THM4821" after the which-service answer must not
+  // be brushed off as OFFTOPIC.
+  const outcome = await answer(ctx, question, { isDm: false, logId, history, skipFaq: isFollowUp, suffix: problemSuffix, prefix: problemPrefix, assumeOnTopic: isFollowUp });
 
   // Only mark the report answered when a real answer actually went out —
   // and remember WHEN, so too-quick confirmations can be nudged.

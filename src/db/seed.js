@@ -4,7 +4,7 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 13;
+const SEED_VERSION = 14;
 
 export const STARTER_FAQS = [
   {
@@ -100,7 +100,7 @@ export const STARTER_FAQS = [
     // Ships DISABLED — the admin must replace the two service names first,
     // then enable it in the panel.
     question: 'Which service am I on?',
-    answer: "Easy way to tell — look at the username you log in with:\n- If it's randomly generated (a mix of letters and numbers), you're on SERVICE-NAME-1.\n- If it starts with THM, you're on SERVICE-NAME-2.\nStill not sure? Ask here and we'll check for you.",
+    answer: "Easy way to tell — look at the username you log in with:\n- If it's randomly generated (a mix of letters and numbers), you're on SERVICE-NAME-1.\n- If it starts with THM, you're on SERVICE-NAME-2.\nNot sure? Reply to this message with just your username (never your password!) and I'll tell you.",
     keywords: 'service, services, which, provider, thm, username, generated, subscribed',
     enabled: 0,
   },
@@ -274,6 +274,8 @@ const V11_UPDATE =
   'On a Firestick: open the Downloader app, enter code 9804805 again and install the newest version straight over the old one — your settings are kept. On Android: open https://aftv.news/9804805 in your browser again. You can also message me /version to see the latest version.';
 const V11_WHICH_APP =
   'Use the Purple App as your main app. XC and Smarters are backups — install at least one of them too. The same login works in every app, so if one ever plays up, just switch to a backup and carry on.';
+const V13_WHICH_SERVICE =
+  "Easy way to tell — look at the username you log in with:\n- If it's randomly generated (a mix of letters and numbers), you're on SERVICE-NAME-1.\n- If it starts with THM, you're on SERVICE-NAME-2.\nStill not sure? Ask here and we'll check for you.";
 
 const V1_ANSWERS = {
   'How do I install the app on my Firestick?': 'Easiest way is with the Downloader app:\n1. On the Firestick go to Settings > My Fire TV > Developer Options and allow apps from unknown sources (or allow Downloader there).\n2. Install "Downloader" from the Amazon app store.\n3. Open Downloader and enter the download link or code from our portal.\n4. Install the APK when it finishes, open the app and sign in.\nGot a portal login? Message me /download in a private chat and I’ll send the file or a code.',
@@ -295,6 +297,7 @@ function previousDefaults(question) {
   if (question === 'How do I install the app on an Android phone or tablet?') out.push(V10_ANDROID);
   if (question === 'How do I update the app to the latest version?') out.push(V10_UPDATE, V11_UPDATE);
   if (question === 'Which app should I use — Purple, XC or Smarters?') out.push(V11_WHICH_APP);
+  if (question === 'Which service am I on?') out.push(V13_WHICH_SERVICE);
   return out;
 }
 

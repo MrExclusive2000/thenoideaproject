@@ -64,6 +64,15 @@ export const DEFAULTS = {
 
   'service.status': 'operational', // operational | degraded | maintenance
   'service.note': '',
+  // Set (to a timestamp) when the status was flipped by auto-degradation —
+  // lets the recovery sweep clear it without ever touching an admin-set one.
+  'service.autoDegradedAt': 0,
+  // Automatic degradation: this many DIFFERENT people reporting service-wide
+  // problems (single episodes/movies excluded) within the window flips the
+  // service status to 'degraded'. 0 = off.
+  'problems.degradeThreshold': 3,
+  'problems.degradeWindowMinutes': 15,
+  'problems.degradeRecoverMinutes': 30,
   'service.announceChanges': false,
 
   'files.autoAnnounce': false,

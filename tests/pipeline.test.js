@@ -43,6 +43,8 @@ before(async () => {
   // Most triage tests confirm instantly on purpose; the too-quick nudge has
   // its own dedicated tests that switch this on.
   setSetting('bot.problemNudgeMinutes', 0);
+  // Auto-degradation has its own dedicated tests; keep it out of the rest.
+  setSetting('problems.degradeThreshold', 0);
 
   db.prepare(`INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at)
               VALUES ('How do I install on Firestick?', 'Use the Downloader app with our code.', 'install, firestick, downloader', 1, 0, 0, 0)`).run();
@@ -931,5 +933,63 @@ test('a full answer ending with a dead-end question is stripped before sending',
   assert.equal(ctx.sent.length, 1);
   assert.doesNotMatch(ctx.sent[0].msg, /other specific questions/, 'dead-end question removed');
   assert.doesNotMatch(ctx.sent[0].msg.trimEnd(), /\?$/, 'reply no longer ends with a question');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('three people reporting buffering auto-degrades; the tipping reporter sees the banner', async () => {
+  const { getSetting } = await import('../src/settings.js');
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.responseMode', 'questions');
+  setSetting('problems.degradeThreshold', 3);
+  setSetting('service.status', 'operational');
+  setSetting('service.note', '');
+  setSetting('service.autoDegradedAt', 0);
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
+
+  const ctxs = [];
+  for (const [userId, text] of [
+    [93001, 'buffering on bbc one'],
+    [93002, 'sky sports keeps buffering'],
+    [93003, 'everything is buffering for me'],
+  ]) {
+    const ctx = fakeCtx(text, { chatType: 'group', userId });
+    await handleGroupMessage(ctx);
+    ctxs.push(ctx);
+  }
+
+  assert.equal(getSetting('service.status'), 'degraded', 'status flipped automatically');
+  assert.doesNotMatch(ctxs[0].sent[0].msg, /aware of a service issue/, 'first reporter: no banner yet');
+  assert.match(ctxs[2].sent[0].msg, /aware of a service issue/, 'tipping reporter sees the banner');
+  await new Promise((r) => setTimeout(r, 20));
+  assert.ok(adminDms.some((d) => /DEGRADED automatically/.test(d.text)), 'admin DMed about the degradation');
+
+  hub.api = null;
+  setSetting('problems.degradeThreshold', 0);
+  setSetting('service.status', 'operational');
+  setSetting('service.note', '');
+  setSetting('service.autoDegradedAt', 0);
+  _resetProblemTriage();
+  _resetProblemQueue();
+});
+
+test('which-service flow: a bare username replied to the bot is answered with context', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  aiResponse = "Your username starts with THM, so you're on Thames.";
+  const ctx = fakeCtx('THM4821', { chatType: 'group', userId: 93010 });
+  ctx.message.reply_to_message = {
+    from: { id: 999 },
+    message_id: 4242,
+    text: "Easy way to tell — look at the username you log in with. If it starts with THM, you're on Thames; randomly generated means Flix. Not sure? Reply to this message with just your username and I'll tell you.",
+  };
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 1, 'bare username follow-up answered');
+  assert.match(ctx.sent[0].msg, /Thames/);
+  const msgs = lastAiRequest.messages;
+  assert.ok(msgs.some((m) => m.role === 'assistant' && /starts with THM/.test(m.content)), 'the rule went along as history');
+  assert.ok(msgs.some((m) => m.role === 'system' && /IS in scope/.test(m.content)), 'reply-to-bot forced on-topic');
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });

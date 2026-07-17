@@ -9,7 +9,8 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-problems-'))
 const { db } = await import('../src/db/db.js');
 const { setSetting } = await import('../src/settings.js');
 const { recordProblem } = await import('../src/bot/helpers.js');
-const { queueProblemAlert, flushProblemAlerts, _resetProblemQueue } = await import('../src/bot/problems.js');
+const { queueProblemAlert, flushProblemAlerts, _resetProblemQueue, maybeAutoDegrade, degradeRecoverySweep } = await import('../src/bot/problems.js');
+const { getSetting } = await import('../src/settings.js');
 const { hub } = await import('../src/bot/hub.js');
 
 function fakeCtx(text, userId = 100) {
@@ -86,4 +87,91 @@ test('flush with the bot offline does not throw', async () => {
   hub.api = null;
   queueProblemAlert({ tg_user: 'a', tg_user_id: 1, text: 'buffering', topic: 'buffering' });
   await flushProblemAlerts(); // must resolve, not reject
+});
+
+test('auto-degradation flips the status when 3 different people report wide problems', async () => {
+  setSetting('service.status', 'operational');
+  setSetting('service.note', '');
+  setSetting('service.autoDegradedAt', 0);
+  setSetting('problems.degradeThreshold', 3);
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
+
+  recordProblem(fakeCtx('buffering on bbc one', 201), 'buffering on bbc one');
+  recordProblem(fakeCtx('itv keeps freezing', 202), 'itv keeps freezing');
+  assert.equal(maybeAutoDegrade(), false, 'two people is not degradation');
+  assert.equal(getSetting('service.status'), 'operational');
+
+  recordProblem(fakeCtx('nothing will load for me', 203), 'nothing will load for me');
+  assert.equal(maybeAutoDegrade(), true, 'three people tips it');
+  assert.equal(getSetting('service.status'), 'degraded');
+  assert.ok(getSetting('service.note').length > 0, 'note set for the banner');
+  assert.ok(Number(getSetting('service.autoDegradedAt')) > 0, 'marked as auto-set');
+  await new Promise((r) => setTimeout(r, 20));
+  assert.ok(adminDms.some((d) => /DEGRADED automatically/.test(d.text)), 'admin told');
+  assert.equal(maybeAutoDegrade(), false, 'does not re-fire while already degraded');
+  hub.api = null;
+  setSetting('service.status', 'operational');
+  setSetting('service.note', '');
+  setSetting('service.autoDegradedAt', 0);
+});
+
+test('single-title complaints never count toward degradation', () => {
+  setSetting('service.status', 'operational');
+  setSetting('problems.degradeThreshold', 3);
+  recordProblem(fakeCtx('episode 3 of severance wont play', 301), 'episode 3 of severance wont play');
+  recordProblem(fakeCtx('the movie is in spanish', 302), 'the movie is in spanish');
+  recordProblem(fakeCtx('season 2 finale is broken', 303), 'season 2 finale is broken');
+  recordProblem(fakeCtx('that film keeps crashing', 304), 'that film keeps crashing');
+  assert.equal(maybeAutoDegrade(), false, 'content issues are not degradation');
+  assert.equal(getSetting('service.status'), 'operational');
+  // But three WIDE reporters alongside them still tip it.
+  recordProblem(fakeCtx('buffering on sky sports', 305), 'buffering on sky sports');
+  recordProblem(fakeCtx('everything is buffering', 306), 'everything is buffering');
+  recordProblem(fakeCtx('streams wont load', 307), 'streams wont load');
+  assert.equal(maybeAutoDegrade(), true);
+  setSetting('service.status', 'operational');
+  setSetting('service.note', '');
+  setSetting('service.autoDegradedAt', 0);
+});
+
+test('an admin-set status is never overwritten by auto-degradation', () => {
+  setSetting('service.status', 'maintenance');
+  setSetting('problems.degradeThreshold', 3);
+  recordProblem(fakeCtx('buffering on bbc one', 401), 'buffering on bbc one');
+  recordProblem(fakeCtx('itv keeps freezing', 402), 'itv keeps freezing');
+  recordProblem(fakeCtx('nothing loads', 403), 'nothing loads');
+  assert.equal(maybeAutoDegrade(), false);
+  assert.equal(getSetting('service.status'), 'maintenance');
+  setSetting('service.status', 'operational');
+});
+
+test('auto-degradation recovers by itself once reports stop', async () => {
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
+  // Auto-degraded earlier, no reports since (beforeEach cleared the table).
+  setSetting('service.status', 'degraded');
+  setSetting('service.note', 'auto note');
+  setSetting('service.autoDegradedAt', Math.floor(Date.now() / 1000) - 3600);
+  await degradeRecoverySweep();
+  assert.equal(getSetting('service.status'), 'operational', 'status restored');
+  assert.equal(getSetting('service.note'), '', 'note cleared');
+  assert.equal(Number(getSetting('service.autoDegradedAt')), 0);
+  assert.ok(adminDms.some((d) => /back to operational/.test(d.text)), 'admin told of recovery');
+
+  // Fresh wide reports keep it degraded.
+  setSetting('service.status', 'degraded');
+  setSetting('service.autoDegradedAt', Math.floor(Date.now() / 1000) - 3600);
+  recordProblem(fakeCtx('still buffering everywhere', 501), 'still buffering everywhere');
+  await degradeRecoverySweep();
+  assert.equal(getSetting('service.status'), 'degraded', 'recent reports keep it degraded');
+
+  // Admin changed the status meanwhile → sweep only stops tracking.
+  setSetting('service.status', 'maintenance');
+  await degradeRecoverySweep();
+  assert.equal(getSetting('service.status'), 'maintenance', 'admin status untouched');
+  assert.equal(Number(getSetting('service.autoDegradedAt')), 0, 'tracking flag cleared');
+  hub.api = null;
+  setSetting('service.status', 'operational');
+  setSetting('service.note', '');
 });

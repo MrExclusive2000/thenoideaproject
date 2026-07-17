@@ -22,6 +22,9 @@ reportsRouter.get('/reports', (req, res) => {
       alertBannedWords: getSetting('reports.alertBannedWords'),
       alertTickets: getSetting('reports.alertTickets'),
       alertProblems: getSetting('reports.alertProblems'),
+      degradeThreshold: getSetting('problems.degradeThreshold'),
+      degradeWindowMinutes: getSetting('problems.degradeWindowMinutes'),
+      degradeRecoverMinutes: getSetting('problems.degradeRecoverMinutes'),
       digest: getSetting('reports.digest'),
       digestHour: getSetting('reports.digestHour'),
       expiryReminderDays: getSetting('portal.expiryReminderDays'),
@@ -41,6 +44,9 @@ reportsRouter.post('/reports/service', async (req, res) => {
     'service.status': status,
     'service.note': note,
     'service.announceChanges': req.body.announceChanges === '1',
+    // An admin-set status is authoritative — stop the auto-degradation
+    // recovery sweep from touching it.
+    'service.autoDegradedAt': 0,
   });
   audit('admin', res.locals.admin.username, 'service.status', `${status}${note ? ` — ${note}` : ''}`, req.ip);
 
@@ -65,6 +71,9 @@ reportsRouter.post('/reports/settings', (req, res) => {
     'reports.alertBannedWords': req.body.alertBannedWords === '1',
     'reports.alertTickets': req.body.alertTickets === '1',
     'reports.alertProblems': req.body.alertProblems === '1',
+    'problems.degradeThreshold': Math.max(0, Math.min(50, Number(req.body.degradeThreshold) || 0)),
+    'problems.degradeWindowMinutes': Math.max(5, Math.min(120, Number(req.body.degradeWindowMinutes) || 15)),
+    'problems.degradeRecoverMinutes': Math.max(5, Math.min(720, Number(req.body.degradeRecoverMinutes) || 30)),
     'reports.digest': ['off', 'daily', 'weekly'].includes(req.body.digest) ? req.body.digest : 'off',
     'reports.digestHour': Math.max(0, Math.min(23, Number(req.body.digestHour) || 9)),
     'portal.expiryReminderDays': Math.max(1, Math.min(30, Number(req.body.expiryReminderDays) || 3)),

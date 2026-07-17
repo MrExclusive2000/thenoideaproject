@@ -145,6 +145,14 @@ export function isLikelyInScope(text) {
   return false;
 }
 
+// A complaint about ONE title (a broken episode, a movie in the wrong
+// language) is a content problem, not a service problem — it must never count
+// toward automatic degradation detection, which watches for widespread
+// symptoms like buffering or streams not loading.
+export function isContentIssue(text) {
+  return /\b(episode|episodes|season|series|movie|movies|film|films|documentary|s\d{1,2}\s?e\d{1,3})\b/i.test(String(text));
+}
+
 // Best-effort label for a problem report so admin alerts can group them
 // ("buffering ×4"). Returns null when nothing recognizable is found.
 export function extractProblemTopic(text) {
