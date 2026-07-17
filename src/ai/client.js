@@ -1,6 +1,6 @@
 import { db, now } from '../db/db.js';
 import { getSetting } from '../settings.js';
-import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion, stripInvitationTail } from './guardrails.js';
+import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion } from './guardrails.js';
 
 const usageStmt = db.prepare(
   'INSERT INTO ai_usage (day, calls, tokens) VALUES (?, 1, ?) ' +
@@ -231,7 +231,7 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
     ...(smallTalk
       ? [{
           role: 'system',
-          content: `Exception, just this once: the next user message is off-topic small talk, and you may answer it. Reply with one or two short, friendly, lightly witty sentences. If you do not genuinely know the answer (live scores, news, weather), say so playfully instead of guessing. You may add a short nudge that service questions are what you're really here for. Do NOT reply ${OFFTOPIC_SENTINEL}, and do NOT ask the user anything — no questions at all, and no invitations to keep chatting ('feel free to ask').`,
+          content: `Exception, just this once: the next user message is off-topic small talk, and you may answer it. Reply with one or two short, friendly, lightly witty sentences. If you do not genuinely know the answer (live scores, news, weather), say so playfully instead of guessing. Do NOT add a closing nudge or invitation — the system appends its own line steering back to support. Do NOT reply ${OFFTOPIC_SENTINEL}, and do NOT ask the user anything — no questions at all, and no invitations to keep chatting ('feel free to ask', 'what about you').`,
         }]
       : []),
     ...history.slice(-6),
@@ -253,7 +253,7 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
   // Banter gets no clarifying-question exception: a reply that is still a
   // question ("Why do you ask?") is conversation-fishing — suppress it and
   // let the caller fall back to the brush-off message.
-  if (smallTalk && reply.trimEnd().endsWith('?')) return null;
+  if (smallTalk && endsWithQuestion(reply)) return null;
   // Guard only the instructions/rules — the KNOWLEDGE section is FAQ/guide
   // text the model is SUPPOSED to repeat, so checking against the full prompt
   // would kill correct answers that quote the knowledge.

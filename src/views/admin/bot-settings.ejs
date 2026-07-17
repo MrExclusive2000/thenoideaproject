@@ -62,7 +62,7 @@
     <div class="row">
       <div>
         <label for="serviceName1">Service 1 name (random usernames)</label>
-        <input id="serviceName1" name="serviceName1" type="text" maxlength="60" value="<%= s.serviceName1 %>" placeholder="e.g. Flix">
+        <input id="serviceName1" name="serviceName1" type="text" maxlength="60" value="<%= s.serviceName1 %>" placeholder="e.g. Exclusive">
       </div>
       <div>
         <label for="serviceUrl1">Service 1 URL</label>
@@ -72,7 +72,7 @@
     <div class="row">
       <div>
         <label for="serviceName2">Service 2 name (THM-prefixed or name-style usernames)</label>
-        <input id="serviceName2" name="serviceName2" type="text" maxlength="60" value="<%= s.serviceName2 %>">
+        <input id="serviceName2" name="serviceName2" type="text" maxlength="60" value="<%= s.serviceName2 %>" placeholder="e.g. Flix">
       </div>
       <div>
         <label for="serviceUrl2">Service 2 URL</label>
@@ -83,6 +83,9 @@
         <input id="servicePrefix2" name="servicePrefix2" type="text" maxlength="20" value="<%= s.servicePrefix2 %>">
       </div>
     </div>
+    <label for="bestServiceMessage">Answer when someone asks which service is best ({name1}, {name2} — empty = let the AI dodge it)</label>
+    <input id="bestServiceMessage" name="bestServiceMessage" type="text" maxlength="500" value="<%= s.bestServiceMessage %>">
+    <p class="hint">Only used when both service names are set. Deliberately plugs service 1 — the AI is never allowed to invent a comparison of your own services.</p>
   </div>
 
   <div class="card">
@@ -107,6 +110,8 @@
     <label for="offtopicChatMinutes">Banter free pass: answer each user's FIRST off-topic question, then brush off for this many minutes (0 = always brush off)</label>
     <input id="offtopicChatMinutes" name="offtopicChatMinutes" type="number" min="0" max="1440" value="<%= s.offtopicChatMinutes %>">
     <p class="hint">Redirect mode only. The one-off answer is short, friendly and never asks anything back — the next off-topic question inside the window gets the redirect message above.</p>
+    <label for="smallTalkSteer">Added after every one-off banter answer — pushes back to service support (empty = off)</label>
+    <input id="smallTalkSteer" name="smallTalkSteer" type="text" maxlength="500" value="<%= s.smallTalkSteer %>">
     <label for="fallbackMessage">Fallback when nothing matched and the AI is off/unreachable (empty = stay silent)</label>
     <input id="fallbackMessage" name="fallbackMessage" type="text" maxlength="500" value="<%= s.fallbackMessage %>">
     <label for="unsureMessage">When a question IS about the app but the bot can't answer it (empty = stay silent)</label>

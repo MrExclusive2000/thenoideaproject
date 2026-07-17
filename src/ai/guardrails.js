@@ -22,6 +22,7 @@ export function cleanReply(raw, { maxChars = 1500 } = {}) {
   // reach the chat, so strip common markdown instead of trusting them.
   text = text
     .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*\n]+)\*/g, '$1') // single-asterisk *italics* leak too
     .replace(/__([^_]+)__/g, '$1')
     .replace(/`([^`]*)`/g, '$1')
     .replace(/^#{1,6}\s+/gm, '');
@@ -42,6 +43,15 @@ export function cleanReply(raw, { maxChars = 1500 } = {}) {
   return text || null;
 }
 
+// Models decorate their sign-offs with emoji AFTER the punctuation — "What
+// about you? 🎭" — which defeats a plain endsWith('?'). Strip trailing
+// emoji/symbol decorations before asking "does this end with a question?".
+const TRAILING_DECOR = /(?:\s|\p{Extended_Pictographic}|[\u{1F3FB}-\u{1F3FF}]|️|‍)+$/u;
+
+export function endsWithQuestion(text) {
+  return String(text || '').replace(TRAILING_DECOR, '').endsWith('?');
+}
+
 // The rules allow a question mark only when the ENTIRE reply is one short
 // clarifying question. Models still love closing a full answer with "Do you
 // have any other questions?" — a dead end for a bot that can't follow up,
@@ -50,7 +60,9 @@ export function cleanReply(raw, { maxChars = 1500 } = {}) {
 // content precedes them; a pure clarifying question is left untouched.
 export function stripDeadEndQuestion(reply) {
   let out = String(reply || '').trimEnd();
-  for (let i = 0; i < 3 && out.endsWith('?'); i++) {
+  for (let i = 0; i < 3 && endsWithQuestion(out); i++) {
+    // The decorations go with the question sentence they decorate.
+    out = out.replace(TRAILING_DECOR, '');
     const lineIdx = out.lastIndexOf('\n');
     const head = lineIdx === -1 ? '' : out.slice(0, lineIdx + 1);
     const lastLine = out.slice(lineIdx + 1);
@@ -71,7 +83,7 @@ export function stripDeadEndQuestion(reply) {
 // sentences are cut whenever real content precedes them.
 // Concrete invite phrases only — a generic "if you need/have..." test would
 // also kill legit trailing advice like "If you have a VPN, turn it off."
-const INVITE_RE = /\b(feel free|let me know|just ask|ask away|don'?t hesitate|happy to (help|chat|assist)|any (other |more )?questions|i'?m (always )?here (to|if|for)|here to help|reach out|hit me up|shout if)\b/i;
+const INVITE_RE = /\b(feel free|let me know|just ask|ask away|don'?t hesitate|happy to (help|chat|assist)|any (other |more )?questions|i'?m (always )?here (to|if|for)|here to help|reach out|hit me up|shout if|(what|how) about you)\b/i;
 
 export function stripInvitationTail(reply) {
   let out = String(reply || '').trimEnd();

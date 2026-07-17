@@ -1609,3 +1609,55 @@ test('small-talk answers get invitation tails stripped as well', async () => {
   setSetting('bot.offtopicBehavior', 'silent');
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
+
+test('live shape: banter with emoji-decorated question tail and asterisks comes out clean, with the steer line', async () => {
+  _resetSmallTalk();
+  setSetting('bot.offtopicBehavior', 'redirect');
+  setSetting('bot.offtopicChatMinutes', 30);
+  setSetting('bot.smallTalkSteer', 'Anyway — back to service stuff: installs, logins, fixes. Try me!');
+  aiResponse = "I'd have to say *Mad Max: Fury Road* wins the post-apocalyptic race! But *Beyond Thunderdome* comes in a close second for its heart and humor. What about you? 🎭";
+  const ctx = fakeCtx('which is your favourite mad max film', { userId: 55520 });
+  const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.equal(result, 'smalltalk');
+  assert.doesNotMatch(ctx.sent[0].msg, /What about you/, 'emoji-hidden question stripped');
+  assert.doesNotMatch(ctx.sent[0].msg, /\*/, 'asterisks stripped');
+  assert.match(ctx.sent[0].msg, /Fury Road/);
+  assert.match(ctx.sent[0].msg, /back to service stuff/, 'steer line appended');
+  setSetting('bot.offtopicBehavior', 'silent');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('"which service is the best?" gets the canned service-1 plug, never the AI', async () => {
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+  const before = lastAiRequest;
+  const ctx = fakeCtx('which service is the best?', { userId: 55521 });
+  const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.equal(result, 'canned');
+  assert.match(ctx.sent[0].msg, /Easy — Exclusive/);
+  assert.match(ctx.sent[0].msg, /Flix holds its own/);
+  assert.equal(lastAiRequest, before, 'AI never consulted');
+
+  // Name-vs-name phrasing works too.
+  const ctx2 = fakeCtx('is flix better than exclusive?', { userId: 55522 });
+  const result2 = await answer(ctx2, ctx2.message.text, { isDm: true, logId: null });
+  assert.equal(result2, 'canned');
+  assert.match(ctx2.sent[0].msg, /Easy — Exclusive/);
+
+  // Without both names configured the interception stays off.
+  setSetting('services.name1', '');
+  setSetting('services.name2', '');
+  const ctx3 = fakeCtx('which service is the best?', { userId: 55523 });
+  const result3 = await answer(ctx3, ctx3.message.text, { isDm: true, logId: null });
+  assert.notEqual(result3, 'canned');
+});
+
+test('"best way to pay for the service" is NOT hijacked by the best-service plug', async () => {
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+  const ctx = fakeCtx('whats the best way to pay for the service?', { userId: 55524 });
+  const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.notEqual(result, 'canned', 'payment question reaches FAQ/AI as before');
+  setSetting('services.name1', '');
+  setSetting('services.name2', '');
+});

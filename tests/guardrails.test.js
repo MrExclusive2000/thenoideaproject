@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion, stripInvitationTail } from '../src/ai/guardrails.js';
+import { cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion } from '../src/ai/guardrails.js';
 
 test('OFFTOPIC sentinel suppresses the reply', () => {
   assert.equal(cleanReply('OFFTOPIC'), null);
@@ -115,4 +115,22 @@ test('legit trailing advice is NOT mistaken for an invitation', () => {
 test('a reply that is ONLY an invitation is left for other guards', () => {
   const invite = 'Feel free to ask me anything!';
   assert.equal(stripInvitationTail(invite), invite);
+});
+
+test('emoji after the question mark cannot hide a trailing question', () => {
+  assert.equal(endsWithQuestion('What about you? 🎭'), true);
+  assert.equal(endsWithQuestion('Which device are you on? 😄'), true);
+  assert.equal(endsWithQuestion('All sorted 👍'), false);
+  const live =
+    "Oh, Mad Max favorites? I'd have to say Mad Max: Fury Road wins the post-apocalyptic race with its insane action sequences! But Beyond Thunderdome comes in a close second for its heart and humor. What about you? 🎭";
+  const out = stripDeadEndQuestion(live);
+  assert.doesNotMatch(out, /What about you/);
+  assert.match(out, /heart and humor\.$/);
+});
+
+test('single-asterisk italics are stripped like the rest of the markdown', () => {
+  assert.equal(
+    cleanReply("I'd say *Mad Max: Fury Road* wins, with *Beyond Thunderdome* second."),
+    "I'd say Mad Max: Fury Road wins, with Beyond Thunderdome second."
+  );
 });

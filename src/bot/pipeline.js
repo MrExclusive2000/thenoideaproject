@@ -3,7 +3,7 @@ import { db, now } from '../db/db.js';
 import { getSetting } from '../settings.js';
 import { matchFaq } from '../faq/matcher.js';
 import { askAi, aiBudgetExceeded } from '../ai/client.js';
-import { containsBannedWord } from '../ai/guardrails.js';
+import { containsBannedWord, endsWithQuestion } from '../ai/guardrails.js';
 import { state } from '../state.js';
 import {
   sendChunked, logMessage, setLogSource, recordUnanswered, chatAllowed,
@@ -530,6 +530,30 @@ export function _resetSmallTalk() {
   smallTalkUsed.clear();
 }
 
+// "Which service is the best?" — never let the model freestyle a comparison
+// of the admin's own products (live bug: it invented a Purple-vs-Smarters
+// listicle). With two services configured, a canned admin-editable plug for
+// service 1 answers instead. Patterns stay tight so "best way to pay for the
+// service" still goes to the FAQ/AI.
+function isBestServiceQuestion(text) {
+  const t = String(text).toLowerCase();
+  if (/\bwhich\s+(service|one)\b[^.?!\n]*\b(best|better)\b/.test(t)) return true;
+  if (/\b(best|better)\s+services?\b/.test(t)) return true;
+  if (/\bservices?\s+(is|are)\s+(the\s+)?(best|better)\b/.test(t)) return true;
+  const s = serviceConfig();
+  return Boolean(
+    s.one.name && s.two.name && /\b(best|better|recommend)\b/.test(t) &&
+    t.includes(s.one.name.toLowerCase()) && t.includes(s.two.name.toLowerCase())
+  );
+}
+
+function bestServiceReply() {
+  if (!twoServicesNamed()) return null;
+  const s = serviceConfig();
+  const template = String(getSetting('bot.bestServiceMessage') || '').trim();
+  return template.replace(/\{name1\}/g, s.one.name).replace(/\{name2\}/g, s.two.name) || null;
+}
+
 // Core answering flow: FAQ first, then AI with strict-topic guardrails.
 // `history` carries conversation context (DM memory, or a group reply chain);
 // `skipFaq` is set for follow-up replies so the bot doesn't repeat the same
@@ -542,6 +566,17 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
   const result = skipFaq ? { match: null, nearMiss: null } : matchFaq(question, faqs, threshold);
   const replyParams = isDm ? {} : { reply_parameters: { message_id: ctx.message.message_id } };
   const withSuffix = (text) => [prefix, text, suffix].filter(Boolean).join('\n\n');
+
+  // Before the FAQ matcher: "which service is best" would otherwise fuzzy-hit
+  // the which-service FAQ (username classification) or reach the AI.
+  if (isBestServiceQuestion(question)) {
+    const plug = bestServiceReply();
+    if (plug) {
+      setLogSource(logId, 'canned');
+      await ctx.api.sendMessage(ctx.chat.id, withSuffix(plug), replyParams);
+      return 'canned';
+    }
+  }
 
   if (result.match) {
     db.prepare('UPDATE faqs SET hit_count = hit_count + 1 WHERE id = ?').run(result.match.id);
@@ -603,7 +638,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
           }
           // A reply ending in "?" is the model's one allowed clarifying
           // question — remember it so the user's next bare answer combines.
-          if (!isDm && reply.trimEnd().endsWith('?')) {
+          if (!isDm && endsWithQuestion(reply)) {
             setPendingClarify(ctx.chat.id, ctx.from.id, question);
           }
           const sent = await sendChunked(ctx.api, ctx.chat.id, withSuffix(reply), {
@@ -653,7 +688,10 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
           const banter = await maybeSmallTalk(ctx, question);
           if (banter) {
             setLogSource(logId, 'smalltalk');
-            await ctx.api.sendMessage(ctx.chat.id, banter, replyParams);
+            // Always steer back to support after banter — an admin-editable
+            // line appended in code, never left to the model.
+            const steer = String(getSetting('bot.smallTalkSteer') || '').trim();
+            await ctx.api.sendMessage(ctx.chat.id, steer ? `${banter}\n\n${steer}` : banter, replyParams);
             return 'smalltalk';
           }
           setLogSource(logId, 'offtopic');

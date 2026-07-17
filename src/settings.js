@@ -20,6 +20,13 @@ const DEFAULTS = {
   // friendly real answer; any more within this many minutes get the witty
   // brush-off above instead. 0 = always brush off. Redirect mode only.
   'bot.offtopicChatMinutes': 30,
+  // Appended in code to every banter answer — always pushes back to support.
+  // Empty = banter goes out bare.
+  'bot.smallTalkSteer': "Anyway — service stuff is where I shine 😄 installs, logins, buffering fixes, requests. Try me!",
+  // Canned answer for "which service is the best?" when two services are
+  // configured ({name1}/{name2}). Biased to service 1 on purpose — the model
+  // is never allowed to freestyle a comparison of your own products.
+  'bot.bestServiceMessage': "Easy — {name1} 😄 That's the one we point people to first. {name2} holds its own too, but if you fancy giving {name1} a go, message the admin and they'll sort you out.",
   'bot.fallbackMessage': '', // empty = stay silent when nothing matched and AI is off/down
   // Sent when a message IS about the app/service but the bot can't answer it —
   // kinder than the off-topic line, and points the user to a human.
