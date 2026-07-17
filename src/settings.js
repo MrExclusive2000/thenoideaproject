@@ -50,6 +50,10 @@ export const DEFAULTS = {
   // Never auto-answer group messages from the admins listed in Reports —
   // their questions, mentions and replies to the bot still work.
   'bot.ignoreAdmins': false,
+  // Canned warmth: a bare "hey" or "cheers" gets these instead of the
+  // off-topic brush-off. Empty = silent.
+  'bot.greetingMessage': "Hey! 👋 I'm the team's support bot — ask me anything about the service: installs, buffering fixes, logins, what to watch it on. /help shows all my tricks. What can I sort for you?",
+  'bot.thanksMessage': 'Anytime! 👍 Shout if you need anything else.',
   'bot.welcomeEnabled': false,
   'bot.welcomeText': 'Welcome {name}! Ask me anything about the app — or type /help to see what I can do.',
   'bot.cooldownSeconds': 15,

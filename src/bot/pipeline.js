@@ -53,6 +53,38 @@ function feedbackKeyboard() {
   return new InlineKeyboard().text('👍', 'fb:up').text('👎', 'fb:down');
 }
 
+// Greetings and pleasantries get warmth, never the off-topic brush-off.
+// Deterministic on purpose: a whole message made of greeting words is a
+// greeting; mixed messages ("hey, my app won't open") flow on as normal.
+const GREETING_WORDS = new Set([
+  'hey', 'hi', 'hiya', 'hello', 'yo', 'howdy', 'hola', 'alright', 'alrite', 'ayup',
+  'sup', 'wassup', 'whats', 'up', 'good', 'morning', 'afternoon', 'evening', 'day',
+  'there', 'mate', 'guys', 'lads', 'all', 'everyone', 'bot', 'm8', 'bud', 'buddy', 'pal', 'again',
+]);
+const THANKS_CORE = new Set(['thanks', 'thank', 'cheers', 'ta', 'ty', 'tysm', 'appreciated', 'appreciate', 'legend', 'lifesaver']);
+const THANKS_EXTRA = new Set([
+  'you', 'so', 'much', 'a', 'lot', 'nice', 'one', 'great', 'perfect', 'brilliant', 'amazing',
+  'awesome', 'good', 'top', 'bot', 'mate', 'm8', 'man', 'bro', 'bud', 'pal', 'lovely', 'sound',
+  'boss', 'work', 'stuff', 'x', 'xx', 'that', 'it', 'very',
+]);
+
+function plainWords(text) {
+  return String(text).toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
+}
+
+export function looksLikeGreeting(text) {
+  const w = plainWords(text);
+  return w.length > 0 && w.length <= 5 && w.every((x) => GREETING_WORDS.has(x));
+}
+
+export function looksLikeThanks(text) {
+  const w = plainWords(text);
+  if (!w.length || w.length > 6) return false;
+  const joined = w.join(' ');
+  if (/^(nice one|good bot|top (man|work|bot)|good stuff|lovely stuff)( mate| m8)?$/.test(joined)) return true;
+  return w.some((x) => THANKS_CORE.has(x)) && w.every((x) => THANKS_CORE.has(x) || THANKS_EXTRA.has(x));
+}
+
 export function looksLikeQuestion(text) {
   if (text.includes('?')) return true;
   const starters = /^(how|what|why|when|where|which|who|can|does|do|is|are|will|help|anyone|any1|pls|please)\b/i;
@@ -363,6 +395,24 @@ export async function handleGroupMessage(ctx) {
     if (announcement || getSetting('bot.ignoreAdmins')) return;
   }
 
+  // Greeting or thanks aimed AT the bot (mention or reply) gets the warm
+  // reply — but never while problem triage is mid-flight for this user:
+  // "cheers" after fixes belongs to the resolution logic below.
+  if (mentioned && !getProblemState(ctx.from.id)) {
+    if (looksLikeGreeting(question)) {
+      setLogSource(logId, 'greeting');
+      const msg = getSetting('bot.greetingMessage');
+      if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
+      return;
+    }
+    if (looksLikeThanks(question)) {
+      setLogSource(logId, 'thanks');
+      const msg = getSetting('bot.thanksMessage');
+      if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
+      return;
+    }
+  }
+
   const isProblem = looksLikeProblem(text);
   const faqThreshold = Number(getSetting('faq.threshold')) || 0.5;
   const standaloneFaqMatch = () => {
@@ -401,9 +451,18 @@ export async function handleGroupMessage(ctx) {
   const st = getProblemState(ctx.from.id);
   const alreadyEscalated = Boolean(st?.escalatedAt && Date.now() - st.escalatedAt < PROBLEM_WINDOW_MS);
 
-  // "That fixed it" closes the report — never escalate a resolution.
+  // "That fixed it" closes the report — never escalate a resolution. A bare
+  // "cheers mate" after the FIXES means the same thing, NOT a still-broken
+  // confirmation. After an ESCALATION though, thanks just means "thanks for
+  // passing it along" — acknowledge warmly and keep the report open.
   // (saysStillBroken wins on ambiguity like "still not fixed".)
-  if (st && saysResolved(text) && !saysStillBroken(text)) {
+  if (st && looksLikeThanks(text) && !saysResolved(text) && alreadyEscalated) {
+    setLogSource(logId, 'thanks');
+    const msg = getSetting('bot.thanksMessage');
+    if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
+    return;
+  }
+  if (st && (saysResolved(text) || looksLikeThanks(text)) && !saysStillBroken(text)) {
     problemState.delete(ctx.from.id);
     db.prepare("UPDATE problem_reports SET resolved = 1, resolved_by = 'user' WHERE tg_user_id = ? AND resolved = 0 AND ts > ?")
       .run(ctx.from.id, now() - 2 * 3600);
@@ -599,6 +658,21 @@ export async function handleDirectMessage(ctx) {
     return;
   }
   bumpCooldown(ctx.from.id);
+
+  // A wave back beats the topic police: greetings and thanks get warm canned
+  // replies (configurable) and never reach the AI or the off-topic path.
+  if (looksLikeGreeting(text)) {
+    setLogSource(logId, 'greeting');
+    const msg = getSetting('bot.greetingMessage');
+    if (msg) await ctx.reply(msg).catch(() => {});
+    return;
+  }
+  if (looksLikeThanks(text)) {
+    setLogSource(logId, 'thanks');
+    const msg = getSetting('bot.thanksMessage');
+    if (msg) await ctx.reply(msg).catch(() => {});
+    return;
+  }
 
   await answer(ctx, text, { isDm: true, logId });
 }

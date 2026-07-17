@@ -16,6 +16,13 @@
       <input type="checkbox" id="dmEnabled" name="dmEnabled" value="1" <%= s.dmEnabled ? 'checked' : '' %>>
       <label for="dmEnabled">Answer private (DM) messages too</label>
     </div>
+    <label for="greetingMessage">Reply to a bare greeting ("hey", "hi") — empty = silent</label>
+    <input id="greetingMessage" name="greetingMessage" type="text" maxlength="500" value="<%= s.greetingMessage %>">
+
+    <label for="thanksMessage">Reply to thanks ("cheers mate") — empty = silent</label>
+    <input id="thanksMessage" name="thanksMessage" type="text" maxlength="500" value="<%= s.thanksMessage %>">
+    <p class="hint">Both work in DMs and when someone mentions or replies to the bot in the group. During problem triage, "cheers" counts as "it's fixed".</p>
+
     <div class="checkline">
       <input type="checkbox" id="ignoreAdmins" name="ignoreAdmins" value="1" <%= s.ignoreAdmins ? 'checked' : '' %>>
       <label for="ignoreAdmins">Never auto-answer admins in the group (mentions/replies to the bot still work)</label>

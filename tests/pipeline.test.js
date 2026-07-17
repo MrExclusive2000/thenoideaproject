@@ -1028,10 +1028,15 @@ test('escalation asks which service; the answer is saved and forwarded to the ad
   await new Promise((r) => setTimeout(r, 10));
   assert.ok(adminDms.some((d) => /escalated problem is on: "Thames"/.test(d.text)), 'admin got the service info');
 
-  // Captured exactly once — later chatter is not swallowed as service info.
+  // Captured exactly once — a later "cheers" is a warm acknowledgment, not
+  // service info, not a resolution of the escalated report.
   const later = fakeCtx('cheers mate', { chatType: 'group', userId: 95001 });
   await handleGroupMessage(later);
-  assert.equal(later.sent.length, 0, 'no repeat capture');
+  assert.equal(later.sent.length, 1);
+  assert.match(later.sent[0].msg, /Anytime/, 'thanks acknowledged');
+  const after = db.prepare('SELECT * FROM problem_reports WHERE tg_user_id = 95001 AND escalated = 1').get();
+  assert.equal(after.service, 'Thames', 'service info untouched');
+  assert.equal(after.resolved, 0, 'escalated report stays open — thanks is not a fix report');
 
   hub.api = null;
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
@@ -1135,4 +1140,58 @@ test('stranded ticket replies auto-deliver when the customer next messages the b
   await handleDirectMessage(ctx2);
   assert.ok(ctx2.sent.every((s) => !/Your new login is ready/.test(s.msg)), 'not delivered twice');
   db.prepare('DELETE FROM tickets WHERE id = ?').run(ticketId);
+});
+
+test('a bare "Hey" gets the warm greeting, never the off-topic brush-off', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  lastAiRequest = null;
+  const ctx = fakeCtx('Hey', { userId: 98201 });
+  await handleDirectMessage(ctx);
+  assert.equal(ctx.sent.length, 1);
+  assert.match(ctx.sent[0].msg, /👋|What can I sort/, 'greeting reply');
+  assert.equal(lastAiRequest, null, 'no AI call');
+
+  const ctx2 = fakeCtx('good morning all', { userId: 98202 });
+  await handleDirectMessage(ctx2);
+  assert.match(ctx2.sent[0].msg, /👋|What can I sort/);
+
+  const ctx3 = fakeCtx('cheers mate', { userId: 98203 });
+  await handleDirectMessage(ctx3);
+  assert.match(ctx3.sent[0].msg, /Anytime/, 'thanks reply');
+
+  // Mixed greeting + real question flows through to a real answer.
+  const ctx4 = fakeCtx('hey how do i install on my firestick', { userId: 98204 });
+  await handleDirectMessage(ctx4);
+  assert.match(ctx4.sent[0].msg, /Downloader app/, 'greeting prefix does not swallow the question');
+});
+
+test('replying "cheers mate" to problem fixes resolves — it must NOT escalate', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('reports.alertProblems', true);
+  setSetting('reports.adminTelegramIds', [777]);
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
+  aiResponse = 'Try a different link or restart the app.';
+
+  const first = fakeCtx('buffering on bbc one', { chatType: 'group', userId: 98301 });
+  await handleGroupMessage(first);
+  assert.equal(first.sent.length, 1, 'fixes sent');
+
+  const thanks = fakeCtx('cheers mate', { chatType: 'group', userId: 98301 });
+  thanks.message.reply_to_message = { from: { id: 999 }, message_id: 101, text: first.sent[0].msg };
+  await handleGroupMessage(thanks);
+  assert.equal(thanks.sent.length, 1);
+  assert.match(thanks.sent[0].msg, /glad it's sorted/i, 'treated as resolution');
+  const row = db.prepare('SELECT * FROM problem_reports WHERE tg_user_id = 98301').get();
+  assert.equal(row.resolved, 1, 'report closed');
+  await flushProblemAlerts();
+  assert.equal(adminDms.length, 0, 'no escalation DM for a thank-you');
+
+  hub.api = null;
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+  _resetProblemTriage();
+  _resetProblemQueue();
 });
