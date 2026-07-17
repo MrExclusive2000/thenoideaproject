@@ -4,7 +4,7 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 12;
+const SEED_VERSION = 13;
 
 export const STARTER_FAQS = [
   {
@@ -95,6 +95,14 @@ export const STARTER_FAQS = [
     question: "The app says my login is wrong or my account doesn't work",
     answer: 'If it says "invalid user" or your login is rejected:\n1. Double-check the username and password — watch for extra spaces and capital letters.\n2. Make sure you\'re in the right app — the same login works in Purple, XC and Smarters.\n3. If we\'ve posted about service issues (check /status or the group), it\'s likely on our side — hang tight and try again shortly.\n4. Still no luck? Your access may have expired — message me /myaccount in a private chat, or /ticket and we\'ll sort it.',
     keywords: 'login, log, password, credentials, invalid, wrong, cant, sign, denied, auth, user, username, details, incorrect, unauthorised, rejected',
+  },
+  {
+    // Ships DISABLED — the admin must replace the two service names first,
+    // then enable it in the panel.
+    question: 'Which service am I on?',
+    answer: "Easy way to tell — look at the username you log in with:\n- If it's randomly generated (a mix of letters and numbers), you're on SERVICE-NAME-1.\n- If it starts with THM, you're on SERVICE-NAME-2.\nStill not sure? Ask here and we'll check for you.",
+    keywords: 'service, services, which, provider, thm, username, generated, subscribed',
+    enabled: 0,
   },
   {
     question: 'Can I use a VPN with the app?',
@@ -295,14 +303,14 @@ function previousDefaults(question) {
 export function addStarterFaqs() {
   const exists = db.prepare('SELECT 1 FROM faqs WHERE question = ? COLLATE NOCASE');
   const insert = db.prepare(
-    'INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?)'
+    'INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
   );
   const t = now();
   let added = 0;
   const tx = db.transaction(() => {
     for (const faq of STARTER_FAQS) {
       if (exists.get(faq.question)) continue;
-      insert.run(faq.question, faq.answer, faq.keywords, faq.priority || 0, t, t);
+      insert.run(faq.question, faq.answer, faq.keywords, faq.enabled ?? 1, faq.priority || 0, t, t);
       added++;
     }
   });
@@ -321,8 +329,8 @@ function upgradeStarterContent() {
     for (const faq of STARTER_FAQS) {
       const row = getFaq.get(faq.question);
       if (!row) {
-        db.prepare('INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?)')
-          .run(faq.question, faq.answer, faq.keywords, faq.priority || 0, t, t);
+        db.prepare('INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+          .run(faq.question, faq.answer, faq.keywords, faq.enabled ?? 1, faq.priority || 0, t, t);
         faqsAdded++;
       } else if (row.answer === faq.answer || previousDefaults(faq.question).includes(row.answer)) {
         // Unchanged from a shipped default (current or previous) — safe to

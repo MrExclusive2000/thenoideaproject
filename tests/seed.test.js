@@ -35,6 +35,14 @@ test('first boot seeds starter FAQs and guides', () => {
   assert.match(guides.find((g) => g.slug === 'install-ios').body_md, /YOUR-SERVICE-URL/);
 });
 
+test('which-service FAQ ships disabled until the admin fills in the names', () => {
+  const row = db.prepare('SELECT * FROM faqs WHERE question = ?').get('Which service am I on?');
+  assert.ok(row, 'seeded');
+  assert.equal(row.enabled, 0, 'disabled out of the box');
+  assert.match(row.answer, /SERVICE-NAME-1/);
+  assert.match(row.answer, /THM/);
+});
+
 test('seeding is idempotent — second boot adds nothing', () => {
   seedStarterContent();
   assert.equal(db.prepare('SELECT COUNT(*) n FROM faqs').get().n, STARTER_FAQS.length);
@@ -131,4 +139,23 @@ test('starter FAQs actually match how people ask', () => {
       `"${q}" matched wrong FAQ: ${match.question}`
     );
   }
+});
+
+test('which-service FAQ matches how people ask once the admin enables it', () => {
+  db.prepare("UPDATE faqs SET enabled = 1, answer = replace(replace(answer, 'SERVICE-NAME-1', 'Flix'), 'SERVICE-NAME-2', 'Thames') WHERE question = 'Which service am I on?'").run();
+  const faqs = db.prepare('SELECT * FROM faqs').all();
+  for (const q of [
+    'what service am i on',
+    'which service do i have?',
+    'my username starts with thm what service is that',
+    'how do i know what service im subscribed to',
+  ]) {
+    const { match } = matchFaq(q, faqs, 0.5);
+    assert.ok(match, `no match for: ${q}`);
+    assert.match(match.question, /Which service am I on/, `"${q}" matched wrong FAQ: ${match?.question}`);
+  }
+  // It must not hijack service-URL questions from the iOS FAQ.
+  const { match: urlMatch } = matchFaq('whats the service url for the iphone app', faqs, 0.5);
+  assert.ok(urlMatch, 'url question still matches');
+  assert.match(urlMatch.question, /iPhone or iPad/, `url question matched wrong FAQ: ${urlMatch?.question}`);
 });
