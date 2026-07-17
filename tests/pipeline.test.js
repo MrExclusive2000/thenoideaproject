@@ -177,7 +177,8 @@ test('the AI knows its own commands and must not offer follow-ups', async () => 
   const system = lastAiRequest.messages[0].content;
   assert.match(system, /\/invite — you give the member a personal one-use invite link/);
   assert.match(system, /\/ticket — opens a private support ticket/);
-  assert.match(system, /Answer completely in ONE message/);
+  assert.match(system, /answer completely in ONE message/);
+  assert.match(system, /ONE short clarifying question/);
 });
 
 test('an AI reply that invents a download code is suppressed (live bug)', async () => {
@@ -333,6 +334,50 @@ test('an off-topic question mid-banter is silently ignored via the AI verdict', 
   const ctx = fakeCtx('anyone coming to the pub later?', { chatType: 'group', userId: 97030 });
   await handleGroupMessage(ctx);
   assert.equal(ctx.sent.length, 0, 'social question left to the humans');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('clarifying question → bare answer gets combined and answered', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+
+  // The model can't answer without knowing the device — asks its one question.
+  aiResponse = 'Which device are you on — Firestick or Android phone?';
+  const ask = fakeCtx('how do i put your apps on this thing?', { chatType: 'group', userId: 98101 });
+  await handleGroupMessage(ask);
+  assert.match(ask.sent[0].msg, /Which device/);
+
+  // Bare fragment that would trigger nothing on its own.
+  aiResponse = 'On a Firestick: install Downloader, enter our code, then install the Purple App.';
+  const reply = fakeCtx('its the amazon tv stick thing', { chatType: 'group', userId: 98101 });
+  await handleGroupMessage(reply);
+  assert.equal(reply.sent.length, 1, 'bare answer was understood');
+  assert.match(reply.sent[0].msg, /Purple App/);
+  const combined = lastAiRequest.messages.at(-1).content;
+  assert.match(combined, /put your apps on this thing/, 'original question included');
+  assert.match(combined, /amazon tv stick/, 'clarification answer included');
+
+  // Consumed: the same fragment later goes back to being ignored.
+  const stray = fakeCtx('its the amazon tv stick thing', { chatType: 'group', userId: 98101 });
+  await handleGroupMessage(stray);
+  assert.equal(stray.sent.length, 0, 'pending clarification is one-shot');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('a new standalone question supersedes a pending clarification', async () => {
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+
+  aiResponse = 'Which device are you on — Firestick or Android phone?';
+  await handleGroupMessage(fakeCtx('how do i put your apps on this thing?', { chatType: 'group', userId: 98102 }));
+
+  aiResponse = 'We take Litecoin — see the payment guide for the steps.';
+  const newQ = fakeCtx('actually how do i pay for this?', { chatType: 'group', userId: 98102 });
+  await handleGroupMessage(newQ);
+  assert.match(newQ.sent[0].msg, /Litecoin/);
+  const content = lastAiRequest.messages.at(-1).content;
+  assert.doesNotMatch(content, /apps on this thing/, 'not combined with the stale question');
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
 

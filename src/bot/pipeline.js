@@ -17,6 +17,28 @@ import { hub } from './hub.js';
 const cooldowns = new Map();
 const dmHistory = new Map();
 
+// When the AI asks a clarifying question in a group ("Which device are you
+// on?"), remember it per user so their next bare answer ("firestick") gets
+// combined with the original question and re-run through the pipeline.
+const CLARIFY_TTL_MS = 10 * 60 * 1000;
+const pendingClarify = new Map(); // chatId:userId -> { question, at }
+
+function setPendingClarify(chatId, userId, question) {
+  pendingClarify.set(`${chatId}:${userId}`, { question, at: Date.now() });
+  if (pendingClarify.size > 500) {
+    const first = pendingClarify.keys().next().value;
+    pendingClarify.delete(first);
+  }
+}
+
+function takePendingClarify(chatId, userId) {
+  const key = `${chatId}:${userId}`;
+  const entry = pendingClarify.get(key);
+  if (!entry) return null;
+  pendingClarify.delete(key);
+  return Date.now() - entry.at < CLARIFY_TTL_MS ? entry : null;
+}
+
 // Remembers what each bot reply answered so 👎 can feed the unanswered inbox.
 export const replyContext = new Map();
 function rememberReply(chatId, messageId, data) {
@@ -197,6 +219,11 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
             dmHistory.set(historyKey, [...history, { role: 'user', content: question }, { role: 'assistant', content: reply }].slice(-6));
             if (dmHistory.size > 1000) dmHistory.clear();
           }
+          // A reply ending in "?" is the model's one allowed clarifying
+          // question — remember it so the user's next bare answer combines.
+          if (!isDm && reply.trimEnd().endsWith('?')) {
+            setPendingClarify(ctx.chat.id, ctx.from.id, question);
+          }
           const sent = await sendChunked(ctx.api, ctx.chat.id, withSuffix(reply), {
             ...replyParams,
             reply_markup: feedbackKeyboard(),
@@ -295,16 +322,28 @@ export async function handleGroupMessage(ctx) {
   if (question.length < 3) return;
 
   const isProblem = looksLikeProblem(text);
+  const faqThreshold = Number(getSetting('faq.threshold')) || 0.5;
+  const standaloneFaqMatch = () => {
+    const faqs = db.prepare('SELECT * FROM faqs WHERE enabled = 1').all();
+    return Boolean(matchFaq(question, faqs, faqThreshold).match);
+  };
+
+  // Answer to a pending clarifying question? A bare fragment ("firestick")
+  // that wouldn't trigger on its own gets combined with the original
+  // question and re-run through the whole pipeline (FAQ first, then AI).
+  // Anything that stands on its own is treated as a new message instead.
+  {
+    const pending = takePendingClarify(ctx.chat.id, ctx.from.id);
+    if (pending && !looksLikeQuestion(text) && !isProblem && !standaloneFaqMatch()) {
+      bumpCooldown(ctx.from.id);
+      await answer(ctx, `${pending.question} — ${question}`, { isDm: false, logId });
+      return;
+    }
+  }
 
   let shouldAnswer = mode === 'all' || mentioned;
   if (!shouldAnswer && mode === 'questions') {
-    shouldAnswer = looksLikeQuestion(text) || isProblem;
-    if (!shouldAnswer) {
-      // Last check: if the FAQ can answer this confidently, answer it —
-      // staying silent on a known answer helps nobody.
-      const faqs = db.prepare('SELECT * FROM faqs WHERE enabled = 1').all();
-      shouldAnswer = Boolean(matchFaq(question, faqs, Number(getSetting('faq.threshold')) || 0.5).match);
-    }
+    shouldAnswer = looksLikeQuestion(text) || isProblem || standaloneFaqMatch();
   }
 
   const repliedTo = ctx.message.reply_to_message;
