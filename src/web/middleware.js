@@ -1,10 +1,12 @@
 import crypto from 'node:crypto';
 import { db, now } from '../db/db.js';
+import { config } from '../config.js';
 import { getSetting } from '../settings.js';
 import { state } from '../state.js';
 
 export function locals(req, res, next) {
   res.locals.cspNonce = crypto.randomBytes(16).toString('base64');
+  res.locals.buildId = config.buildId;
   res.locals.appName = getSetting('branding.appName');
   res.locals.accentColor = getSetting('branding.accentColor');
   res.locals.hasLogo = Boolean(getSetting('branding.logoFile'));

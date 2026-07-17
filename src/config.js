@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -26,6 +27,18 @@ function loadSessionSecret() {
   const secret = crypto.randomBytes(48).toString('hex');
   fs.writeFileSync(secretFile, secret, { mode: 0o600 });
   return secret;
+}
+
+// Which build is actually running — shown in the panel so "did my restart
+// pick up the update?" is never a guessing game.
+function detectBuildId() {
+  try {
+    return execSync('git log -1 --format=%h·%cd --date=format:%d.%m.%Y', {
+      cwd: rootDir, timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'],
+    }).toString().trim();
+  } catch {
+    return 'unknown';
+  }
 }
 
 function bool(value, fallback = false) {
@@ -57,4 +70,5 @@ export const config = {
   trustProxy: bool(process.env.TRUST_PROXY),
   forceSecureCookie: bool(process.env.FORCE_SECURE_COOKIE),
   maxUploadMb: Number(process.env.MAX_UPLOAD_MB || 512),
+  buildId: detectBuildId(),
 };
