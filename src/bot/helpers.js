@@ -131,7 +131,7 @@ const STRONG_SCOPE_TERMS = new Set([
   'install', 'installing', 'installed', 'reinstall', 'vod', 'iptv', 'buffering', 'playback',
   'login', 'password', 'username', 'invalid', 'subscription', 'renew', 'renewal', 'expiry', 'expired',
   'pay', 'payment', 'paying', 'crypto', 'litecoin', 'ltc', 'wallet', 'exodus',
-  'vpn', 'router', 'ethernet', 'panel', 'portal', 'developer',
+  'vpn', 'router', 'ethernet', 'panel', 'portal', 'developer', 'url',
 ]);
 
 export function isLikelyInScope(text) {

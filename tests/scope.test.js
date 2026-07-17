@@ -20,6 +20,12 @@ test('device-setup and app questions are in scope', () => {
     'my subscription expired',
     'is the app on firestick',
     'does the app have a sports section',
+    // service URL questions are always support ("Flix" = an app name the
+    // admin put in an FAQ answer, so it is not in the keyword vocabulary):
+    'whats the url for flix',
+    'can i have the service url',
+    'how do i install on my iphone',
+    'does it work on ipad',
   ]) {
     assert.ok(isLikelyInScope(q), `should be in scope: ${q}`);
   }
