@@ -128,6 +128,8 @@ test('starter FAQs actually match how people ask', () => {
     ['what firestick is best', '4K'],
     ['which firestick should i buy for this', '4K'],
     ['is the 4k max worth it', '4K Max'],
+    ['does the 4k select work with your apps', 'Vega'],
+    ['will this work on vega os', 'Vega'],
     ['what do you get with the service', 'Live TV'],
     ['does the service have vod on demand?', 'VOD'],
     ['guys how do i instal this on my fire stick??', 'Downloader'],

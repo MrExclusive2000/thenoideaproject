@@ -4,7 +4,7 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 18;
+const SEED_VERSION = 19;
 
 export const STARTER_FAQS = [
   {
@@ -22,8 +22,8 @@ export const STARTER_FAQS = [
   },
   {
     question: 'Which Firestick is best / which one should I buy?',
-    answer: "Any current Firestick runs our apps. Quick guide:\n- Best value: Fire TV Stick 4K — smooth, handles 4K streams, usually the sweet spot on price.\n- Fastest: Fire TV Stick 4K Max — worth it if you want the snappiest menus.\n- Budget: the basic Fire TV Stick or Lite is fine for HD viewing.\nAvoid very old sticks (2016 and earlier) — they struggle with modern apps. Whichever you get, setup takes two minutes: ask me how to install and I'll walk you through it.",
-    keywords: 'firestick, best, buy, buying, recommend, recommended, model, models, 4k, max, lite, upgrade, new',
+    answer: "Any Firestick running Fire OS (the Android-based one) works with our apps. Quick guide:\n- Best value: Fire TV Stick 4K — smooth, handles 4K streams, usually the sweet spot on price.\n- Fastest: Fire TV Stick 4K Max — worth it if you want the snappiest menus.\n- Budget: the basic Fire TV Stick or Lite is fine for HD viewing.\n⚠️ AVOID the Fire TV Stick 4K Select or anything running Amazon's new Vega OS — that isn't Android, so our apps CANNOT be installed on it. If the listing mentions Vega OS, skip it.\nAlso avoid very old sticks (2016 and earlier). Whichever you get, setup takes two minutes: ask me how to install and I'll walk you through it.",
+    keywords: 'firestick, best, buy, buying, recommend, recommended, model, models, 4k, max, lite, select, vega, vegas, os, upgrade, new',
   },
   {
     question: 'How do I install the app on my Firestick?',
@@ -293,6 +293,8 @@ const V11_UPDATE =
   'On a Firestick: open the Downloader app, enter code 9804805 again and install the newest version straight over the old one — your settings are kept. On Android: open https://aftv.news/9804805 in your browser again. You can also message me /version to see the latest version.';
 const V11_WHICH_APP =
   'Use the Purple App as your main app. XC and Smarters are backups — install at least one of them too. The same login works in every app, so if one ever plays up, just switch to a backup and carry on.';
+const V18_FIRESTICK_BUY =
+  "Any current Firestick runs our apps. Quick guide:\n- Best value: Fire TV Stick 4K — smooth, handles 4K streams, usually the sweet spot on price.\n- Fastest: Fire TV Stick 4K Max — worth it if you want the snappiest menus.\n- Budget: the basic Fire TV Stick or Lite is fine for HD viewing.\nAvoid very old sticks (2016 and earlier) — they struggle with modern apps. Whichever you get, setup takes two minutes: ask me how to install and I'll walk you through it.";
 const V16_WHAT_IS =
   "Live TV channels, movies, series and sports — streamed through our apps on Firestick, Android phones/tablets and iPhone/iPad (the Purple App as your main one, XC and Smarters as backups, Smarters Player Lite on iOS). One login works across all your apps.\nInterested, or want pricing? Ask the admin here in the group, or message me /ticket and the team will get you set up.";
 const V13_WHICH_SERVICE =
@@ -320,6 +322,7 @@ function previousDefaults(question) {
   if (question === 'Which app should I use — Purple, XC or Smarters?') out.push(V11_WHICH_APP);
   if (question === 'Which service am I on?') out.push(V13_WHICH_SERVICE);
   if (question === 'What is this service and what do you get?') out.push(V16_WHAT_IS);
+  if (question === 'Which Firestick is best / which one should I buy?') out.push(V18_FIRESTICK_BUY);
   return out;
 }
 
