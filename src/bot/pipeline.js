@@ -554,13 +554,21 @@ export async function handleGroupMessage(ctx) {
     }
   }
 
-  let shouldAnswer = mode === 'all' || mentioned;
-  if (!shouldAnswer && mode === 'questions') {
-    shouldAnswer = looksLikeQuestion(text) || isProblem || standaloneFaqMatch();
-  }
-
   const repliedTo = ctx.message.reply_to_message;
   const isFollowUp = repliedTo?.from?.id === ctx.me?.id && Boolean(repliedTo.text);
+  // A reply to ANOTHER member ("Can you repeat this please" quoting someone
+  // else) is addressed to that member, not the bot — the bot must not butt in
+  // with a brush-off. It only chimes in on such a reply for a genuine support
+  // hit (a real problem or a confident FAQ match), never on question-shape
+  // alone.
+  const repliesToOtherUser = Boolean(repliedTo) && !isFollowUp;
+
+  let shouldAnswer = mode === 'all' || mentioned;
+  if (!shouldAnswer && mode === 'questions') {
+    shouldAnswer = repliesToOtherUser
+      ? (isProblem || standaloneFaqMatch())
+      : (looksLikeQuestion(text) || isProblem || standaloneFaqMatch());
+  }
 
   // Problem triage: fixes first, admin escalation only on confirmation.
   // A confirmation rarely repeats the problem words — real users type "still

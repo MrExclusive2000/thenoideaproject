@@ -1282,3 +1282,34 @@ test('a "Request: Title (Year)" message is captured and acked, not answered by A
   assert.match(row.title, /Maze Runner/);
   assert.equal(row.status, 'open');
 });
+
+test('a reply aimed at ANOTHER member is not brushed off by the bot', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.responseMode', 'questions');
+  setSetting('bot.offtopicBehavior', 'redirect');
+  setSetting('bot.offtopicMessage', 'App questions only please.');
+  db.prepare('INSERT OR REPLACE INTO allowed_chats (chat_id, title, enabled, added_at) VALUES (-100123, ?, 1, 0)').run('Test Group');
+
+  // Replying to Ashley's message (a non-bot user, id 555) with a question
+  // clearly aimed at her — the bot stays out of it.
+  const ctx = fakeCtx('Can you repeat this please', { chatType: 'group', userId: 98701 });
+  ctx.message.reply_to_message = { from: { id: 555 }, message_id: 40, text: 'Request: Maze Runner (2018)' };
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 0, 'no brush-off on a reply directed at another member');
+
+  // But a real support question that happens to reply to another member is
+  // still answered.
+  const ctx2 = fakeCtx('how do i install on my firestick?', { chatType: 'group', userId: 98702 });
+  ctx2.message.reply_to_message = { from: { id: 555 }, message_id: 41, text: 'anyone about?' };
+  await handleGroupMessage(ctx2);
+  assert.equal(ctx2.sent.length, 1, 'genuine support reply still answered');
+  assert.match(ctx2.sent[0].msg, /Downloader app/);
+
+  // And replying to the BOT still engages normally (unchanged).
+  aiResponse = 'Sure — here are the steps again.';
+  const ctx3 = fakeCtx('Can you repeat this please', { chatType: 'group', userId: 98703 });
+  ctx3.message.reply_to_message = { from: { id: 999 }, message_id: 42, text: 'Some earlier bot answer about installing.' };
+  await handleGroupMessage(ctx3);
+  assert.equal(ctx3.sent.length, 1, 'reply to the bot is still handled');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
