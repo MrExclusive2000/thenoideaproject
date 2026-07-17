@@ -92,6 +92,8 @@ function mentionsBot(ctx, text) {
 function onCooldown(userId) {
   const seconds = Number(getSetting('bot.cooldownSeconds')) || 0;
   if (!seconds) return false;
+  // Admins are never rate-limited — rapid-fire testing must always answer.
+  if (isAdminUser(userId)) return false;
   return Date.now() - (cooldowns.get(userId) || 0) < seconds * 1000;
 }
 
@@ -522,7 +524,12 @@ export async function handleGroupMessage(ctx) {
 
   if (!shouldAnswer) return;
 
-  if (onCooldown(ctx.from.id)) return;
+  // Cooldown drops are stamped in the log — a silently ignored question is
+  // indistinguishable from a bug without this.
+  if (onCooldown(ctx.from.id)) {
+    setLogSource(logId, 'cooldown');
+    return;
+  }
   bumpCooldown(ctx.from.id);
 
   // Replying to one of the bot's messages is a follow-up conversation: give
@@ -572,9 +579,13 @@ export async function handleDirectMessage(ctx) {
 
   if (!getSetting('bot.dmEnabled')) return;
   if (containsBannedWord(text, getBannedWords())) return;
-  if (onCooldown(ctx.from.id)) return;
+  // Log BEFORE the cooldown check — a dropped DM used to vanish entirely.
+  const logId = logMessage(ctx.chat.id, ctx.from, text, null);
+  if (onCooldown(ctx.from.id)) {
+    setLogSource(logId, 'cooldown');
+    return;
+  }
   bumpCooldown(ctx.from.id);
 
-  const logId = logMessage(ctx.chat.id, ctx.from, text, null);
   await answer(ctx, text, { isDm: true, logId });
 }

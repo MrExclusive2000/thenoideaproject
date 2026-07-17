@@ -1069,3 +1069,28 @@ test('a bare DM fragment mid-conversation still reaches the AI', async () => {
   assert.match(ctx2.sent[0].msg, /Thames/);
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
+
+test('cooldown drops are logged; admins are never rate-limited', async () => {
+  setSetting('bot.cooldownSeconds', 60);
+  setSetting('reports.adminTelegramIds', [777]);
+
+  // Regular member: second rapid question is dropped but stamped in the log.
+  const m1 = fakeCtx('how do i update the app?', { chatType: 'group', userId: 97001 });
+  await handleGroupMessage(m1);
+  assert.equal(m1.sent.length, 1, 'first question answered');
+  const m2 = fakeCtx('and whats the newest version?', { chatType: 'group', userId: 97001 });
+  await handleGroupMessage(m2);
+  assert.equal(m2.sent.length, 0, 'second question rate-limited');
+  const row = db.prepare('SELECT reply_source FROM messages_log ORDER BY id DESC LIMIT 1').get();
+  assert.equal(row.reply_source, 'cooldown', 'drop is visible in the message log');
+
+  // Admin: rapid-fire always answers.
+  const a1 = fakeCtx('how do i update the app?', { chatType: 'group', userId: 777 });
+  await handleGroupMessage(a1);
+  const a2 = fakeCtx('what firestick is best to buy?', { chatType: 'group', userId: 777 });
+  await handleGroupMessage(a2);
+  assert.equal(a1.sent.length, 1, 'admin first question answered');
+  assert.equal(a2.sent.length, 1, 'admin rapid follow-up answered too');
+
+  setSetting('bot.cooldownSeconds', 0);
+});
