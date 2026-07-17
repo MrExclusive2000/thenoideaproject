@@ -90,6 +90,7 @@ test('starter FAQs actually match how people ask', () => {
     ['keeps logging me out, invalid details', 'login'],
     ['how can my friend join the service?', 'friend'],
     ['my mate wants to sign up', 'friend'],
+    ['how do i invite them to this group', 'friend'],
   ];
   for (const [q, expect] of cases) {
     const { match } = matchFaq(q, faqs, 0.5);

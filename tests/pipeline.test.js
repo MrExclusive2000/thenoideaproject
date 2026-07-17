@@ -168,6 +168,15 @@ test('AI overload/timeout gets an honest busy reply instead of silence', async (
   setSetting('ai.timeoutSeconds', 90);
 });
 
+test('the AI knows its own commands and must not offer follow-ups', async () => {
+  const ctx = fakeCtx('how would someone get onto the vip list here?', { userId: 5050 });
+  await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  const system = lastAiRequest.messages[0].content;
+  assert.match(system, /\/invite — you give the member a personal one-use invite link/);
+  assert.match(system, /\/ticket — opens a private support ticket/);
+  assert.match(system, /Answer completely in ONE message/);
+});
+
 test('an AI reply that invents a download code is suppressed (live bug)', async () => {
   // The real code (9804805) is in the knowledge via this FAQ; 6063869 is not.
   db.prepare(`INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at)

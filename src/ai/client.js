@@ -29,6 +29,17 @@ export function buildSystemPrompt() {
   const guides = db.prepare('SELECT title, body_md FROM guides WHERE visible = 1 ORDER BY sort, id').all();
 
   const knowledge = [];
+  // The bot must know its own commands — otherwise it waffles about "asking
+  // an admin for an invite link" instead of saying "send me /invite".
+  knowledge.push([
+    '## Your own commands — point users to these when relevant',
+    '/invite — you give the member a personal one-use invite link to bring a friend into the group',
+    '/link CODE — connects their Telegram to their customer account (code from the portal Account page or the admin)',
+    '/myaccount — shows their account status and expiry date (after linking)',
+    '/download — you send them the latest app file or a download code (after linking, in a private message)',
+    '/guides — setup guides in chat · /faq — common questions · /status — service status and latest version',
+    '/ticket — opens a private support ticket with the human team (in a private message to you)',
+  ].join('\n'));
   if (faqs.length) {
     knowledge.push('## FAQ');
     for (const f of faqs) knowledge.push(`Q: ${f.question}\nA: ${f.answer}`);
@@ -49,6 +60,7 @@ export function buildSystemPrompt() {
     '- You help ONLY with the service and its support topics: the apps (installing, updating, logging in, which app to use), playback problems (buffering, freezing, channels/streams/VOD not working, picture or sound issues), accounts, subscriptions, renewals and payments, supported devices (Firestick, Android, TVs), and the customer panel.',
     '- Those support topics are ALWAYS in scope, even when the knowledge below does not mention the exact channel, show or device named by the user. In that case give the closest general fix from the knowledge.',
     '- Never ask the user to repeat details they already provided (such as the channel name), and do not end your answer with follow-up questions or requests for more details — the system automatically invites the user to confirm if the problem persists.',
+    "- Answer completely in ONE message. Never offer to do something next, like 'Would you like me to...' or 'Let me know if you want...' — you cannot send a second message on your own, so every offer like that is a dead end.",
     `- Only when the message is clearly unrelated to the service (sports results, news, jokes, homework, general chat), reply with exactly the single word ${OFFTOPIC_SENTINEL} and nothing else.`,
     '- Examples: "buffering on bbc1" → in scope, give the buffering fixes. "app wont open on my firestick" → in scope. "who won the match last night" → OFFTOPIC. "what should I cook tonight" → OFFTOPIC.',
     '- Never invent features, prices, links or steps that are not in the knowledge.',
