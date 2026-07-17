@@ -73,7 +73,7 @@ function serviceConfig() {
   };
 }
 
-export function isUrlRequest(text) {
+function isUrlRequest(text) {
   return /\burls?\b|\bdns\b|\b(server|service|login|host)\s+address\b/i.test(text);
 }
 
@@ -358,12 +358,12 @@ function plainWords(text) {
   return String(text).toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
 }
 
-export function looksLikeGreeting(text) {
+function looksLikeGreeting(text) {
   const w = plainWords(text);
   return w.length > 0 && w.length <= 5 && w.every((x) => GREETING_WORDS.has(x));
 }
 
-export function looksLikeThanks(text) {
+function looksLikeThanks(text) {
   const w = plainWords(text);
   if (!w.length || w.length > 6) return false;
   const joined = w.join(' ');
@@ -371,7 +371,7 @@ export function looksLikeThanks(text) {
   return w.some((x) => THANKS_CORE.has(x)) && w.every((x) => THANKS_CORE.has(x) || THANKS_EXTRA.has(x));
 }
 
-export function looksLikeQuestion(text) {
+function looksLikeQuestion(text) {
   if (text.includes('?')) return true;
   // "whats" (no apostrophe) must count too — \b never fires inside it, so
   // the contracted forms need listing explicitly.
@@ -388,7 +388,7 @@ const STRONG_PROBLEM =
   /\b(buffer(ing|s)?|freez\w*|frozen|lag(gy|ging|s)?|stutter\w*|glitch\w*|crash\w*|playback|black ?screen|no (sound|audio|picture|video|streams?|channels?|epg|vod)|invalid|unauthori[sz]ed|logged (out|off)|wrong password|access denied|wrong (language|audio|sound)|only (one|1) (language|audio( track)?|track)|not work\w*|(doesnt|dont|isnt|aint|stopped) work\w*|wont (work|load|play|open|start)|cant (log ?in|sign in|watch|open|play|stream|connect)|keeps? (stopping|buffering|freezing|crashing|cutting|loading)|(is|are|was|were|gone|went|still) down|offline)\b/i;
 const WEAK_PROBLEM = /\b(down|error|issues?|problems?|stuck|loading|broken)\b/i;
 
-export function looksLikeProblem(text) {
+function looksLikeProblem(text) {
   if (STRONG_PROBLEM.test(text)) return true;
   return WEAK_PROBLEM.test(text) && isLikelyInScope(text);
 }

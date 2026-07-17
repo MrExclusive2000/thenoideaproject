@@ -3,7 +3,7 @@ import { config } from './config.js';
 
 // All tunables live in the settings KV table so admins can change them from
 // the panel without a restart. Env vars only seed the initial values.
-export const DEFAULTS = {
+const DEFAULTS = {
   'branding.appName': 'Support Suite',
   'branding.accentColor': '#6366f1',
   'branding.logoFile': '',

@@ -7,7 +7,6 @@ import { config } from '../../config.js';
 import { getSetting } from '../../settings.js';
 import { requireCustomer } from '../middleware.js';
 import { audit, randomCode, renderMarkdown, formatBytes, formatDate } from '../../util.js';
-import { flash } from '../middleware.js';
 
 export const portalRouter = Router();
 

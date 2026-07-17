@@ -20,7 +20,7 @@ export function aiBudgetExceeded() {
   return aiUsageToday().calls >= budget;
 }
 
-export function buildSystemPrompt() {
+function buildSystemPrompt() {
   const instructions = getSetting('bot.instructions');
   const status = getSetting('service.status');
   const note = getSetting('service.note');
@@ -303,10 +303,6 @@ export async function composeDigest(statsText) {
     // fall through to plain stats
   }
   return { body: statsText, ai: false };
-}
-
-export function recordUsage() {
-  return { day: today(), ...aiUsageToday() };
 }
 
 // Draft ONE FAQ entry from a cluster of real unanswered customer questions.

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db, now } from '../../../db/db.js';
 import { getSetting } from '../../../settings.js';
-import { matchFaq, scoreFaq } from '../../../faq/matcher.js';
+import { matchFaq } from '../../../faq/matcher.js';
 import { addStarterFaqs } from '../../../db/seed.js';
 import { audit } from '../../../util.js';
 import { flash } from '../../middleware.js';

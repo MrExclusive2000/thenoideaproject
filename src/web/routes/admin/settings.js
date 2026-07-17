@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db } from '../../../db/db.js';
-import { getSetting, setSettings, setSetting } from '../../../settings.js';
+import { getSetting, setSettings } from '../../../settings.js';
 import { testAiConnection } from '../../../ai/client.js';
 import { audit } from '../../../util.js';
 import { flash } from '../../middleware.js';

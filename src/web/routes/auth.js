@@ -3,7 +3,6 @@ import rateLimit from 'express-rate-limit';
 import { authenticator } from 'otplib';
 import { attemptLogin } from '../accounts.js';
 import { audit } from '../../util.js';
-import { flash } from '../middleware.js';
 
 export const authRouter = Router();
 

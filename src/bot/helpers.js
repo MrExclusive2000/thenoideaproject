@@ -2,9 +2,9 @@ import { db, now } from '../db/db.js';
 import { getSetting } from '../settings.js';
 import { tokens, tokensMatch } from '../faq/matcher.js';
 
-export const TG_MAX = 4096;
+const TG_MAX = 4096;
 
-export function chunkText(text, size = TG_MAX) {
+function chunkText(text, size = TG_MAX) {
   const chunks = [];
   let rest = String(text);
   while (rest.length > size) {
