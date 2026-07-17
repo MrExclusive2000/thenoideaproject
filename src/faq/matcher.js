@@ -44,6 +44,11 @@ function dice(setA, setB) {
 function tokensMatch(a, b) {
   if (a === b) return true;
   if (a.length < 4 || b.length < 4 || Math.abs(a.length - b.length) > 3) return false;
+  // A token embedded at the END of a longer one is a different word, not a
+  // typo — extra leading characters change meaning ("iphone" vs "phone").
+  // Trailing morphology (install/installer/installing) stays fuzzy-matchable.
+  const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
+  if (longer !== shorter && longer.endsWith(shorter) && !longer.startsWith(shorter)) return false;
   return dice(trigrams(a), trigrams(b)) >= 0.55;
 }
 

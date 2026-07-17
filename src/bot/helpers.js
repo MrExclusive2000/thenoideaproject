@@ -85,6 +85,7 @@ export function recordUnanswered(text, ctx, source, nearMissFaqId = null) {
 const BASE_SCOPE_TERMS = new Set([
   'app', 'apps', 'purple', 'smarters', 'downloader',
   'firestick', 'fire', 'stick', 'android', 'phone', 'tablet', 'device', 'devices', 'tv',
+  'iphone', 'ipad', 'ios', 'apple',
   'install', 'installing', 'installed', 'reinstall', 'update', 'updating', 'version', 'apk', 'sideload',
   'setup', 'settings', 'developer', 'developers', 'options', 'option', 'unknown', 'sources', 'source',
   'enable', 'enabling', 'enabled', 'allow', 'allowing', 'allowed', 'permission', 'permissions', 'blocked',
@@ -126,7 +127,7 @@ function scopeVocab() {
 // stay in the weak vocabulary and need a second hit, so "who won the match
 // last night" is NOT forced in-scope on a single word.
 const STRONG_SCOPE_TERMS = new Set([
-  'app', 'apps', 'purple', 'smarters', 'downloader', 'firestick', 'apk', 'sideload',
+  'app', 'apps', 'purple', 'smarters', 'downloader', 'firestick', 'iphone', 'ipad', 'ios', 'apk', 'sideload',
   'install', 'installing', 'installed', 'reinstall', 'vod', 'iptv', 'buffering', 'playback',
   'login', 'password', 'username', 'invalid', 'subscription', 'renew', 'renewal', 'expiry', 'expired',
   'pay', 'payment', 'paying', 'crypto', 'litecoin', 'ltc', 'wallet', 'exodus',

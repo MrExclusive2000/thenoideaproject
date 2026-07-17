@@ -4,14 +4,14 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 11;
+const SEED_VERSION = 12;
 
 export const STARTER_FAQS = [
   {
     // Owns the device-less phrasings ("don't know how to install the apps");
     // the device FAQs below keep only their distinctive vocabulary.
     question: 'How do I install the apps?',
-    answer: "Depends on your device:\n📺 Firestick: install the Downloader app from the Amazon store, open it and enter code 9804805, click Go, then install the Purple App (plus XC or Smarters as backups — same login works in all).\n📱 Android phone/tablet: open https://aftv.news/9804805 in your browser (every Downloader code also works as an aftv.news link) and pick the Purple App.\nThen open the app and log in with your service details. If your device blocks the install, say so and I'll walk you through allowing it.",
+    answer: "Depends on your device:\n📺 Firestick: install the Downloader app from the Amazon store, open it and enter code 9804805, click Go, then install the Purple App (plus XC or Smarters as backups — same login works in all).\n📱 Android phone/tablet: open https://aftv.news/9804805 in your browser (every Downloader code also works as an aftv.news link) and pick the Purple App.\n🍏 iPhone/iPad: install Smarters Player Lite free from the App Store and log in with your username, password and the service URL (ask here if you don't have it).\nThen open the app and log in with your service details. If your device blocks the install, say so and I'll walk you through allowing it.",
     keywords: 'install, installing, installed, app, apps, get, setup, put',
     priority: 1,
   },
@@ -25,6 +25,11 @@ export const STARTER_FAQS = [
     question: 'How do I install the app on an Android phone or tablet?',
     answer: 'Open https://aftv.news/9804805 in your phone’s browser — every Downloader code also works as a link at aftv.news/CODE. Pick the app you want — we recommend the Purple App — and allow installs from unknown sources if your phone asks (the prompt varies by model). Install it, open it, and log in with your service details.',
     keywords: 'android, phone, tablet, mobile, apk, installer, link, aftv, samsung, pixel, app, apps',
+  },
+  {
+    question: 'How do I install the app on an iPhone or iPad (iOS)?',
+    answer: 'On iPhone/iPad use Smarters Player Lite — install it free from the App Store:\nhttps://apps.apple.com/gb/app/smarters-player-lite/id1628995509\nOpen it, accept the terms and choose "Login with Xtream Codes API", then enter:\n- Any name you like\n- Your username and password (your normal service login)\n- The service URL (ask here or message the admin if you don\'t have it)\nTap Add User and your channels and VOD will load.',
+    keywords: 'ios, iphone, ipad, apple, store, lite, url, install, installing, app, apps',
   },
   {
     question: 'How do I enable Developer Options or allow apps from unknown sources on Firestick?',
@@ -43,7 +48,7 @@ export const STARTER_FAQS = [
   },
   {
     question: 'Which app should I use — Purple, XC or Smarters?',
-    answer: 'Use the Purple App as your main app. XC and Smarters are backups — install at least one of them too. The same login works in every app, so if one ever plays up, just switch to a backup and carry on.',
+    answer: 'Use the Purple App as your main app. XC and Smarters are backups — install at least one of them too. The same login works in every app, so if one ever plays up, just switch to a backup and carry on. On iPhone/iPad, use Smarters Player Lite from the App Store instead.',
     keywords: 'purple, xc, smarters, app, which, best, backup, main, recommend',
   },
   {
@@ -73,7 +78,7 @@ export const STARTER_FAQS = [
   },
   {
     question: 'How do I update the app to the latest version?',
-    answer: 'On a Firestick: open the Downloader app, enter code 9804805 again and install the newest version straight over the old one — your settings are kept. On Android: open https://aftv.news/9804805 in your browser again. You can also message me /version to see the latest version.',
+    answer: 'On a Firestick: open the Downloader app, enter code 9804805 again and install the newest version straight over the old one — your settings are kept. On Android: open https://aftv.news/9804805 in your browser again. On iPhone/iPad: update Smarters Player Lite through the App Store. You can also message me /version to see the latest version.',
     keywords: 'update, upgrade, latest, version, new, old',
   },
   {
@@ -159,6 +164,26 @@ Ask in the group — the bot answers install questions instantly. For a human, m
 *Tip: install XC or Smarters as a backup too — the same login works in all our apps.*`,
   },
   {
+    title: 'Install on iPhone / iPad (iOS)',
+    slug: 'install-ios',
+    visible: 0,
+    body_md: `> **${EDIT_MARKER}** Replace YOUR-SERVICE-URL below with your real service URL, then set this guide to *visible*.
+
+## Install Smarters Player Lite
+
+1. On your iPhone or iPad, install **Smarters Player Lite** free from the App Store:
+   https://apps.apple.com/gb/app/smarters-player-lite/id1628995509
+2. Open the app and accept the terms.
+3. Choose **Login with Xtream Codes API**.
+4. Enter:
+   - **Name:** anything you like
+   - **Username / Password:** your normal service login
+   - **URL:** YOUR-SERVICE-URL
+5. Tap **Add User** — your channels and VOD will load.
+
+*Tip: the same login works on Firestick and Android too — see the other install guides.*`,
+  },
+  {
     title: 'The customer panel',
     slug: 'customer-panel',
     visible: 0,
@@ -235,6 +260,12 @@ const V10_ANDROID =
   'Open our Android installer link on your device (ask here or check the customer panel if you don’t have it), pick the app you want — we recommend the Purple App — and allow installs from unknown sources if your phone asks (the prompt varies by model). Install it, open it, and log in with your service details.';
 const V10_UPDATE =
   'On a Firestick: open the Downloader app, enter code 9804805 again and install the newest version straight over the old one — your settings are kept. On Android: use the installer link again. You can also message me /version to see the latest version.';
+const V11_INSTALL_ANY =
+  "Depends on your device:\n📺 Firestick: install the Downloader app from the Amazon store, open it and enter code 9804805, click Go, then install the Purple App (plus XC or Smarters as backups — same login works in all).\n📱 Android phone/tablet: open https://aftv.news/9804805 in your browser (every Downloader code also works as an aftv.news link) and pick the Purple App.\nThen open the app and log in with your service details. If your device blocks the install, say so and I'll walk you through allowing it.";
+const V11_UPDATE =
+  'On a Firestick: open the Downloader app, enter code 9804805 again and install the newest version straight over the old one — your settings are kept. On Android: open https://aftv.news/9804805 in your browser again. You can also message me /version to see the latest version.';
+const V11_WHICH_APP =
+  'Use the Purple App as your main app. XC and Smarters are backups — install at least one of them too. The same login works in every app, so if one ever plays up, just switch to a backup and carry on.';
 
 const V1_ANSWERS = {
   'How do I install the app on my Firestick?': 'Easiest way is with the Downloader app:\n1. On the Firestick go to Settings > My Fire TV > Developer Options and allow apps from unknown sources (or allow Downloader there).\n2. Install "Downloader" from the Amazon app store.\n3. Open Downloader and enter the download link or code from our portal.\n4. Install the APK when it finishes, open the app and sign in.\nGot a portal login? Message me /download in a private chat and I’ll send the file or a code.',
@@ -252,9 +283,10 @@ function previousDefaults(question) {
   if (question === 'The app keeps buffering, freezing or stuttering — how do I fix it?') out.push(V3_BUFFERING);
   if (question === "A channel or stream isn't working — what do I do?") out.push(V3_CHANNEL);
   if (question === "The app says my login is wrong or my account doesn't work") out.push(V2_LOGIN);
-  if (question === 'How do I install the apps?') out.push(V10_INSTALL_ANY);
+  if (question === 'How do I install the apps?') out.push(V10_INSTALL_ANY, V11_INSTALL_ANY);
   if (question === 'How do I install the app on an Android phone or tablet?') out.push(V10_ANDROID);
-  if (question === 'How do I update the app to the latest version?') out.push(V10_UPDATE);
+  if (question === 'How do I update the app to the latest version?') out.push(V10_UPDATE, V11_UPDATE);
+  if (question === 'Which app should I use — Purple, XC or Smarters?') out.push(V11_WHICH_APP);
   return out;
 }
 

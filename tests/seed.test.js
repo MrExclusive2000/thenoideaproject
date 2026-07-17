@@ -29,6 +29,10 @@ test('first boot seeds starter FAQs and guides', () => {
   assert.match(guides.find((g) => g.slug === 'install-firestick').body_md, /9804805/);
   assert.match(guides.find((g) => g.slug === 'install-android').body_md, /aftv\.news\/9804805/);
   assert.match(guides.find((g) => g.slug === 'pay-with-crypto').body_md, /Exodus/);
+  // iOS guide ships hidden until the admin fills in the service URL.
+  assert.equal(guides.find((g) => g.slug === 'install-ios').visible, 0);
+  assert.match(guides.find((g) => g.slug === 'install-ios').body_md, /apps\.apple\.com/);
+  assert.match(guides.find((g) => g.slug === 'install-ios').body_md, /YOUR-SERVICE-URL/);
 });
 
 test('seeding is idempotent — second boot adds nothing', () => {
@@ -108,6 +112,10 @@ test('starter FAQs actually match how people ask', () => {
     ['how do i get the apps on my firestick', '9804805'],
     ['how do i install this on my android phone', 'aftv.news'],
     ['whats the android download link', 'aftv.news'],
+    ['how do i install this on my iphone', 'Smarters Player Lite'],
+    ['can i get this on my ipad?', 'App Store'],
+    ['is there an ios app', 'Smarters Player Lite'],
+    ['whats the service url for the iphone app', 'Xtream'],
     ['guys how do i instal this on my fire stick??', 'Downloader'],
     ['episode 3 of severance wont play', 'episode'],
     ['the movie is in spanish how do i get english', 'language'],
