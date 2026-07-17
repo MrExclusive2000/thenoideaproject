@@ -265,6 +265,66 @@ test('confirmation escalates: ack to user, batched DM to admin, no FAQ re-dump; 
   hub.api = null;
 });
 
+test('real-world confirmations escalate: "still happening" reply with no problem words', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
+
+  // First report → fixes + invite.
+  const first = fakeCtx('BBC 1 is buffering', { chatType: 'group', userId: 93001 });
+  await handleGroupMessage(first);
+  assert.equal(first.sent.length, 1);
+
+  // The exact live failure: a reply to the bot saying "still happening" —
+  // zero problem keywords — must escalate, not go back to the AI.
+  const confirm = fakeCtx('still happening', { chatType: 'group', userId: 93001 });
+  confirm.message.reply_to_message = { message_id: 400, from: { id: 999 }, text: 'Try these in order…' };
+  await handleGroupMessage(confirm);
+  assert.equal(confirm.sent.length, 1);
+  assert.match(confirm.sent[0].msg, /Flagged to the team/);
+
+  await flushProblemAlerts();
+  assert.equal(adminDms.length, 1, 'admin got the escalation');
+  assert.match(adminDms[0].text, /BBC 1 is buffering/, 'original report included for context');
+  hub.api = null;
+});
+
+test('channel + time details ("BBC 1 22:54") escalate too', async () => {
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
+
+  await handleGroupMessage(fakeCtx('bbc one keeps freezing', { chatType: 'group', userId: 93002 }));
+  const details = fakeCtx('BBC 1 22:54', { chatType: 'group', userId: 93002 });
+  await handleGroupMessage(details);
+  assert.match(details.sent[0].msg, /Flagged to the team/);
+  await flushProblemAlerts();
+  assert.equal(adminDms.length, 1);
+  assert.match(adminDms[0].text, /22:54/);
+  hub.api = null;
+});
+
+test('a question reply after a problem report continues the conversation instead of escalating', async () => {
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  aiResponse = 'Settings > Applications > Manage Installed Applications, pick the app, then Clear cache.';
+
+  await handleGroupMessage(fakeCtx('app is buffering non stop', { chatType: 'group', userId: 93003 }));
+  const question = fakeCtx('what do you mean by clear the cache?', { chatType: 'group', userId: 93003 });
+  question.message.reply_to_message = { message_id: 401, from: { id: 999 }, text: 'Try these in order…' };
+  await handleGroupMessage(question);
+  assert.equal(question.sent.length, 1);
+  assert.match(question.sent[0].msg, /Manage Installed Applications/, 'got an answer, not an escalation ack');
+  assert.doesNotMatch(question.sent[0].msg, /Flagged to the team/);
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
 test('3 different users reporting within 15 minutes triggers an outage alert immediately', async () => {
   setSetting('bot.cooldownSeconds', 0);
   db.prepare('DELETE FROM problem_reports').run();

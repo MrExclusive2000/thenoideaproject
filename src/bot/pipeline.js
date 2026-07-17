@@ -83,6 +83,11 @@ function saysStillBroken(text) {
   return /\b(still|again|didnt (work|help)|didn't (work|help)|no luck|not fixed|same (issue|problem)|tried (all|everything|them|those|that))\b/i.test(text);
 }
 
+// "BBC 1 22:54", "since 9pm" — the details the bot asked for.
+function hasTimeDetail(text) {
+  return /\b\d{1,2}[:.]\d{2}\b|\b\d{1,2}\s?(am|pm)\b/i.test(text);
+}
+
 // Test helper: clear triage memory between scenarios.
 export function _resetProblemTriage() {
   problemState.clear();
@@ -256,41 +261,60 @@ export async function handleGroupMessage(ctx) {
   const isFollowUp = repliedTo?.from?.id === ctx.me?.id && Boolean(repliedTo.text);
 
   // Problem triage: fixes first, admin escalation only on confirmation.
+  // A confirmation rarely repeats the problem words — real users type "still
+  // happening", "BBC 1 22:54" or just reply to the bot — so with an active
+  // report, any non-question reply, still-broken phrasing, time detail, or
+  // repeat problem message escalates. Questions keep the conversation going.
   let problemId = null;
   let problemSuffix = null;
-  if (isProblem) {
-    const st = getProblemState(ctx.from.id);
-    const isConfirmation = Boolean(st) || isFollowUp || saysStillBroken(text);
-    const alreadyEscalated = st?.escalatedAt && Date.now() - st.escalatedAt < PROBLEM_WINDOW_MS;
+  const st = getProblemState(ctx.from.id);
+  const alreadyEscalated = Boolean(st?.escalatedAt && Date.now() - st.escalatedAt < PROBLEM_WINDOW_MS);
 
-    if (isConfirmation && !alreadyEscalated) {
-      // The user tried the fixes (or told us it's still broken) — NOW it goes
-      // to the admins, and the user gets an ack instead of the same FAQ again.
-      setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: Date.now() });
-      recordProblem(ctx, text, { answered: true });
-      queueProblemAlert({
-        tg_user: ctx.from?.username || ctx.from?.first_name,
-        tg_user_id: ctx.from?.id,
-        text,
-        topic: extractProblemTopic(text),
-      });
-      setLogSource(logId, 'escalated');
-      const ack = getSetting('bot.problemFlaggedNote');
-      if (ack) {
-        await ctx.api.sendMessage(ctx.chat.id, ack, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
-      }
-      return;
+  let isConfirmation = false;
+  if (!alreadyEscalated) {
+    if (st) {
+      isConfirmation =
+        isProblem ||
+        saysStillBroken(text) ||
+        hasTimeDetail(text) ||
+        (isFollowUp && !looksLikeQuestion(text));
+    } else if (isProblem) {
+      // No stored state (e.g. restart) but clearly a confirmation anyway.
+      isConfirmation = isFollowUp || saysStillBroken(text);
     }
+  }
 
-    if (alreadyEscalated) {
-      // Admins are already on it — stay quiet rather than nag or re-alert.
-      setProblemState(ctx.from.id, { at: Date.now() });
-      return;
+  if (isConfirmation) {
+    // The user tried the fixes (or told us it's still broken) — NOW it goes
+    // to the admins, and the user gets an ack instead of the same FAQ again.
+    setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: Date.now() });
+    recordProblem(ctx, text, { answered: true });
+    // Give the admin the original report alongside the confirmation.
+    const alertText = st?.firstText && st.firstText !== text ? `${st.firstText} — ${text}` : text;
+    queueProblemAlert({
+      tg_user: ctx.from?.username || ctx.from?.first_name,
+      tg_user_id: ctx.from?.id,
+      text: alertText,
+      topic: extractProblemTopic(st?.firstText || '') || extractProblemTopic(text),
+    });
+    setLogSource(logId, 'escalated');
+    const ack = getSetting('bot.problemFlaggedNote');
+    if (ack) {
+      await ctx.api.sendMessage(ctx.chat.id, ack, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
     }
+    return;
+  }
 
+  if (isProblem && alreadyEscalated) {
+    // Admins are already on it — stay quiet rather than nag or re-alert.
+    setProblemState(ctx.from.id, { at: Date.now() });
+    return;
+  }
+
+  if (isProblem && !st) {
     // First report: save it for the panel (no admin DM), answer with the
     // fixes, and invite the user to confirm if it persists.
-    setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: null });
+    setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: null, firstText: text.slice(0, 200) });
     problemId = recordProblem(ctx, text, { answered: false });
     problemSuffix = getSetting('bot.problemFollowupNote') || null;
     checkOutage();
