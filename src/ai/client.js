@@ -141,7 +141,11 @@ export async function askAi(question, { history = [], assumeOnTopic = false } = 
   const { text } = await chatCompletion(messages);
   let reply = cleanReply(text);
   if (!reply) return null;
-  if (leaksSystemPrompt(reply, systemPrompt)) return null;
+  // Guard only the instructions/rules — the KNOWLEDGE section is FAQ/guide
+  // text the model is SUPPOSED to repeat, so checking against the full prompt
+  // would kill correct answers that quote the knowledge.
+  const protectedInstructions = systemPrompt.split('# KNOWLEDGE')[0];
+  if (leaksSystemPrompt(reply, protectedInstructions)) return null;
 
   const bannedWords = db.prepare('SELECT word FROM banned_words').all().map((r) => r.word);
   if (containsBannedWord(reply, bannedWords)) return null;
