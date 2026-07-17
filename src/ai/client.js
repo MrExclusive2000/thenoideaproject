@@ -1,6 +1,6 @@
 import { db, now } from '../db/db.js';
 import { getSetting } from '../settings.js';
-import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, containsBannedWord } from './guardrails.js';
+import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion } from './guardrails.js';
 
 const usageStmt = db.prepare(
   'INSERT INTO ai_usage (day, calls, tokens) VALUES (?, 1, ?) ' +
@@ -66,7 +66,9 @@ export function buildSystemPrompt() {
     '- Those support topics are ALWAYS in scope, even when the knowledge below does not mention the exact channel, show or device named by the user. In that case give the closest general fix from the knowledge.',
     '- Never ask the user to repeat details they already provided (such as the channel name). For problem reports, give the fixes without ending on a question — the system automatically invites the user to confirm if the problem persists.',
     "- If you can answer, answer completely in ONE message. Never offer to do something next, like 'Would you like me to...' or 'Let me know if you want...' — you cannot send a second message on your own, so every offer like that is a dead end.",
-    "- ONLY if you genuinely cannot answer without one missing detail (for example: which device they use, or which app they are in), reply with exactly ONE short clarifying question and nothing else — e.g. 'Which device are you on — Firestick, Android or iPhone?'. Their answer will come back to you. Never ask about details you don't need or that they already gave.",
+    "- ONLY if you genuinely cannot answer without one missing detail (for example: which device they use, or which app they are in), reply with exactly ONE short clarifying question and NOTHING else — no steps, no guesses before it — e.g. 'Which device are you on — Firestick, Android or iPhone?'. Their answer will come back to you. Never ask about details you don't need or that they already gave.",
+    '- When they ask for a specific URL, link or code: reply with exactly the value from the knowledge and one line on how to use it. If the knowledge does not contain that value, do NOT guess one and do NOT answer with setup steps instead — ask the ONE clarifying question, or say the admin will share it here.',
+    '- Never end an answer with a question. A question mark belongs in your reply ONLY when the entire reply is that one clarifying question.',
     `- Only when the message is clearly unrelated to the service (sports results, news, jokes, homework, general chat), reply with exactly the single word ${OFFTOPIC_SENTINEL} and nothing else.`,
     '- Examples: "buffering on bbc1" → in scope, give the buffering fixes. "app wont open on my firestick" → in scope. "who won the match last night" → OFFTOPIC. "what should I cook tonight" → OFFTOPIC.',
     '- Never invent features, prices, links or steps that are not in the knowledge.',
@@ -226,6 +228,10 @@ export async function askAi(question, { history = [], assumeOnTopic = false } = 
   const { text } = await withAiSlot(() => chatCompletion(messages));
   let reply = cleanReply(text);
   if (!reply) return null;
+  // A question may only BE the whole reply (one short clarifying question) —
+  // a full answer ending in "any other questions?" is a dead end and would
+  // be mistaken for a clarify prompt by the combine flow. Enforce in code.
+  reply = stripDeadEndQuestion(reply);
   // Guard only the instructions/rules — the KNOWLEDGE section is FAQ/guide
   // text the model is SUPPOSED to repeat, so checking against the full prompt
   // would kill correct answers that quote the knowledge.

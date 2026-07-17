@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanReply, leaksSystemPrompt, containsBannedWord } from '../src/ai/guardrails.js';
+import { cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion } from '../src/ai/guardrails.js';
 
 test('OFFTOPIC sentinel suppresses the reply', () => {
   assert.equal(cleanReply('OFFTOPIC'), null);
@@ -50,4 +50,33 @@ test('banned word filter is case-insensitive', () => {
   assert.equal(containsBannedWord('Try the CrackedIPTV build', ['crackediptv']), true);
   assert.equal(containsBannedWord('Totally fine reply', ['badword']), false);
   assert.equal(containsBannedWord('anything', []), false);
+});
+
+test('stripDeadEndQuestion removes trailing dead-end questions from full answers', () => {
+  // The live incident: a complete answer closing with a dead-end offer.
+  const live = 'To get the URL, ask the admin or support team for it.\n\nDo you have any other specific questions about setting up Smarters on your Firestick?';
+  assert.equal(stripDeadEndQuestion(live), 'To get the URL, ask the admin or support team for it.');
+
+  // Same line: keep the complete sentences, drop only the question.
+  assert.equal(
+    stripDeadEndQuestion('Open Downloader and enter the code from the guide, then log in with your service details. Is there anything else I can help with?'),
+    'Open Downloader and enter the code from the guide, then log in with your service details.'
+  );
+
+  // Stacked dead ends are all removed.
+  assert.equal(
+    stripDeadEndQuestion('Clear the cache in Settings > Applications and restart the app afterwards.\nDoes that make sense?\nAnything else?'),
+    'Clear the cache in Settings > Applications and restart the app afterwards.'
+  );
+});
+
+test('stripDeadEndQuestion leaves a pure clarifying question untouched', () => {
+  const clarify = 'Which device are you on — Firestick, Android or iPhone?';
+  assert.equal(stripDeadEndQuestion(clarify), clarify);
+  // Answers with no trailing question are untouched too.
+  const plain = 'Open https://aftv.news/9804805 in your browser and pick the Purple App.';
+  assert.equal(stripDeadEndQuestion(plain), plain);
+  // A question mark mid-reply is fine.
+  const mid = 'Seeing "invalid user"? Check the username for extra spaces and try again.';
+  assert.equal(stripDeadEndQuestion(mid), mid);
 });

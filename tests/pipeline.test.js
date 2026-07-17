@@ -922,3 +922,14 @@ test("a member's message starting with 'guys' is still answered", async () => {
   await handleGroupMessage(ctx);
   assert.equal(ctx.sent.length, 1, 'member question answered regardless of vocative');
 });
+
+test('a full answer ending with a dead-end question is stripped before sending', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  aiResponse = 'The service URL is shared by the admin here — ask and it will be sent to you.\n\nDo you have any other specific questions about setting up Smarters on your Firestick?';
+  const ctx = fakeCtx('I need a url for my Smarters', { userId: 4242 });
+  await handleDirectMessage(ctx);
+  assert.equal(ctx.sent.length, 1);
+  assert.doesNotMatch(ctx.sent[0].msg, /other specific questions/, 'dead-end question removed');
+  assert.doesNotMatch(ctx.sent[0].msg.trimEnd(), /\?$/, 'reply no longer ends with a question');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});

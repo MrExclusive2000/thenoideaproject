@@ -42,6 +42,28 @@ export function cleanReply(raw, { maxChars = 1500 } = {}) {
   return text || null;
 }
 
+// The rules allow a question mark only when the ENTIRE reply is one short
+// clarifying question. Models still love closing a full answer with "Do you
+// have any other questions?" — a dead end for a bot that can't follow up,
+// and it would be mistaken for a real clarifying question by the
+// clarify-then-combine flow. Strip trailing question sentences whenever real
+// content precedes them; a pure clarifying question is left untouched.
+export function stripDeadEndQuestion(reply) {
+  let out = String(reply || '').trimEnd();
+  for (let i = 0; i < 3 && out.endsWith('?'); i++) {
+    const lineIdx = out.lastIndexOf('\n');
+    const head = lineIdx === -1 ? '' : out.slice(0, lineIdx + 1);
+    const lastLine = out.slice(lineIdx + 1);
+    // Keep any complete sentences on the last line before the question.
+    const m = lastLine.match(/^([\s\S]*[.!:)])\s*[^.!?\n]*\?$/);
+    const candidate = (head + (m ? m[1] : '')).trimEnd();
+    // Nothing of substance left → the reply IS the clarifying question.
+    if (candidate.length < 25) return out;
+    out = candidate;
+  }
+  return out;
+}
+
 // The model must never reveal its instructions, even when a group member asks
 // it to. Suppress any reply that quotes a meaningful chunk of the prompt.
 export function leaksSystemPrompt(reply, systemPrompt) {
