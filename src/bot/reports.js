@@ -2,6 +2,7 @@ import { db, now } from '../db/db.js';
 import { getSetting, setSetting } from '../settings.js';
 import { composeDigest, aiUsageToday } from '../ai/client.js';
 import { hub } from './hub.js';
+import { vetSweep } from './joiners.js';
 
 // Instant alerts, throttled per type so a flapping error can't flood DMs.
 const lastAlert = new Map();
@@ -141,9 +142,14 @@ async function digestTick() {
 }
 
 export function startSchedulers() {
+  let lastVetAt = 0;
   const timer = setInterval(() => {
     digestTick();
     expiryReminders().catch(() => {});
+    if (Date.now() - lastVetAt > 15 * 60 * 1000) {
+      lastVetAt = Date.now();
+      vetSweep().catch((err) => console.error('vet sweep failed:', err.message));
+    }
   }, 60 * 1000);
   timer.unref();
   const pruneTimer = setInterval(pruneOldData, 6 * 3600 * 1000);

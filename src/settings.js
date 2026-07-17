@@ -65,6 +65,10 @@ export const DEFAULTS = {
 
   'portal.expiryReminderDays': 3,
   'retention.messagesDays': 30,
+
+  // New-member vetting: after this many days, joiners without a linked
+  // customer account are DM'd to the admin with Keep/Remove buttons. 0 = off.
+  'group.vetDays': 0,
 };
 
 const getStmt = db.prepare('SELECT value FROM settings WHERE key = ?');

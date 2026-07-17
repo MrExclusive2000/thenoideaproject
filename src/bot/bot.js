@@ -10,6 +10,8 @@ import { registerCommands } from './commands.js';
 import { registerFeedback } from './feedback.js';
 import { handleGroupMessage, handleDirectMessage } from './pipeline.js';
 import { alertAdmins } from './reports.js';
+import { recordJoin, markLeft, registerVetActions } from './joiners.js';
+import { chatAllowed } from './helpers.js';
 
 let bot = null;
 
@@ -25,15 +27,34 @@ export async function startBot() {
   bot.api.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 30 }));
 
   registerFeedback(bot);
+  registerVetActions(bot);
   registerCommands(bot);
+
+  // Membership tracking for the vetting flow. chat_member updates carry the
+  // invite link, so /invite referrals are attributed to the inviter.
+  bot.on('chat_member', (ctx) => {
+    const upd = ctx.chatMember;
+    if (!chatAllowed(upd.chat.id)) return;
+    const wasIn = ['member', 'administrator', 'creator', 'restricted'].includes(upd.old_chat_member.status);
+    const isIn = ['member', 'administrator', 'restricted'].includes(upd.new_chat_member.status);
+    if (!wasIn && isIn) {
+      const linkName = upd.invite_link?.name || '';
+      const invitedBy = linkName.startsWith('ref:') ? Number(linkName.slice(4)) || null : null;
+      recordJoin(upd.chat.id, upd.new_chat_member.user, invitedBy);
+    } else if (wasIn && !isIn) {
+      markLeft(upd.chat.id, upd.new_chat_member.user.id);
+    }
+  });
 
   // Group housekeeping: welcome messages and supergroup migration.
   bot.on('message:new_chat_members', async (ctx) => {
-    if (!getSetting('bot.welcomeEnabled')) return;
     const row = db.prepare('SELECT enabled FROM allowed_chats WHERE chat_id = ?').get(ctx.chat.id);
     if (!row?.enabled) return;
     for (const member of ctx.message.new_chat_members) {
       if (member.is_bot) continue;
+      // Fallback join tracking (recordJoin dedupes with the chat_member path).
+      recordJoin(ctx.chat.id, member);
+      if (!getSetting('bot.welcomeEnabled')) continue;
       const text = String(getSetting('bot.welcomeText') || '').replace(/\{name\}/g, member.first_name || 'there');
       if (text) await ctx.reply(text).catch(() => {});
     }
@@ -73,6 +94,9 @@ export async function startBot() {
   // Long polling in the background. 409 = another instance is polling with
   // this token — surface it in the panel instead of crash-looping.
   bot.start({
+    // chat_member (join/leave with invite-link attribution) is only delivered
+    // when explicitly requested.
+    allowed_updates: ['message', 'callback_query', 'chat_member', 'my_chat_member'],
     onStart: (botInfo) => {
       state.bot.status = 'online';
       state.bot.username = botInfo.username;

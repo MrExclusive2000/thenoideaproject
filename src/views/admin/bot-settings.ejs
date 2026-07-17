@@ -74,6 +74,10 @@
     </div>
     <label for="welcomeText">Welcome text (<code>{name}</code> is replaced with the member's name)</label>
     <textarea id="welcomeText" name="welcomeText" rows="2" maxlength="1000"><%= s.welcomeText %></textarea>
+
+    <label for="vetDays">New-member follow-up: ask me after this many days if a joiner hasn't signed up (0 = off)</label>
+    <input id="vetDays" name="vetDays" type="number" min="0" max="30" value="<%= s.vetDays %>">
+    <p class="hint">You'll get a Telegram DM with <strong>Keep / Remove</strong> buttons for each joiner who hasn't linked a customer account (/link) in time — Remove kicks without banning. Members who sign up in time are cleared automatically. Members can also bring a friend with <code>/invite</code> (personal one-use link, attributed to them). Requires the bot to be a <strong>group admin</strong> with invite + remove permissions.</p>
   </div>
 
   <p><button type="submit">Save bot settings</button></p>

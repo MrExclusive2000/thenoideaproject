@@ -229,6 +229,23 @@ const migrations = [
   CREATE INDEX idx_problem_reports_ts ON problem_reports(ts);
   CREATE INDEX idx_problem_reports_open ON problem_reports(resolved, ts);
   `,
+  // v3 — new-member vetting: track joiners, ask the admin after N days
+  `
+  CREATE TABLE group_joiners (
+    id          INTEGER PRIMARY KEY,
+    chat_id     INTEGER NOT NULL,
+    tg_user_id  INTEGER NOT NULL,
+    tg_username TEXT,
+    first_name  TEXT,
+    invited_by  INTEGER,
+    joined_at   INTEGER NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'pending',
+    asked_at    INTEGER,
+    decided_at  INTEGER,
+    UNIQUE(chat_id, tg_user_id)
+  );
+  CREATE INDEX idx_joiners_status ON group_joiners(status, joined_at);
+  `,
 ];
 
 export function migrate(db) {

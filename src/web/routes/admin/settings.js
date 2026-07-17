@@ -30,6 +30,7 @@ settingsRouter.get('/bot', (req, res) => {
       problemResolvedNote: getSetting('bot.problemResolvedNote'),
       welcomeEnabled: getSetting('bot.welcomeEnabled'),
       welcomeText: getSetting('bot.welcomeText'),
+      vetDays: getSetting('group.vetDays'),
       cooldownSeconds: getSetting('bot.cooldownSeconds'),
       faqThreshold: getSetting('faq.threshold'),
     },
@@ -54,6 +55,7 @@ settingsRouter.post('/bot', (req, res) => {
     'bot.problemResolvedNote': String(b.problemResolvedNote || '').slice(0, 500),
     'bot.welcomeEnabled': b.welcomeEnabled === '1',
     'bot.welcomeText': String(b.welcomeText || '').slice(0, 1000),
+    'group.vetDays': Math.max(0, Math.min(30, Number(b.vetDays) || 0)),
     'bot.cooldownSeconds': Math.max(0, Math.min(600, Number(b.cooldownSeconds) || 0)),
     'faq.threshold': Math.max(0.1, Math.min(0.95, Number(b.faqThreshold) || 0.5)),
   });

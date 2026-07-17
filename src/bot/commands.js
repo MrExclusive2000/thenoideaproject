@@ -167,6 +167,7 @@ export function registerCommands(bot) {
       '/myaccount — your access & expiry (linked)',
       '/download — get the latest file (linked)',
       '/link CODE — connect your customer account',
+      '/invite — get a one-use invite link for a friend',
       '/ticket — talk to a human',
     ];
     if (isAdminUser(ctx.from.id)) {
@@ -207,6 +208,35 @@ export function registerCommands(bot) {
   });
 
   bot.command('ticket', async (ctx) => cmdTicket(ctx, ctx.match));
+
+  // Personal one-use invite link so members can bring a friend — joins through
+  // it are attributed to the inviter for the vetting flow.
+  bot.command('invite', async (ctx) => {
+    let chatId = null;
+    let chatTitle = '';
+    if (!isPrivate(ctx)) {
+      if (!chatAllowed(ctx.chat.id)) return;
+      chatId = ctx.chat.id;
+      chatTitle = ctx.chat.title || 'the group';
+    } else {
+      const chat = db.prepare('SELECT chat_id, title FROM allowed_chats WHERE enabled = 1 ORDER BY added_at LIMIT 1').get();
+      if (!chat) return ctx.reply('No group connected yet.');
+      chatId = chat.chat_id;
+      chatTitle = chat.title || 'the group';
+    }
+    try {
+      const link = await ctx.api.createChatInviteLink(chatId, {
+        name: `ref:${ctx.from.id}`.slice(0, 32),
+        member_limit: 1,
+      });
+      await ctx.reply(
+        `🎟 Here's a personal invite to ${chatTitle} for one friend:\n${link.invite_link}\n\nIt works exactly once. Tell them to get set up once they're in — ask me /help anytime.`,
+        isPrivate(ctx) ? {} : { reply_parameters: { message_id: ctx.message.message_id } }
+      );
+    } catch {
+      await ctx.reply('I can\'t create invite links yet — an admin needs to make me a group admin with the "invite users via link" permission.');
+    }
+  });
 
   bot.command('close', async (ctx) => {
     if (!isPrivate(ctx)) return;
