@@ -4,7 +4,7 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 5;
+const SEED_VERSION = 6;
 
 export const STARTER_FAQS = [
   {
@@ -26,6 +26,11 @@ export const STARTER_FAQS = [
     question: "The install is blocked or says I can't install unknown apps",
     answer: 'That just means the device needs permission first. On Firestick: Settings > My Fire TV > About, press the device name 7–10 times to unlock Developer Options, then enable both options in there and try the install again. On Android: when you open the downloaded file and it asks, tap "Settings" and allow installs from that app/browser, then install.',
     keywords: 'blocked, unknown, install, cant, cannot, unable, permission, sources, allow, developer, options, prohibited, restricted',
+  },
+  {
+    question: 'How can my friend join the service?',
+    answer: "Happy to get them set up!\n1. First they need their own login (username + password) — ask the admin here in the group, or message me /ticket and the team will sort out access and pricing.\n2. Bring them into this group: send me /invite and I'll give you a personal one-use invite link for them.\n3. Once they have their login, installing takes two minutes: enter code 9804805 in the Downloader app, install the Purple App (plus XC or Smarters as backup) and sign in — full steps in the Firestick guide.",
+    keywords: 'friend, join, joining, signup, sign up, mate, refer, referral, trial, interested, bring',
   },
   {
     question: 'Which app should I use — Purple, XC or Smarters?',

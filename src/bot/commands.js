@@ -230,7 +230,7 @@ export function registerCommands(bot) {
         member_limit: 1,
       });
       await ctx.reply(
-        `🎟 Here's a personal invite to ${chatTitle} for one friend:\n${link.invite_link}\n\nIt works exactly once. Tell them to get set up once they're in — ask me /help anytime.`,
+        `🎟 Here's a personal invite to ${chatTitle} for one friend:\n${link.invite_link}\n\nIt works exactly once. Heads up: they'll need their own login from the admin — once they're in, they can message me /ticket to get set up.`,
         isPrivate(ctx) ? {} : { reply_parameters: { message_id: ctx.message.message_id } }
       );
     } catch {

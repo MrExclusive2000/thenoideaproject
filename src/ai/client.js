@@ -216,6 +216,16 @@ export async function askAi(question, { history = [], assumeOnTopic = false } = 
 
   const bannedWords = db.prepare('SELECT word FROM banned_words').all().map((r) => r.word);
   if (containsBannedWord(reply, bannedWords)) return null;
+
+  // Models sometimes invent digits (a "download code" that doesn't exist).
+  // Any long number in the reply must literally appear in the knowledge or
+  // the conversation — otherwise suppress and let the FAQ fallback answer.
+  const numbers = reply.match(/\d{5,}/g) || [];
+  if (numbers.length) {
+    const known = `${systemPrompt} ${question} ${history.map((h) => h.content).join(' ')}`;
+    if (numbers.some((n) => !known.includes(n))) return null;
+  }
+
   return reply;
 }
 

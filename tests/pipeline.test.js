@@ -168,6 +168,27 @@ test('AI overload/timeout gets an honest busy reply instead of silence', async (
   setSetting('ai.timeoutSeconds', 90);
 });
 
+test('an AI reply that invents a download code is suppressed (live bug)', async () => {
+  // The real code (9804805) is in the knowledge via this FAQ; 6063869 is not.
+  db.prepare(`INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at)
+              VALUES ('Where do I get the apps?', 'Enter code 9804805 in the Downloader app.', 'downloader, code, apps', 1, 0, 0, 0)`).run();
+
+  aiResponse = 'Get the Downloader app and enter the installation code 6063869 to install everything.';
+  const bad = fakeCtx('whats the process for getting the apps onto a brand new stick then', { userId: 5151 });
+  const badResult = await answer(bad, bad.message.text, { isDm: true, logId: null });
+  assert.notEqual(badResult, 'ai', 'hallucinated code never reaches the chat');
+  for (const s of bad.sent) assert.doesNotMatch(s.msg, /6063869/);
+
+  aiResponse = 'Open Downloader and enter code 9804805, then install the Purple App.';
+  const good = fakeCtx('whats the process for getting apps onto a brand new firestick then', { userId: 5152 });
+  const goodResult = await answer(good, good.message.text, { isDm: true, logId: null });
+  assert.equal(goodResult, 'ai', 'reply quoting the REAL code is delivered');
+  assert.match(good.sent[0].msg, /9804805/);
+
+  db.prepare("DELETE FROM faqs WHERE question = 'Where do I get the apps?'").run();
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
 test('open ticket routes DM text into the ticket thread', async () => {
   const t = Math.floor(Date.now() / 1000);
   db.prepare(`INSERT INTO tickets (customer_id, telegram_user_id, tg_username, subject, status, created_at, updated_at)
