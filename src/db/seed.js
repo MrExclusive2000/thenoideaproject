@@ -4,7 +4,7 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 17;
+const SEED_VERSION = 18;
 
 export const STARTER_FAQS = [
   {
@@ -19,6 +19,11 @@ export const STARTER_FAQS = [
     answer: "Depends on your device:\n📺 Firestick: install the Downloader app from the Amazon store, open it and enter code 9804805, click Go, then install the Purple App (plus XC or Smarters as backups — same login works in all).\n📱 Android phone/tablet: open https://aftv.news/9804805 in your browser (every Downloader code also works as an aftv.news link) and pick the Purple App.\n🍏 iPhone/iPad: install Smarters Player Lite free from the App Store and log in with your username, password and the service URL (ask here if you don't have it).\nThen open the app and log in with your service details. If your device blocks the install, say so and I'll walk you through allowing it.",
     keywords: 'install, installing, installed, app, apps, get, setup, put',
     priority: 1,
+  },
+  {
+    question: 'Which Firestick is best / which one should I buy?',
+    answer: "Any current Firestick runs our apps. Quick guide:\n- Best value: Fire TV Stick 4K — smooth, handles 4K streams, usually the sweet spot on price.\n- Fastest: Fire TV Stick 4K Max — worth it if you want the snappiest menus.\n- Budget: the basic Fire TV Stick or Lite is fine for HD viewing.\nAvoid very old sticks (2016 and earlier) — they struggle with modern apps. Whichever you get, setup takes two minutes: ask me how to install and I'll walk you through it.",
+    keywords: 'firestick, best, buy, buying, recommend, recommended, model, models, 4k, max, lite, upgrade, new',
   },
   {
     question: 'How do I install the app on my Firestick?',
