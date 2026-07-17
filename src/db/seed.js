@@ -4,7 +4,7 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 20;
+const SEED_VERSION = 21;
 
 export const STARTER_FAQS = [
   {
@@ -82,8 +82,8 @@ export const STARTER_FAQS = [
   },
   {
     question: 'The audio is in the wrong language — how do I change it?',
-    answer: "While the video is playing, open the player controls (press OK on the remote or tap the screen) and look for the audio/track button — usually a headphones or speech-bubble icon. Pick English (or whichever language you want) from the list. The same login works in XC and Smarters too, and their players sometimes list audio tracks differently.\nIf only one language is listed, that copy only came with one audio track — reply with the exact title and the language you need and I'll flag it to the team to source a better copy.",
-    keywords: 'language, languages, audio, track, tracks, dubbed, dub, subtitles, subs, spanish, french, german, italian, arabic, hindi, english, foreign, movie, film, episode, copy, only',
+    answer: "While the video is playing, open the player controls (press OK on the remote or tap the screen) and look for the audio/track button — usually a headphones or speech-bubble icon. Pick English (or whichever language you want) from the list. Subtitles are in the same player menu — look for the CC or subtitles icon to turn them on or off. The same login works in XC and Smarters too, and their players sometimes list audio tracks differently.\nIf only one language is listed, that copy only came with one audio track — reply with the exact title and the language you need and I'll flag it to the team to source a better copy.",
+    keywords: 'language, languages, audio, track, tracks, dubbed, dub, subtitles, subtitle, subs, captions, cc, turn, spanish, french, german, italian, arabic, hindi, english, foreign, movie, film, episode, copy, only',
   },
   {
     question: 'Where can I watch live sports and events (UFC, boxing, PPV, football)?',
@@ -99,6 +99,48 @@ export const STARTER_FAQS = [
     question: "A channel or stream isn't working — what do I do?",
     answer: 'First try a different link/server for the same channel, or the same channel in a backup app (XC or Smarters) — and give it a minute, streams sometimes restart on their own. When you report a dead channel, the exact channel name, what you see (frozen / black screen / error message) and the time help us fix it fast.',
     keywords: 'channel, stream, not working, down, offline, black, screen, error, playback, broken',
+  },
+  {
+    question: 'The TV guide (EPG) shows nothing, stops loading or is wrong — how do I fix it?',
+    answer: "1. In the app's settings find EPG (or TV Guide) and press Refresh / Update EPG data — then give it a couple of minutes, the full guide is big.\n2. Restart the app after the refresh.\n3. Still empty? Try the same channel in a backup app (XC or Smarters) — same login.\n4. If the times look shifted, check the EPG time-offset setting in the app matches your timezone.\nStill wrong after all that? Reply here and I'll flag it to the team.",
+    keywords: 'epg, guide, tv, listings, listing, programme, programmes, schedule, empty, nothing, tomorrow, today, data, times, offset',
+  },
+  {
+    question: 'How many devices can I use — can I watch on two TVs at once?',
+    answer: "Install the apps on as many devices as you like — Firestick, phone, tablet, iPad — the same login works everywhere. What's limited is how many STREAMS can play at the same time, and that depends on your plan (most are one stream at a time; multi-room is available). Ask the admin if you want to watch on two screens at once.\nOne thing: keep your login inside your own household — shared accounts get flagged and can be blocked.",
+    keywords: 'devices, multiple, two, tvs, once, same, time, simultaneous, connections, connection, share, sharing, login, screens, multiroom, rooms',
+  },
+  {
+    question: 'Does it work on a Samsung or LG smart TV?',
+    answer: "Easiest and best: plug a Firestick into the TV's HDMI port and use our apps there — that works on ANY TV and is what we recommend (ask me which Firestick to buy).\nSome Samsung and LG smart TVs can also install an IPTV player app from their own app store that takes the same login (username, password and service URL) — ask here if you want a hand setting one up.",
+    keywords: 'samsung, lg, smart, television, sony, tcl, hisense, hdmi, telly',
+  },
+  {
+    question: "The app crashes or won't open — what do I do?",
+    answer: "1. Force-stop the app and open it again (Settings > Applications > Manage Installed Applications > the app > Force stop).\n2. Clear the app's cache from the same menu.\n3. Restart the device (unplug a Firestick for 30 seconds).\n4. Still crashing? Reinstall the app — ask me how to install if you need the steps. Your login still works after a reinstall.\n5. Meanwhile, use a backup app (XC or Smarters) with the same login so you're not stuck.",
+    keywords: 'crash, crashes, crashing, crashed, open, opening, closes, closing, startup, reinstall, force',
+  },
+  {
+    question: 'What internet speed do I need?',
+    answer: "HD streams want about 10 Mbps, 4K about 25 Mbps — most home connections are fine. What matters more:\n- Use 5GHz WiFi or wired ethernet if you can; 2.4GHz WiFi is the #1 cause of buffering.\n- Run a speed test ON the streaming device, not your phone.\n- If your speed is fine but streams still stutter, try the buffering fixes — ask me about buffering.",
+    keywords: 'speed, mbps, internet, broadband, bandwidth, fast, slow, connection, wired',
+  },
+  {
+    question: 'Can I record shows or use catch-up?',
+    answer: "There's no DVR-style recording, but you rarely need it:\n- Series and movies are in the VOD section on demand.\n- Big events usually get replays added to VOD shortly after they finish.\n- Many channels support pause and rewind right in the player.\nMissing something? Request it — post \"Request: <title>\" here or message me /ticket.",
+    keywords: 'record, recording, recordings, dvr, catchup, catch, rewind, pause',
+  },
+  {
+    question: 'What payment methods do you take — can I pay by card or PayPal?',
+    answer: "We take crypto — Litecoin (LTC). Don't let that put you off if you've never used it: the payment guide walks you through it step by step, and you can buy the LTC with a normal bank card in about 10 minutes (Exodus wallet + MoonPay). Ask the admin if you need to arrange a different option.",
+    keywords: 'card, paypal, bank, transfer, methods, method, revolut, cash, debit, credit',
+  },
+  {
+    // Ships DISABLED — set your apps' real default PIN first, then enable.
+    question: 'What is the PIN for locked categories (parental controls)?',
+    answer: "Some categories are PIN-locked (parental controls). The default PIN in our apps is DEFAULT-PIN — you can change it in the app's settings under Parental Controls. If that PIN doesn't work in your app, ask here and we'll sort it.",
+    keywords: 'pin, locked, lock, parental, control, controls, categories, category, restricted',
+    enabled: 0,
   },
   {
     question: 'How do I update the app to the latest version?',
@@ -298,6 +340,8 @@ const V11_UPDATE =
   'On a Firestick: open the Downloader app, enter code 9804805 again and install the newest version straight over the old one — your settings are kept. On Android: open https://aftv.news/9804805 in your browser again. You can also message me /version to see the latest version.';
 const V11_WHICH_APP =
   'Use the Purple App as your main app. XC and Smarters are backups — install at least one of them too. The same login works in every app, so if one ever plays up, just switch to a backup and carry on.';
+const V20_LANGUAGE =
+  "While the video is playing, open the player controls (press OK on the remote or tap the screen) and look for the audio/track button — usually a headphones or speech-bubble icon. Pick English (or whichever language you want) from the list. The same login works in XC and Smarters too, and their players sometimes list audio tracks differently.\nIf only one language is listed, that copy only came with one audio track — reply with the exact title and the language you need and I'll flag it to the team to source a better copy.";
 const V19_VOD_REQUEST =
   'Send the exact title and year (for series: which season), e.g. "Request: Inception (2010)". Post it in the group or open a ticket with me in a private chat (/ticket). Requests are added in batches — give it a little time and check the VOD section again. There are also VOD recommendations in the customer panel.';
 const V18_FIRESTICK_BUY =
@@ -331,6 +375,7 @@ function previousDefaults(question) {
   if (question === 'What is this service and what do you get?') out.push(V16_WHAT_IS);
   if (question === 'Which Firestick is best / which one should I buy?') out.push(V18_FIRESTICK_BUY);
   if (question === 'How do I request a movie, series or VOD?') out.push(V19_VOD_REQUEST);
+  if (question === 'The audio is in the wrong language — how do I change it?') out.push(V20_LANGUAGE);
   return out;
 }
 
