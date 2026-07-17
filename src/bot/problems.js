@@ -182,7 +182,7 @@ export async function autoCloseSweep() {
   const toMessage = new Map(); // one message per chat+user, not per report
 
   for (const r of stale) {
-    db.prepare('UPDATE problem_reports SET resolved = 1 WHERE id = ?').run(r.id);
+    db.prepare("UPDATE problem_reports SET resolved = 1, resolved_by = 'auto-close' WHERE id = ?").run(r.id);
     // Ancient backlog and never-answered reports close silently.
     if (r.ts < ancient || !r.answered || !r.chat_id) continue;
     const key = `${r.chat_id}:${r.tg_user_id}`;

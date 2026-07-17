@@ -393,7 +393,7 @@ export async function handleGroupMessage(ctx) {
   // (saysStillBroken wins on ambiguity like "still not fixed".)
   if (st && saysResolved(text) && !saysStillBroken(text)) {
     problemState.delete(ctx.from.id);
-    db.prepare('UPDATE problem_reports SET resolved = 1 WHERE tg_user_id = ? AND resolved = 0 AND ts > ?')
+    db.prepare("UPDATE problem_reports SET resolved = 1, resolved_by = 'user' WHERE tg_user_id = ? AND resolved = 0 AND ts > ?")
       .run(ctx.from.id, now() - 2 * 3600);
     setLogSource(logId, 'resolved');
     if (alreadyEscalated) {

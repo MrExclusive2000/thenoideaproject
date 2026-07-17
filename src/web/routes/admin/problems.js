@@ -28,7 +28,7 @@ problemsRouter.post('/problems/:id/resolve', async (req, res) => {
     res.redirect('/admin/problems');
     return;
   }
-  db.prepare('UPDATE problem_reports SET resolved = 1 WHERE id = ?').run(r.id);
+  db.prepare("UPDATE problem_reports SET resolved = 1, resolved_by = 'admin' WHERE id = ?").run(r.id);
   audit('admin', res.locals.admin.username, 'problems.resolve', String(r.id), req.ip);
   const notified = await notifyResolved(r).catch(() => false);
   flash(req, 'ok', notified
@@ -38,7 +38,7 @@ problemsRouter.post('/problems/:id/resolve', async (req, res) => {
 });
 
 problemsRouter.post('/problems/resolve-all', (req, res) => {
-  db.prepare('UPDATE problem_reports SET resolved = 1 WHERE resolved = 0').run();
+  db.prepare("UPDATE problem_reports SET resolved = 1, resolved_by = 'admin' WHERE resolved = 0").run();
   audit('admin', res.locals.admin.username, 'problems.resolveAll', '', req.ip);
   flash(req, 'ok', 'All open problem reports marked resolved.');
   res.redirect('/admin/problems');

@@ -256,6 +256,10 @@ const migrations = [
   `
   ALTER TABLE problem_reports ADD COLUMN service TEXT;
   `,
+  // v6 — who closed a report: 'user' (said it's fixed), 'auto-close', 'admin'
+  `
+  ALTER TABLE problem_reports ADD COLUMN resolved_by TEXT;
+  `,
 ];
 
 export function migrate(db) {

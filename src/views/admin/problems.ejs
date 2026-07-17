@@ -40,7 +40,7 @@
     <tr>
       <td class="hint" style="white-space:nowrap"><%= formatDate(r.ts) %></td>
       <td><%= r.tg_user || ('id ' + r.tg_user_id) %><% if (r.chat_title) { %><div class="hint"><%= r.chat_title %></div><% } %></td>
-      <td><%= r.text %><% if (!r.answered) { %> <span class="badge badge-dim">not answered</span><% } %></td>
+      <td style="white-space:pre-line"><%= r.text %><% if (!r.answered) { %> <span class="badge badge-dim">not answered</span><% } %><% if (r.resolved && r.resolved_by) { %> <span class="badge badge-dim">resolved by <%= r.resolved_by %></span><% } %></td>
       <td><% if (r.topic) { %><span class="badge badge-warn"><%= r.topic %></span><% } %><% if (r.service) { %><div class="hint">service: <%= r.service %></div><% } %><% if (!r.topic && !r.service) { %>—<% } %></td>
       <td class="actions">
         <% if (!r.resolved) { %>

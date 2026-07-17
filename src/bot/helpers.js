@@ -156,21 +156,46 @@ export function isContentIssue(text) {
 // Best-effort label for a problem report so admin alerts can group them
 // ("buffering ×4"). Returns null when nothing recognizable is found.
 export function extractProblemTopic(text) {
-  const m = String(text).toLowerCase().match(
-    /\b(buffer\w*|freez\w*|frozen|lag\w*|stutter\w*|glitch\w*|crash\w*|black ?screen|no (?:sound|audio|picture|video)|offline|error|not work\w*|wont \w+|cant \w+|keeps? \w+)\b/
+  const t = String(text).toLowerCase();
+  // Specific symptoms win; the generic catch-alls ("keep getting", "wont
+  // play") only label a report when nothing better is in the text — they
+  // produced junk like "keep getting" as the topic for a playback error.
+  const specific = t.match(
+    /\b(buffer\w*|freez\w*|frozen|lag\w*|stutter\w*|glitch\w*|crash\w*|black ?screen|playback error|no (?:sound|audio|picture|video)|offline|error|not work\w*)\b/
   );
-  return m ? m[1].replace(/\s+/g, ' ') : null;
+  if (specific) return specific[1].replace(/\s+/g, ' ');
+  const generic = t.match(/\b(wont \w+|cant \w+|keeps? \w+)\b/);
+  return generic ? generic[1].replace(/\s+/g, ' ') : null;
 }
 
+// One row per INCIDENT, not per message: while a user has an open recent
+// report, further problem messages (the confirmation, extra details) are
+// appended to it, so the panel shows the whole story in one entry.
+const MERGE_WINDOW_S = 2 * 3600;
+
 export function recordProblem(ctx, text, { answered = false } = {}) {
+  const userId = ctx.from?.id ?? null;
+  const t = String(text).slice(0, 500);
+  if (userId != null) {
+    const open = db.prepare(
+      'SELECT id, text FROM problem_reports WHERE tg_user_id = ? AND resolved = 0 AND ts > ? ORDER BY id DESC LIMIT 1'
+    ).get(userId, now() - MERGE_WINDOW_S);
+    if (open) {
+      const combined = `${open.text}\n↳ ${t}`.slice(0, 1500);
+      db.prepare(
+        'UPDATE problem_reports SET text = ?, topic = COALESCE(topic, ?), answered = CASE WHEN ? THEN 1 ELSE answered END WHERE id = ?'
+      ).run(combined, extractProblemTopic(text), answered ? 1 : 0, open.id);
+      return open.id;
+    }
+  }
   const info = db.prepare(
     'INSERT INTO problem_reports (chat_id, chat_title, tg_user_id, tg_user, text, topic, answered, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     ctx.chat?.id ?? null,
     ctx.chat?.title ?? null,
-    ctx.from?.id ?? null,
+    userId,
     ctx.from?.username || ctx.from?.first_name || null,
-    String(text).slice(0, 500),
+    t,
     extractProblemTopic(text),
     answered ? 1 : 0,
     now()

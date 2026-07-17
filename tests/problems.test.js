@@ -215,3 +215,45 @@ test('notifyResolved is silent when the template is empty or the bot is offline'
   hub.api = null;
   assert.equal(await notifyResolved({ id: 3, chat_id: -1, tg_user_id: 1, tg_user: 'x' }), false);
 });
+
+test('messages about the same issue merge into ONE report row', () => {
+  const id1 = recordProblem(fakeCtx('Keep getting playback error on tom hanks series world war 11', 601), 'Keep getting playback error on tom hanks series world war 11');
+  const id2 = recordProblem(fakeCtx("Done all this it isn't on another app", 601), "Done all this it isn't on another app", { answered: true });
+  assert.equal(id1, id2, 'confirmation appended to the same row');
+  const rows = db.prepare('SELECT * FROM problem_reports WHERE tg_user_id = 601').all();
+  assert.equal(rows.length, 1, 'one row for the whole incident');
+  assert.match(rows[0].text, /playback error on tom hanks/);
+  assert.match(rows[0].text, /↳ Done all this/, 'follow-up combined into the report');
+  assert.equal(rows[0].answered, 1);
+
+  // A different user is always a separate report.
+  recordProblem(fakeCtx('buffering on itv', 602), 'buffering on itv');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM problem_reports WHERE tg_user_id = 602').get().n, 1);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM problem_reports WHERE tg_user_id = 601').get().n, 1);
+
+  // Once resolved, the next problem starts a fresh row.
+  db.prepare('UPDATE problem_reports SET resolved = 1 WHERE tg_user_id = 601').run();
+  recordProblem(fakeCtx('now bbc is down too', 601), 'now bbc is down too');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM problem_reports WHERE tg_user_id = 601').get().n, 2, 'new incident, new row');
+});
+
+test('topic extraction prefers real symptoms over catch-all phrases', async () => {
+  const { extractProblemTopic } = await import('../src/bot/helpers.js');
+  assert.equal(extractProblemTopic('Keep getting playback error on tom hanks series world war 11'), 'playback error');
+  assert.equal(extractProblemTopic('keeps buffering on itv'), 'buffering');
+  assert.equal(extractProblemTopic('it wont play at all'), 'wont play', 'catch-all still used when nothing better');
+  assert.equal(extractProblemTopic('what time is the match'), null);
+});
+
+test('auto-close stamps resolved_by so the panel shows how it ended', async () => {
+  setSetting('bot.problemAutoCloseMinutes', 30);
+  hub.api = null;
+  recordProblem(fakeCtx('buffering on itv', 701), 'buffering on itv');
+  db.prepare('UPDATE problem_reports SET ts = ts - 3600, answered = 1 WHERE tg_user_id = 701').run();
+  const { autoCloseSweep } = await import('../src/bot/problems.js');
+  await autoCloseSweep();
+  const row = db.prepare('SELECT * FROM problem_reports WHERE tg_user_id = 701').get();
+  assert.equal(row.resolved, 1);
+  assert.equal(row.resolved_by, 'auto-close');
+  setSetting('bot.problemAutoCloseMinutes', 0);
+});

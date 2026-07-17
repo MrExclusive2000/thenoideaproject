@@ -452,7 +452,12 @@ test('confirmation escalates: ack to user, batched DM to admin, no FAQ re-dump; 
   assert.equal(adminDms[0].id, 777);
   assert.match(adminDms[0].text, /still buffering man/);
 
-  assert.equal(db.prepare('SELECT COUNT(*) n FROM problem_reports').get().n, 2, 'both stages recorded');
+  // Both stages live in ONE combined report row for the panel.
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM problem_reports').get().n, 1, 'one row per incident');
+  const combined = db.prepare('SELECT * FROM problem_reports').get();
+  assert.match(combined.text, /buffering on itv tonight/);
+  assert.match(combined.text, /↳ still buffering man/, 'confirmation appended to the same report');
+  assert.equal(combined.escalated, 1);
 
   // Further grumbling while already escalated: quiet, no new row, no new DM.
   const again = fakeCtx('buffering yet again ffs', { chatType: 'group', userId: 91002 });
@@ -460,7 +465,7 @@ test('confirmation escalates: ack to user, batched DM to admin, no FAQ re-dump; 
   assert.equal(again.sent.length, 0, 'no nagging after escalation');
   await flushProblemAlerts();
   assert.equal(adminDms.length, 1, 'no duplicate admin DM');
-  assert.equal(db.prepare('SELECT COUNT(*) n FROM problem_reports').get().n, 2);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM problem_reports').get().n, 1);
 
   hub.api = null;
 });
