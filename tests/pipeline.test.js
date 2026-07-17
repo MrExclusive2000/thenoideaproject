@@ -860,15 +860,20 @@ test('in-scope but unanswerable question defers to a human, not the off-topic br
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
 
-test('genuinely off-topic chatter still gets the redirect line', async () => {
+test('genuinely off-topic chatter only gets the redirect line when aimed at the bot', async () => {
   setSetting('bot.cooldownSeconds', 0);
   setSetting('bot.offtopicBehavior', 'redirect');
   setSetting('bot.offtopicMessage', 'App questions only please.');
   aiResponse = 'OFFTOPIC';
-  const ctx = fakeCtx('how do i bake a chocolate cake', { chatType: 'group', userId: 91005 });
-  await handleGroupMessage(ctx);
-  assert.equal(ctx.sent.length, 1);
-  assert.match(ctx.sent[0].msg, /App questions only/);
+  // Aimed at the group, not the bot: silence, however question-shaped.
+  const plain = fakeCtx('how do i bake a chocolate cake', { chatType: 'group', userId: 91005 });
+  await handleGroupMessage(plain);
+  assert.equal(plain.sent.length, 0, 'not spoken to — stays quiet');
+  // Mentioning the bot IS being spoken to: redirect line (model refused banter here).
+  const at = fakeCtx('@testbot how do i bake a chocolate cake', { chatType: 'group', userId: 91006 });
+  await handleGroupMessage(at);
+  assert.equal(at.sent.length, 1);
+  assert.match(at.sent[0].msg, /App questions only/);
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
 
@@ -1734,4 +1739,32 @@ test('photos sent into an open ticket are flagged for the admin', async () => {
   const row = db.prepare('SELECT body FROM ticket_messages WHERE ticket_id = ? ORDER BY id DESC').get(ticketId);
   assert.match(row.body, /heres the error/);
   assert.match(row.body, /also sent a photo/);
+});
+
+test('off-topic group chat NOT aimed at the bot stays silent even in redirect mode', async () => {
+  _resetSmallTalk();
+  setSetting('bot.offtopicBehavior', 'redirect');
+  setSetting('bot.offtopicMessage', 'Nice try 😄 — service questions only.');
+  setSetting('bot.offtopicChatMinutes', 30);
+  setSetting('bot.cooldownSeconds', 0);
+  const before = lastAiRequest;
+  const ctx = fakeCtx('anyone coming to the pub later?', { chatType: 'group', userId: 66701 });
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 0, 'bot never butts into group conversation');
+  assert.equal(lastAiRequest, before, 'no AI call spent either');
+});
+
+test('the same off-topic question WITH a mention gets the one-off banter', async () => {
+  aiResponse = "Wish I could — I'm stuck in the server room 😄";
+  const ctx = fakeCtx('@testbot anyone coming to the pub later?', { chatType: 'group', userId: 66702 });
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 1, 'mention means the bot IS being spoken to');
+  assert.match(ctx.sent[0].msg, /server room/);
+
+  // Second mention-directed off-topic inside the window: witty brush-off.
+  const ctx2 = fakeCtx('@testbot fancy a kebab after?', { chatType: 'group', userId: 66702 });
+  await handleGroupMessage(ctx2);
+  assert.equal(ctx2.sent[0].msg, 'Nice try 😄 — service questions only.');
+  setSetting('bot.offtopicBehavior', 'silent');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });

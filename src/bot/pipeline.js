@@ -585,7 +585,7 @@ function bestServiceReply() {
 // FAQ instead of continuing the conversation. `suffix` is appended to any
 // actual answer (e.g. "flagged to the team" after a problem report).
 // Exported so tests can drive it with a fake ctx.
-export async function answer(ctx, question, { isDm, logId, history: providedHistory = null, skipFaq = false, suffix = null, prefix = null, assumeOnTopic: forceOnTopic = false }) {
+export async function answer(ctx, question, { isDm, logId, history: providedHistory = null, skipFaq = false, suffix = null, prefix = null, assumeOnTopic: forceOnTopic = false, directed = false }) {
   const faqs = db.prepare('SELECT * FROM faqs WHERE enabled = 1').all();
   const threshold = Number(getSetting('faq.threshold')) || 0.5;
   const result = skipFaq ? { match: null, nearMiss: null } : matchFaq(question, faqs, threshold);
@@ -706,7 +706,11 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         // Still logged as off-topic for the admin's scope-gap view, even when
         // the banter free pass below sends a real answer.
         if (looksLikeQuestion(question)) recordUnanswered(question, ctx, 'offtopic', null);
-        if (getSetting('bot.offtopicBehavior') === 'redirect') {
+        // Off-topic replies (banter AND brush-off) only when the bot is being
+        // spoken to: always in a DM; in a group only on a mention or a reply
+        // to the bot. "Anyone coming to the pub later?" is aimed at the
+        // GROUP — the bot butting in with banter would be worse than silence.
+        if (getSetting('bot.offtopicBehavior') === 'redirect' && (isDm || directed)) {
           // Banter budget: the FIRST off-topic question in a while gets one
           // short friendly answer; the next inside the window gets the witty
           // brush-off with no AI call. Fun once, chat buddy never.
@@ -865,7 +869,8 @@ export async function handleGroupMessage(ctx) {
     const pending = takePendingClarify(ctx.chat.id, ctx.from.id);
     if (pending && !looksLikeQuestion(text) && !isProblem && !standaloneFaqMatch()) {
       bumpCooldown(ctx.from.id);
-      await answer(ctx, `${pending.question} — ${question}`, { isDm: false, logId });
+      // The bot asked the clarifying question — this exchange is directed.
+      await answer(ctx, `${pending.question} — ${question}`, { isDm: false, logId, directed: true });
       return;
     }
   }
@@ -1049,7 +1054,7 @@ export async function handleGroupMessage(ctx) {
   // Replying to the bot's own message is by definition an on-topic
   // conversation — a bare "THM4821" after the which-service answer must not
   // be brushed off as OFFTOPIC.
-  const outcome = await answer(ctx, question, { isDm: false, logId, history, skipFaq: isFollowUp, suffix: problemSuffix, prefix: problemPrefix, assumeOnTopic: isFollowUp });
+  const outcome = await answer(ctx, question, { isDm: false, logId, history, skipFaq: isFollowUp, suffix: problemSuffix, prefix: problemPrefix, assumeOnTopic: isFollowUp, directed: mentioned || isFollowUp });
 
   // Only mark the report answered when a real answer actually went out —
   // and remember WHEN, so too-quick confirmations can be nudged.
