@@ -4,7 +4,7 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 14;
+const SEED_VERSION = 15;
 
 export const STARTER_FAQS = [
   {
@@ -25,6 +25,15 @@ export const STARTER_FAQS = [
     question: 'How do I install the app on an Android phone or tablet?',
     answer: 'Open https://aftv.news/9804805 in your phone’s browser — every Downloader code also works as a link at aftv.news/CODE. Pick the app you want — we recommend the Purple App — and allow installs from unknown sources if your phone asks (the prompt varies by model). Install it, open it, and log in with your service details.',
     keywords: 'android, phone, tablet, mobile, apk, installer, link, aftv, samsung, pixel, app, apps',
+  },
+  {
+    // Ships DISABLED — replace SMARTERS-SKY-CODE with the real Downloader
+    // code for these apps, then enable. Apps can have different codes; the
+    // Firestick FAQ's code belongs to the Purple App page.
+    question: 'How do I install Smarters or Sky Glass on the Firestick?',
+    answer: 'Smarters and Sky Glass use their own Downloader code (different from the Purple App):\n1. Open the Downloader app on your Firestick.\n2. Enter code SMARTERS-SKY-CODE and click Go.\n3. Install the app, open it and log in with your service details.\nIf the install gets blocked, Developer Options need enabling first — ask me how and I\'ll walk you through it.',
+    keywords: 'smarters, sky, glass, skyglass, code, install',
+    enabled: 0,
   },
   {
     question: 'How do I install the app on an iPhone or iPad (iOS)?',

@@ -159,3 +159,30 @@ test('which-service FAQ matches how people ask once the admin enables it', () =>
   assert.ok(urlMatch, 'url question still matches');
   assert.match(urlMatch.question, /iPhone or iPad/, `url question matched wrong FAQ: ${urlMatch?.question}`);
 });
+
+test('smarters/sky-glass FAQ ships disabled and matches once the admin adds the code', () => {
+  const row = db.prepare('SELECT * FROM faqs WHERE question = ?')
+    .get('How do I install Smarters or Sky Glass on the Firestick?');
+  assert.ok(row, 'seeded');
+  assert.equal(row.enabled, 0, 'disabled until the real code is filled in');
+  assert.match(row.answer, /SMARTERS-SKY-CODE/);
+
+  db.prepare("UPDATE faqs SET enabled = 1, answer = replace(answer, 'SMARTERS-SKY-CODE', '5551234') WHERE id = ?").run(row.id);
+  const faqs = db.prepare('SELECT * FROM faqs').all();
+  for (const q of [
+    'sky glass',
+    'how do i install sky glass',
+    'whats the code for smarters',
+    'can i have the sky glass code',
+  ]) {
+    const { match } = matchFaq(q, faqs, 0.5);
+    assert.ok(match, `no match for: ${q}`);
+    assert.match(match.question, /Smarters or Sky Glass/, `"${q}" matched wrong FAQ: ${match?.question}`);
+  }
+  // The Purple/general code questions stay with the Firestick FAQ...
+  const { match: dl } = matchFaq('whats the downloader code', faqs, 0.5);
+  assert.match(dl.answer, /9804805/, 'general downloader-code question keeps the Purple/general code');
+  // ...and app-comparison questions stay with the which-app FAQ.
+  const { match: cmp } = matchFaq('is purple better than smarters', faqs, 0.5);
+  assert.match(cmp.question, /Which app should I use/, `comparison matched wrong FAQ: ${cmp?.question}`);
+});
