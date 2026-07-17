@@ -307,6 +307,17 @@ test('generic problem words DO count when the service is mentioned', async () =>
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
 
+test('wrong-language complaints count as problem reports', async () => {
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  aiResponse = 'Open the player controls and pick a different audio track from the headphones icon.';
+  const ctx = fakeCtx('this film is in the wrong language for me', { chatType: 'group', userId: 97050 });
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 1, 'language complaint answered');
+  assert.ok(db.prepare('SELECT 1 FROM problem_reports WHERE tg_user_id = 97050').get(), 'recorded for the panel');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
 test('"the app is down" still counts as a problem without generic-word context', async () => {
   db.prepare('DELETE FROM problem_reports').run();
   _resetProblemTriage();

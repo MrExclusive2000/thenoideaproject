@@ -91,6 +91,10 @@ test('starter FAQs actually match how people ask', () => {
     ['how can my friend join the service?', 'friend'],
     ['my mate wants to sign up', 'friend'],
     ['how do i invite them to this group', 'friend'],
+    ['episode 3 of severance wont play', 'episode'],
+    ['the movie is in spanish how do i get english', 'language'],
+    ['wrong audio on this film', 'language'],
+    ['this copy only has one language', 'language'],
   ];
   for (const [q, expect] of cases) {
     const { match } = matchFaq(q, faqs, 0.5);

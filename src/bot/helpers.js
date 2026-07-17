@@ -93,6 +93,7 @@ const BASE_SCOPE_TERMS = new Set([
   'stream', 'streaming', 'streams', 'channel', 'channels', 'vod', 'movie', 'movies', 'film', 'series', 'show',
   'season', 'episode', 'sports', 'sport', 'match', 'game', 'fixture', 'playback', 'black', 'screen',
   'sound', 'audio', 'picture', 'video', 'offline', 'error', 'buffered',
+  'language', 'languages', 'subtitles', 'subs', 'track', 'tracks', 'dubbed',
   'login', 'password', 'account', 'subscription', 'renew', 'renewal', 'expire', 'expired', 'expiry',
   'pay', 'payment', 'crypto', 'litecoin', 'ltc', 'bitcoin', 'wallet', 'exodus', 'panel', 'portal',
   'vpn', 'wifi', 'internet', 'connection', 'router', 'ethernet', 'service',

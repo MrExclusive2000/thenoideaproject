@@ -4,7 +4,7 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 7;
+const SEED_VERSION = 8;
 
 export const STARTER_FAQS = [
   {
@@ -41,6 +41,16 @@ export const STARTER_FAQS = [
     question: 'The app keeps buffering, freezing or stuttering — how do I fix it?',
     answer: 'Try these in order — they fix most buffering:\n1. Restart the app and your device.\n2. Restart your router.\n3. Clear the app cache (Settings > Applications > Manage Installed Applications > the app > Clear cache).\n4. Use 5GHz WiFi or wired ethernet if you can — 2.4GHz struggles with HD streams.\n5. Switch to a backup app (XC or Smarters) with the same login — one app often runs better than another.\n6. Try a lower quality stream or a different link/server for the same channel.\n7. Run a speed test — HD needs about 10 Mbps, 4K about 25 Mbps.',
     keywords: 'buffering, buffer, freeze, freezing, stuck, loading, lag, stutter, spinning, slow',
+  },
+  {
+    question: "An episode or movie won't play — what do I do?",
+    answer: "1. Try another episode or a different movie first — if those play fine, it's just that one title.\n2. Exit the title fully and reopen it, or restart the app.\n3. Try the same title in a backup app (XC or Smarters) with the same login — their players handle some files differently.\n4. Still dead? Reply with the exact title (and season/episode number) and I'll flag it to the team — faulty copies get repaired or replaced.",
+    keywords: 'episode, episodes, movie, film, series, vod, play, playing, wont, broken, failed, fails, working, copy, title',
+  },
+  {
+    question: 'The audio is in the wrong language — how do I change it?',
+    answer: "While the video is playing, open the player controls (press OK on the remote or tap the screen) and look for the audio/track button — usually a headphones or speech-bubble icon. Pick English (or whichever language you want) from the list. The same login works in XC and Smarters too, and their players sometimes list audio tracks differently.\nIf only one language is listed, that copy only came with one audio track — reply with the exact title and the language you need and I'll flag it to the team to source a better copy.",
+    keywords: 'language, languages, audio, track, tracks, dubbed, dub, subtitles, subs, spanish, french, german, italian, arabic, hindi, english, foreign, movie, film, episode, copy, only',
   },
   {
     question: 'How do I request a movie, series or VOD?',
