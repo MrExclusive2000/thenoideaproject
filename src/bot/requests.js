@@ -7,29 +7,45 @@ import { alertAdmins } from './reports.js';
 // teaches. Capture it, thank the requester, save it for the panel, and let
 // the admin close the loop with one click ("Mark added" tags them back).
 
+// Complaint/admin words that follow "request" but are NOT a VOD title —
+// "Request a refund", "request my money back", "request to cancel".
+const NOT_A_TITLE = /^(a |an |the |my |to |for )*\s*(refund|refunds|cancel|cancell?ed|cancell?ing|cancellation|money|payment|pay|callback|call ?back|help|support|assistance|password|login|log ?in|account|invoice|receipt|chargeback|renewal|renew|upgrade|change)\b/i;
+
 export function parseVodRequest(text) {
   const m = String(text).match(/^\s*request\b\s*[:\-–]?\s*(.{2,200})/i);
   if (!m) return null;
   const title = m[1].trim().replace(/\s+/g, ' ');
-  return title.length >= 2 ? title : null;
+  if (title.length < 2) return null;
+  if (NOT_A_TITLE.test(title)) return null; // "Request a refund" etc. — not VOD
+  return title;
 }
 
 const normTitle = (t) => String(t).toLowerCase().replace(/[^a-z0-9]/g, '');
 
-// Returns the ack text to send (never null once parsed).
+// Returns { ack, requestId, deduped } — ack is always sendable text.
 export function recordVodRequest(ctx, title) {
   const t = now();
   const norm = normTitle(title);
   const existing = db.prepare("SELECT * FROM vod_requests WHERE norm_title = ? AND status = 'open'").get(norm);
   if (existing) {
     db.prepare('UPDATE vod_requests SET ask_count = ask_count + 1 WHERE id = ?').run(existing.id);
-    return `👍 ${title} is already on the request list — it'll land in one of the next batches.`;
+    return { ack: `👍 ${title} is already on the request list — it'll land in one of the next batches.`, requestId: existing.id, deduped: true };
   }
-  db.prepare('INSERT INTO vod_requests (title, norm_title, tg_user_id, tg_user, chat_id, ts) VALUES (?, ?, ?, ?, ?, ?)')
+  const info = db.prepare('INSERT INTO vod_requests (title, norm_title, tg_user_id, tg_user, chat_id, ts) VALUES (?, ?, ?, ?, ?, ?)')
     .run(title, norm, ctx.from?.id ?? null, ctx.from?.username || ctx.from?.first_name || null, ctx.chat?.id ?? null, t);
   alertAdmins('vod', `🎬 VOD request from @${ctx.from?.username || ctx.from?.first_name || 'someone'}: "${title}" — panel → Requests.`);
   const template = String(getSetting('bot.requestAckMessage') || '');
-  return template.replace(/\{title\}/g, title).trim() || `📝 Noted! ${title} is on the request list 👍`;
+  const ack = template.replace(/\{title\}/g, title).trim() || `📝 Noted! ${title} is on the request list 👍`;
+  return { ack, requestId: info.lastInsertRowid, deduped: false };
+}
+
+// Attach the service the request is for (the bot asks after capturing) and
+// let the admins know, so they add it to the right library.
+export function setRequestService(requestId, serviceName) {
+  const r = db.prepare('SELECT * FROM vod_requests WHERE id = ?').get(requestId);
+  if (!r) return;
+  db.prepare('UPDATE vod_requests SET service = ? WHERE id = ?').run(serviceName, requestId);
+  alertAdmins('vod', `↳ @${r.tg_user || r.tg_user_id}'s request "${r.title}" is for: ${serviceName}`);
 }
 
 const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

@@ -8,7 +8,7 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-req-'));
 
 const { db, now } = await import('../src/db/db.js');
 const { setSetting } = await import('../src/settings.js');
-const { parseVodRequest, recordVodRequest, notifyRequestAdded } = await import('../src/bot/requests.js');
+const { parseVodRequest, recordVodRequest, notifyRequestAdded, setRequestService } = await import('../src/bot/requests.js');
 const { hub } = await import('../src/bot/hub.js');
 
 const sent = [];
@@ -36,22 +36,42 @@ test('parseVodRequest reads the taught format and ignores non-requests', () => {
   assert.equal(parseVodRequest('can you request severance for me'), null, 'mid-sentence "request" is not a request line');
   assert.equal(parseVodRequest('how do i request a movie'), null);
   assert.equal(parseVodRequest('buffering on bbc1'), null);
+  // Not VOD titles — support/admin actions that start with "request".
+  assert.equal(parseVodRequest('Request a refund'), null);
+  assert.equal(parseVodRequest('Request my money back please'), null);
+  assert.equal(parseVodRequest('Request to cancel my sub'), null);
+  assert.equal(parseVodRequest('request a callback'), null);
+  assert.equal(parseVodRequest('Request: refund on my account'), null);
+  // ...but a genuine title that merely contains a word is still captured.
+  assert.equal(parseVodRequest('Request: Free Guy (2021)'), 'Free Guy (2021)');
 });
 
 test('recordVodRequest saves, acks, DMs the admin, and dedupes repeats', () => {
   setSetting('bot.requestAckMessage', 'Noted {title}!');
-  const ack = recordVodRequest(fakeCtx('x', 501), 'Maze Runner: The Death Cure (2018)');
-  assert.equal(ack, 'Noted Maze Runner: The Death Cure (2018)!');
+  const r1 = recordVodRequest(fakeCtx('x', 501), 'Maze Runner: The Death Cure (2018)');
+  assert.equal(r1.ack, 'Noted Maze Runner: The Death Cure (2018)!');
+  assert.ok(r1.requestId > 0);
+  assert.equal(r1.deduped, false);
   const row = db.prepare('SELECT * FROM vod_requests').get();
   assert.equal(row.status, 'open');
   assert.equal(row.ask_count, 1);
   assert.ok(sent.some((m) => m.id === 777 && /VOD request/.test(m.text)), 'admin alerted');
 
   // Same title (punctuation/case-insensitive) bumps the count, one row.
-  const ack2 = recordVodRequest(fakeCtx('y', 502), 'maze runner the death cure 2018');
-  assert.match(ack2, /already on the request list/);
+  const r2 = recordVodRequest(fakeCtx('y', 502), 'maze runner the death cure 2018');
+  assert.match(r2.ack, /already on the request list/);
+  assert.equal(r2.deduped, true);
+  assert.equal(r2.requestId, r1.requestId, 'same row');
   assert.equal(db.prepare('SELECT COUNT(*) n FROM vod_requests').get().n, 1, 'deduped');
   assert.equal(db.prepare('SELECT ask_count FROM vod_requests').get().ask_count, 2);
+});
+
+test('setRequestService attaches the service and DMs the admin', () => {
+  const { requestId } = recordVodRequest(fakeCtx('z', 503), 'Dune Part Two (2024)');
+  sent.length = 0;
+  setRequestService(requestId, 'Thames');
+  assert.equal(db.prepare('SELECT service FROM vod_requests WHERE id = ?').get(requestId).service, 'Thames');
+  assert.ok(sent.some((m) => m.id === 777 && /is for: Thames/.test(m.text)), 'admin told the service');
 });
 
 test('notifyRequestAdded tags the requester in the chat it came from', async () => {

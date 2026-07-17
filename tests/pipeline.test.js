@@ -1313,3 +1313,37 @@ test('a reply aimed at ANOTHER member is not brushed off by the bot', async () =
   assert.equal(ctx3.sent.length, 1, 'reply to the bot is still handled');
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
+
+test('VOD request asks which service, saves the answer, then remembers it', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('services.name1', 'Flix');
+  setSetting('services.name2', 'Thames');
+  setSetting('bot.requestServiceQuestion', 'Which service is this for?');
+  db.prepare('DELETE FROM vod_requests').run();
+
+  // Request → ack + which-service question.
+  const r1 = fakeCtx('Request: Maze Runner (2018)', { userId: 98801 });
+  await handleDirectMessage(r1);
+  assert.equal(r1.sent.length, 1);
+  assert.match(r1.sent[0].msg, /Which service is this for\? Flix or Thames\?/);
+
+  // Answer → service saved on the request, warm ack.
+  const a1 = fakeCtx('flix', { userId: 98801 });
+  await handleDirectMessage(a1);
+  assert.match(a1.sent[0].msg, /noted for Flix/i);
+  assert.equal(db.prepare("SELECT service FROM vod_requests WHERE title LIKE 'Maze%'").get().service, 'Flix');
+
+  // A second request from the same user is auto-tagged, no re-ask.
+  const r2 = fakeCtx('Request: Dune (2021)', { userId: 98801 });
+  await handleDirectMessage(r2);
+  assert.doesNotMatch(r2.sent[0].msg, /Which service/, 'not re-asked');
+  assert.match(r2.sent[0].msg, /noted for Flix/i);
+  assert.equal(db.prepare("SELECT service FROM vod_requests WHERE title LIKE 'Dune%'").get().service, 'Flix');
+
+  // With no services configured, it just acks (no question).
+  setSetting('services.name1', '');
+  setSetting('services.name2', '');
+  const r3 = fakeCtx('Request: Oppenheimer (2023)', { userId: 98802 });
+  await handleDirectMessage(r3);
+  assert.doesNotMatch(r3.sent[0].msg, /Which service/, 'no ask when unconfigured');
+});

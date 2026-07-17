@@ -4,13 +4,18 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 23;
+const SEED_VERSION = 24;
 
 export const STARTER_FAQS = [
   {
     question: 'What is this service and what do you get?',
     answer: "Live TV channels, sports, and a full VOD library of movies and series on demand — streamed through our apps on Firestick, Android phones/tablets and iPhone/iPad (the Purple App as your main one, XC and Smarters as backups, Smarters Player Lite on iOS). One login works across all your apps, and you can request VOD titles we don't have yet.\nInterested, or want pricing? Ask the admin here in the group, or message me /ticket and the team will get you set up.",
-    keywords: 'service, offer, offers, about, channels, movies, series, sports, vod, demand, package, deal, works, price, cost, trial, includes, included',
+    keywords: 'service, offer, offers, about, channels, movies, series, sports, vod, demand, package, works, includes, included, get',
+  },
+  {
+    question: 'How much does it cost / what are the prices?',
+    answer: "Pricing depends on the package and how long you sign up for — the admin sorts you out directly with the current prices. Ask here in the group or message me /ticket. Payment is by crypto (Litecoin) and the step-by-step guide makes it easy, even if you've never used crypto before.",
+    keywords: 'price, prices, pricing, cost, costs, how much, cheap, expensive, monthly, yearly, deal, deals, trial, free, quote, packages',
   },
   {
     // Owns the device-less phrasings ("don't know how to install the apps");
@@ -118,7 +123,7 @@ export const STARTER_FAQS = [
   {
     question: "The app crashes or won't open — what do I do?",
     answer: "1. Force-stop the app and open it again (Settings > Applications > Manage Installed Applications > the app > Force stop).\n2. Clear the app's cache from the same menu.\n3. Restart the device (unplug a Firestick for 30 seconds).\n4. Still crashing? Reinstall the app — ask me how to install if you need the steps. Your login still works after a reinstall.\n5. Meanwhile, use a backup app (XC or Smarters) with the same login so you're not stuck.",
-    keywords: 'crash, crashes, crashing, crashed, open, opening, closes, closing, startup, reinstall, force',
+    keywords: 'crash, crashes, crashing, crashed, keeps, wont, open, opening, opens, closes, closing, close, startup, reinstall, force, unresponsive, glitchy',
   },
   {
     question: 'What internet speed do I need?',
@@ -133,7 +138,7 @@ export const STARTER_FAQS = [
   {
     question: 'What payment methods do you take — can I pay by card or PayPal?',
     answer: "We take crypto — Litecoin (LTC). Don't let that put you off if you've never used it: the payment guide walks you through it step by step, and you can buy the LTC with a normal bank card in about 10 minutes (Exodus wallet + MoonPay). Ask the admin if you need to arrange a different option.",
-    keywords: 'card, paypal, bank, transfer, methods, method, revolut, cash, debit, credit',
+    keywords: 'card, paypal, bank, transfer, methods, method, revolut, cash, debit, credit, pay, paying',
   },
   {
     // Ships DISABLED — set your apps' real default PIN first, then enable.

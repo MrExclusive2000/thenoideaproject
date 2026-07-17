@@ -22,7 +22,7 @@
     <tr>
       <td class="hint" style="white-space:nowrap"><%= formatDate(r.ts) %></td>
       <td><%= r.tg_user || ('id ' + r.tg_user_id) %></td>
-      <td><strong><%= r.title %></strong><% if (r.status !== 'open') { %> <span class="badge badge-dim"><%= r.status %></span><% } %></td>
+      <td><strong><%= r.title %></strong><% if (r.service) { %> <span class="badge badge-warn"><%= r.service %></span><% } %><% if (r.status !== 'open') { %> <span class="badge badge-dim"><%= r.status %></span><% } %></td>
       <td><% if (r.ask_count > 1) { %><span class="badge badge-warn">×<%= r.ask_count %></span><% } else { %>—<% } %></td>
       <td class="actions">
         <% if (r.status === 'open') { %>

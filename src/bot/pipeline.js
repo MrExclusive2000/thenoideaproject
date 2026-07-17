@@ -11,7 +11,7 @@ import {
 } from './helpers.js';
 import { alertAdmins } from './reports.js';
 import { queueProblemAlert, setProblemRearmHook, maybeAutoDegrade } from './problems.js';
-import { parseVodRequest, recordVodRequest } from './requests.js';
+import { parseVodRequest, recordVodRequest, setRequestService } from './requests.js';
 import { hub } from './hub.js';
 
 // Per-user answer cooldowns and short DM conversation memory.
@@ -145,6 +145,74 @@ async function handleUrlServiceReply(ctx, text, logId, replyParams) {
   } else {
     pendingUrl.delete(key);
     await send('No worries — the admin will share the right URL with you here 👍');
+  }
+  return true;
+}
+
+// ---- VOD-request → which service? ------------------------------------------
+// After capturing "Request: Title", ask which service it's for so the admin
+// adds it to the right library. Only when two services are named. The answer
+// is remembered per user for a short while so back-to-back requests don't
+// re-ask.
+const pendingVodService = new Map(); // chatId:userId -> { requestId, at, attempts }
+const knownVodService = new Map();   // userId -> { name, at }
+
+function twoServicesNamed() {
+  const s = serviceConfig();
+  return Boolean(s.one.name && s.two.name);
+}
+
+function vodServiceAskText() {
+  const s = serviceConfig();
+  const q = String(getSetting('bot.requestServiceQuestion') || '').trim();
+  return `${q} ${s.one.name} or ${s.two.name}?`.trim();
+}
+
+function rememberVodService(userId, name) {
+  knownVodService.set(userId, { name, at: Date.now() });
+  if (knownVodService.size > 500) knownVodService.delete(knownVodService.keys().next().value);
+}
+
+function peekVodService(userId) {
+  const k = knownVodService.get(userId);
+  return k && Date.now() - k.at < URL_TTL_MS ? k.name : null;
+}
+
+// Capture a VOD request and, when appropriate, ask which service it's for.
+// Returns the full reply text to send.
+function captureVodRequest(ctx, title) {
+  const { ack, requestId, deduped } = recordVodRequest(ctx, title);
+  if (deduped || !twoServicesNamed() || !getSetting('bot.requestServiceQuestion')) return ack;
+  const known = peekVodService(ctx.from.id);
+  if (known) {
+    setRequestService(requestId, known);
+    return `${ack}\n(noted for ${known} 👍)`;
+  }
+  pendingVodService.set(`${ctx.chat.id}:${ctx.from.id}`, { requestId, at: Date.now(), attempts: 0 });
+  return `${ack}\n${vodServiceAskText()}`;
+}
+
+// The which-service answer to the VOD ask. Returns true when handled.
+async function handleVodServiceReply(ctx, text, logId, replyParams) {
+  const key = `${ctx.chat.id}:${ctx.from.id}`;
+  const st = pendingVodService.get(key);
+  if (!st) return false;
+  if (Date.now() - st.at >= URL_TTL_MS) { pendingVodService.delete(key); return false; }
+  if (looksLikeQuestion(text)) { pendingVodService.delete(key); return false; }
+  const svc = serviceFromReply(text);
+  const send = (msg) => ctx.api.sendMessage(ctx.chat.id, msg, replyParams).catch(() => {});
+  setLogSource(logId, 'vod-request');
+  if (svc) {
+    pendingVodService.delete(key);
+    setRequestService(st.requestId, svc.name);
+    rememberVodService(ctx.from.id, svc.name);
+    await send(`👍 Got it — noted for ${svc.name}.`);
+  } else if (st.attempts < 1) {
+    st.attempts++;
+    await send(`Which one — ${vodServiceAskText()}`);
+  } else {
+    pendingVodService.delete(key);
+    await send('No worries — the team will sort it 👍');
   }
   return true;
 }
@@ -498,6 +566,7 @@ export async function handleGroupMessage(ctx) {
   // or clear intent so group banter containing "url" doesn't trigger it.
   const groupReplyParams = { reply_parameters: { message_id: ctx.message.message_id } };
   if (await handleUrlServiceReply(ctx, text, logId, groupReplyParams)) return;
+  if (await handleVodServiceReply(ctx, text, logId, groupReplyParams)) return;
   if (
     isUrlRequest(question) &&
     (mentioned || looksLikeQuestion(text) || /\b(need|want|give|send)\b/i.test(text)) &&
@@ -505,13 +574,13 @@ export async function handleGroupMessage(ctx) {
   ) return;
 
   // "Request: Title (Year)" — the VOD request format the FAQ teaches.
-  // Capture it: save for the panel, ack the requester, DM the admins.
+  // Capture it: save for the panel, ack the requester (asking which service
+  // it's for when two are configured), DM the admins.
   {
     const vodTitle = parseVodRequest(text);
     if (vodTitle) {
       setLogSource(logId, 'vod-request');
-      const ack = recordVodRequest(ctx, vodTitle);
-      await ctx.api.sendMessage(ctx.chat.id, ack, groupReplyParams).catch(() => {});
+      await ctx.api.sendMessage(ctx.chat.id, captureVodRequest(ctx, vodTitle), groupReplyParams).catch(() => {});
       return;
     }
   }
@@ -791,6 +860,7 @@ export async function handleDirectMessage(ctx) {
   // Per-user service URL flow: answer a pending username reply, or start the
   // flow when they ask for a URL — only ever THEIR service's URL.
   if (await handleUrlServiceReply(ctx, text, logId, {})) return;
+  if (await handleVodServiceReply(ctx, text, logId, {})) return;
   if (isUrlRequest(text) && await handleUrlRequest(ctx, logId, {})) return;
 
   // "Request: Title (Year)" works in DMs too.
@@ -798,7 +868,7 @@ export async function handleDirectMessage(ctx) {
     const vodTitle = parseVodRequest(text);
     if (vodTitle) {
       setLogSource(logId, 'vod-request');
-      await ctx.reply(recordVodRequest(ctx, vodTitle)).catch(() => {});
+      await ctx.reply(captureVodRequest(ctx, vodTitle)).catch(() => {});
       return;
     }
   }

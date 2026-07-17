@@ -93,6 +93,9 @@ export const DEFAULTS = {
   // tag-back when the admin marks it added ({name}, {title}).
   'bot.requestAckMessage': '📝 Noted! {title} is on the request list — new titles land in batches, keep an eye on the VOD section 👍',
   'bot.requestAddedMessage': '🎬 Good news {name} — your request has been added: {title}. Enjoy!',
+  // Asked after capturing a request when two services are configured, so the
+  // admin knows which library to add it to. Empty = don't ask.
+  'bot.requestServiceQuestion': 'Which service is this for?',
   // Per-user service URLs. Deliberately kept OUT of the FAQ/AI knowledge:
   // a user only ever receives the URL matching THEIR username (prefix rule),
   // never the other service's. Empty URLs = the flow stays off.

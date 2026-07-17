@@ -305,6 +305,10 @@ const migrations = [
   );
   CREATE INDEX idx_vod_requests_status ON vod_requests(status, ts);
   `,
+  // v10 — which service a VOD request is for (the bot asks after capturing)
+  `
+  ALTER TABLE vod_requests ADD COLUMN service TEXT;
+  `,
 ];
 
 export function migrate(db) {
