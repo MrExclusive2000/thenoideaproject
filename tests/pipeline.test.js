@@ -983,16 +983,16 @@ test('three people reporting buffering auto-degrades; the tipping reporter sees 
 
 test('which-service flow: a bare username replied to the bot is answered with context', async () => {
   setSetting('bot.cooldownSeconds', 0);
-  aiResponse = "Your username starts with THM, so you're on Thames.";
+  aiResponse = "Your username starts with THM, so you're on Exclusive.";
   const ctx = fakeCtx('THM4821', { chatType: 'group', userId: 93010 });
   ctx.message.reply_to_message = {
     from: { id: 999 },
     message_id: 4242,
-    text: "Easy way to tell — look at the username you log in with. If it starts with THM, you're on Thames; randomly generated means Flix. Not sure? Reply to this message with just your username and I'll tell you.",
+    text: "Easy way to tell — look at the username you log in with. If it starts with THM, you're on Exclusive; randomly generated means Flix. Not sure? Reply to this message with just your username and I'll tell you.",
   };
   await handleGroupMessage(ctx);
   assert.equal(ctx.sent.length, 1, 'bare username follow-up answered');
-  assert.match(ctx.sent[0].msg, /Thames/);
+  assert.match(ctx.sent[0].msg, /Exclusive/);
   const msgs = lastAiRequest.messages;
   assert.ok(msgs.some((m) => m.role === 'assistant' && /starts with THM/.test(m.content)), 'the rule went along as history');
   assert.ok(msgs.some((m) => m.role === 'system' && /IS in scope/.test(m.content)), 'reply-to-bot forced on-topic');
@@ -1019,14 +1019,14 @@ test('escalation asks which service; the answer is saved and forwarded to the ad
   assert.equal(confirm.sent.length, 1, 'escalation ack sent');
   assert.match(confirm.sent[0].msg, /which service is this on/i, 'ack asks for the service');
 
-  const svc = fakeCtx('Thames', { chatType: 'group', userId: 95001 });
+  const svc = fakeCtx('Exclusive', { chatType: 'group', userId: 95001 });
   await handleGroupMessage(svc);
   assert.equal(svc.sent.length, 1);
   assert.match(svc.sent[0].msg, /Passed that along/, 'user thanked');
   const row = db.prepare('SELECT service FROM problem_reports WHERE tg_user_id = 95001 AND escalated = 1').get();
-  assert.equal(row.service, 'Thames', 'service stored on the report');
+  assert.equal(row.service, 'Exclusive', 'service stored on the report');
   await new Promise((r) => setTimeout(r, 10));
-  assert.ok(adminDms.some((d) => /escalated problem is on: "Thames"/.test(d.text)), 'admin got the service info');
+  assert.ok(adminDms.some((d) => /escalated problem is on: "Exclusive"/.test(d.text)), 'admin got the service info');
 
   // Captured exactly once — a later "cheers" is a warm acknowledgment, not
   // service info, not a resolution of the escalated report.
@@ -1035,7 +1035,7 @@ test('escalation asks which service; the answer is saved and forwarded to the ad
   assert.equal(later.sent.length, 1);
   assert.match(later.sent[0].msg, /Anytime/, 'thanks acknowledged');
   const after = db.prepare('SELECT * FROM problem_reports WHERE tg_user_id = 95001 AND escalated = 1').get();
-  assert.equal(after.service, 'Thames', 'service info untouched');
+  assert.equal(after.service, 'Exclusive', 'service info untouched');
   assert.equal(after.resolved, 0, 'escalated report stays open — thanks is not a fix report');
 
   hub.api = null;
@@ -1064,14 +1064,14 @@ test('a bare DM fragment mid-conversation still reaches the AI', async () => {
   await answer(ctx, ctx.message.text, { isDm: true, logId: null });
 
   // The bare username answer must go to the AI with the conversation attached.
-  aiResponse = 'THM means Thames — that is your service.';
+  aiResponse = 'THM means Exclusive — that is your service.';
   lastAiRequest = null;
   const ctx2 = fakeCtx('THM4821', { userId: 5252 });
   const result = await answer(ctx2, 'THM4821', { isDm: true, logId: null });
   assert.equal(result, 'ai');
   assert.ok(lastAiRequest, 'AI called despite the bare fragment');
   assert.ok(lastAiRequest.messages.some((m) => m.role === 'assistant' && /Which service/.test(m.content)), 'clarify question in context');
-  assert.match(ctx2.sent[0].msg, /Thames/);
+  assert.match(ctx2.sent[0].msg, /Exclusive/);
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
 
@@ -1200,34 +1200,34 @@ test('service URLs: the bot asks WHICH SERVICE and only gives that one', async (
   setSetting('bot.cooldownSeconds', 0);
   setSetting('services.name1', 'Flix');
   setSetting('services.url1', 'http://flix.example:8080');
-  setSetting('services.name2', 'Thames');
-  setSetting('services.url2', 'http://thm.example:8080');
+  setSetting('services.name2', 'Exclusive');
+  setSetting('services.url2', 'http://exclusive.example:8080');
   setSetting('services.prefix2', 'THM');
 
   // Ask → which service? → name reply → ONLY that URL.
   const u1 = fakeCtx('whats the service url?', { userId: 98501 });
   await handleDirectMessage(u1);
-  assert.match(u1.sent[0].msg, /Which service are you on — Flix or Thames\?/, 'asked for the service');
+  assert.match(u1.sent[0].msg, /Which service are you on — Flix or Exclusive\?/, 'asked for the service');
   assert.doesNotMatch(u1.sent[0].msg, /example:8080/, 'no URLs in the ask');
   const u2 = fakeCtx('flix', { userId: 98501 });
   await handleDirectMessage(u2);
   assert.match(u2.sent[0].msg, /flix\.example/);
-  assert.doesNotMatch(u2.sent[0].msg, /thm\.example/, "never the other service's URL");
+  assert.doesNotMatch(u2.sent[0].msg, /exclusive\.example/, "never the other service's URL");
 
   // Other service by name; a THM username also works as the answer.
   const v1 = fakeCtx('I need my iPhone url', { userId: 98502 });
   await handleDirectMessage(v1);
   assert.match(v1.sent[0].msg, /Which service are you on/);
-  const v2 = fakeCtx('im on thames', { userId: 98502 });
+  const v2 = fakeCtx('im on exclusive', { userId: 98502 });
   await handleDirectMessage(v2);
-  assert.match(v2.sent[0].msg, /thm\.example/);
+  assert.match(v2.sent[0].msg, /exclusive\.example/);
   assert.doesNotMatch(v2.sent[0].msg, /flix\.example/);
 
   const w1 = fakeCtx('what url do i log in with?', { userId: 98503 });
   await handleDirectMessage(w1);
   const w2 = fakeCtx('THM4821', { userId: 98503 });
   await handleDirectMessage(w2);
-  assert.match(w2.sent[0].msg, /thm\.example/, 'prefixed username answers the service question too');
+  assert.match(w2.sent[0].msg, /exclusive\.example/, 'prefixed username answers the service question too');
 
   // Unrecognised answer → one re-ask, then a graceful hand-off.
   const x1 = fakeCtx('need the url', { userId: 98504 });
@@ -1317,7 +1317,7 @@ test('a reply aimed at ANOTHER member is not brushed off by the bot', async () =
 test('VOD request asks which service, saves the answer, then remembers it', async () => {
   setSetting('bot.cooldownSeconds', 0);
   setSetting('services.name1', 'Flix');
-  setSetting('services.name2', 'Thames');
+  setSetting('services.name2', 'Exclusive');
   setSetting('bot.requestServiceQuestion', 'Which service is this for?');
   db.prepare('DELETE FROM vod_requests').run();
 
@@ -1325,7 +1325,7 @@ test('VOD request asks which service, saves the answer, then remembers it', asyn
   const r1 = fakeCtx('Request: Maze Runner (2018)', { userId: 98801 });
   await handleDirectMessage(r1);
   assert.equal(r1.sent.length, 1);
-  assert.match(r1.sent[0].msg, /Which service is this for\? Flix or Thames\?/);
+  assert.match(r1.sent[0].msg, /Which service is this for\? Flix or Exclusive\?/);
 
   // Answer → service saved on the request, warm ack.
   const a1 = fakeCtx('flix', { userId: 98801 });
@@ -1346,4 +1346,45 @@ test('VOD request asks which service, saves the answer, then remembers it', asyn
   const r3 = fakeCtx('Request: Oppenheimer (2023)', { userId: 98802 });
   await handleDirectMessage(r3);
   assert.doesNotMatch(r3.sent[0].msg, /Which service/, 'no ask when unconfigured');
+});
+
+test('a second request or a problem report while the service ask is pending is NOT eaten', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('services.name1', 'Flix');
+  setSetting('services.name2', 'Exclusive');
+  setSetting('bot.requestServiceQuestion', 'Which service is this for?');
+  db.prepare('DELETE FROM vod_requests').run();
+  _resetProblemTriage();
+
+  // First request arms the ask...
+  const r1 = fakeCtx('Request: Maze Runner (2018)', { userId: 98901 });
+  await handleDirectMessage(r1);
+  assert.match(r1.sent[0].msg, /Which service is this for/);
+
+  // ...but a SECOND request before answering must still be captured.
+  const r2 = fakeCtx('Request: Dune (2021)', { userId: 98901 });
+  await handleDirectMessage(r2);
+  assert.match(r2.sent[0].msg, /Dune/, 'second request captured, not eaten by the ask');
+  assert.ok(db.prepare("SELECT 1 FROM vod_requests WHERE title LIKE 'Dune%'").get(), 'Dune saved');
+
+  // Answering now tags the LATEST request.
+  const a = fakeCtx('exclusive', { userId: 98901 });
+  await handleDirectMessage(a);
+  assert.equal(db.prepare("SELECT service FROM vod_requests WHERE title LIKE 'Dune%'").get().service, 'Exclusive');
+
+  // A problem report while an ask is pending goes to triage, not the ask.
+  db.prepare('INSERT OR REPLACE INTO allowed_chats (chat_id, title, enabled, added_at) VALUES (-100123, ?, 1, 0)').run('Test Group');
+  const r3 = fakeCtx('Request: Oppenheimer (2023)', { chatType: 'group', userId: 98902 });
+  await handleGroupMessage(r3);
+  assert.match(r3.sent[0].msg, /Which service is this for/);
+  aiResponse = 'Try a different link for BBC1 or restart the app.';
+  const p = fakeCtx('buffering on bbc one', { chatType: 'group', userId: 98902 });
+  await handleGroupMessage(p);
+  assert.doesNotMatch(p.sent[0].msg, /Which one/, 'not hijacked by the service ask');
+  assert.match(p.sent[0].msg, /flag it straight to the team/, 'problem triage answered with fixes + invite');
+
+  setSetting('services.name1', '');
+  setSetting('services.name2', '');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+  _resetProblemTriage();
 });

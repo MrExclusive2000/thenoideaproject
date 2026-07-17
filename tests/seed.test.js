@@ -170,7 +170,7 @@ test('starter FAQs actually match how people ask', () => {
 });
 
 test('which-service FAQ matches how people ask once the admin enables it', () => {
-  db.prepare("UPDATE faqs SET enabled = 1, answer = replace(replace(answer, 'SERVICE-NAME-1', 'Flix'), 'SERVICE-NAME-2', 'Thames') WHERE question = 'Which service am I on?'").run();
+  db.prepare("UPDATE faqs SET enabled = 1, answer = replace(replace(answer, 'SERVICE-NAME-1', 'Flix'), 'SERVICE-NAME-2', 'Exclusive') WHERE question = 'Which service am I on?'").run();
   const faqs = db.prepare('SELECT * FROM faqs').all();
   for (const q of [
     'what service am i on',

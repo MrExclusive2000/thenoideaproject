@@ -124,9 +124,10 @@ async function handleUrlServiceReply(ctx, text, logId, replyParams) {
     pendingUrl.delete(key);
     return false;
   }
-  if (looksLikeQuestion(text)) {
-    // They asked something else ("which service am I on?") — normal
-    // answering takes it; the URL ask is dropped, they can ask again.
+  if (looksLikeQuestion(text) || parseVodRequest(text) || looksLikeProblem(text) || looksLikeGreeting(text) || looksLikeThanks(text)) {
+    // They moved on — a question ("which service am I on?"), a VOD request,
+    // a problem report, a greeting. Normal answering takes it; the URL ask
+    // is dropped, they can ask again.
     pendingUrl.delete(key);
     return false;
   }
@@ -189,6 +190,9 @@ function captureVodRequest(ctx, title) {
     return `${ack}\n(noted for ${known} 👍)`;
   }
   pendingVodService.set(`${ctx.chat.id}:${ctx.from.id}`, { requestId, at: Date.now(), attempts: 0 });
+  if (pendingVodService.size > 500) {
+    pendingVodService.delete(pendingVodService.keys().next().value);
+  }
   return `${ack}\n${vodServiceAskText()}`;
 }
 
@@ -198,7 +202,14 @@ async function handleVodServiceReply(ctx, text, logId, replyParams) {
   const st = pendingVodService.get(key);
   if (!st) return false;
   if (Date.now() - st.at >= URL_TTL_MS) { pendingVodService.delete(key); return false; }
-  if (looksLikeQuestion(text)) { pendingVodService.delete(key); return false; }
+  // Anything that stands on its own means they've moved on — drop the ask
+  // and let the normal flow take the message. A NEW "Request: ..." must be
+  // captured (it re-arms its own ask), a problem report belongs to triage,
+  // greetings/thanks to their canned replies.
+  if (looksLikeQuestion(text) || parseVodRequest(text) || looksLikeProblem(text) || looksLikeGreeting(text) || looksLikeThanks(text)) {
+    pendingVodService.delete(key);
+    return false;
+  }
   const svc = serviceFromReply(text);
   const send = (msg) => ctx.api.sendMessage(ctx.chat.id, msg, replyParams).catch(() => {});
   setLogSource(logId, 'vod-request');

@@ -69,9 +69,9 @@ test('recordVodRequest saves, acks, DMs the admin, and dedupes repeats', () => {
 test('setRequestService attaches the service and DMs the admin', () => {
   const { requestId } = recordVodRequest(fakeCtx('z', 503), 'Dune Part Two (2024)');
   sent.length = 0;
-  setRequestService(requestId, 'Thames');
-  assert.equal(db.prepare('SELECT service FROM vod_requests WHERE id = ?').get(requestId).service, 'Thames');
-  assert.ok(sent.some((m) => m.id === 777 && /is for: Thames/.test(m.text)), 'admin told the service');
+  setRequestService(requestId, 'Exclusive');
+  assert.equal(db.prepare('SELECT service FROM vod_requests WHERE id = ?').get(requestId).service, 'Exclusive');
+  assert.ok(sent.some((m) => m.id === 777 && /is for: Exclusive/.test(m.text)), 'admin told the service');
 });
 
 test('notifyRequestAdded tags the requester in the chat it came from', async () => {
