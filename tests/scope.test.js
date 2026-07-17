@@ -26,6 +26,10 @@ test('device-setup and app questions are in scope', () => {
     'can i have the service url',
     'how do i install on my iphone',
     'does it work on ipad',
+    // what-is/pricing questions are how new customers arrive:
+    'what is this service',
+    'how much does it cost',
+    'can i get a trial',
   ]) {
     assert.ok(isLikelyInScope(q), `should be in scope: ${q}`);
   }

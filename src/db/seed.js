@@ -4,9 +4,14 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 15;
+const SEED_VERSION = 16;
 
 export const STARTER_FAQS = [
+  {
+    question: 'What is this service and what do you get?',
+    answer: "Live TV channels, movies, series and sports — streamed through our apps on Firestick, Android phones/tablets and iPhone/iPad (the Purple App as your main one, XC and Smarters as backups, Smarters Player Lite on iOS). One login works across all your apps.\nInterested, or want pricing? Ask the admin here in the group, or message me /ticket and the team will get you set up.",
+    keywords: 'service, offer, offers, about, channels, movies, series, sports, package, deal, works, price, cost, trial, includes, included',
+  },
   {
     // Owns the device-less phrasings ("don't know how to install the apps");
     // the device FAQs below keep only their distinctive vocabulary.

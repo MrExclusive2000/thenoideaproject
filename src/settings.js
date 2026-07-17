@@ -14,8 +14,8 @@ export const DEFAULTS = {
     'update and troubleshoot the app on Firestick and mobile devices.',
   'bot.responseMode': 'questions', // mention | questions | all
   'bot.dmEnabled': true,
-  'bot.offtopicBehavior': 'silent', // silent | redirect
-  'bot.offtopicMessage': 'I can only help with questions about the app. Ask me anything about installing or using it!',
+  'bot.offtopicBehavior': 'redirect', // silent | redirect
+  'bot.offtopicMessage': "Can't help with that one 😂 I'm strictly service support — installs, logins, streams, payments. /help shows what I can do.",
   'bot.fallbackMessage': '', // empty = stay silent when nothing matched and AI is off/down
   // Sent when a message IS about the app/service but the bot can't answer it —
   // kinder than the off-topic line, and points the user to a human.

@@ -87,7 +87,10 @@ export function scoreFaq(query, faq) {
   // worth a flat bonus on top of the proportional keyword score.
   const multiKeywordBonus = keywordHits >= 2 ? 0.15 : 0;
   const score = Math.min(1, 0.45 * tokenScore + 0.3 * trigramScore + 0.5 * keywordScore + multiKeywordBonus + (faq.priority || 0) * 0.01);
-  return { score, keywordHits, overlap };
+  // trigramScore is also returned raw: the 1.0 cap can flatten two FAQs to a
+  // tie ("what service am I on" vs "what is this service" both reduce to the
+  // token {service}), and phrase similarity is the honest tie-breaker.
+  return { score, keywordHits, overlap, trigram: trigramScore };
 }
 
 // Returns { match, score, scores } — match is null when nothing clears the
@@ -96,7 +99,7 @@ export function matchFaq(query, faqs, threshold = 0.5) {
   const scores = faqs
     .filter((f) => f.enabled === undefined || f.enabled)
     .map((faq) => ({ faq, ...scoreFaq(query, faq) }))
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) => b.score - a.score || b.trigram - a.trigram);
 
   if (!scores.length) return { match: null, score: 0, scores };
   const [best, second] = scores;

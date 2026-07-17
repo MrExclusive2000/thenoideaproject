@@ -124,6 +124,8 @@ test('starter FAQs actually match how people ask', () => {
     ['can i get this on my ipad?', 'App Store'],
     ['is there an ios app', 'Smarters Player Lite'],
     ['whats the service url for the iphone app', 'Xtream'],
+    ['what is this service?', 'Live TV'],
+    ['what do you get with the service', 'Live TV'],
     ['guys how do i instal this on my fire stick??', 'Downloader'],
     ['episode 3 of severance wont play', 'episode'],
     ['the movie is in spanish how do i get english', 'language'],
