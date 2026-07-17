@@ -40,6 +40,11 @@ export function buildSystemPrompt() {
     '/guides — setup guides in chat · /faq — common questions · /status — service status and latest version',
     '/ticket — opens a private support ticket with the human team (in a private message to you)',
   ].join('\n'));
+  knowledge.push([
+    '## Downloader codes work on Android too',
+    'Every Firestick Downloader code doubles as a direct download link: https://aftv.news/CODE (put the code after aftv.news/).',
+    'On a Firestick, enter the code in the Downloader app. On an Android phone/tablet (or any browser), open the aftv.news link instead — then allow installs from unknown sources if the phone asks.',
+  ].join('\n'));
   if (faqs.length) {
     knowledge.push('## FAQ');
     for (const f of faqs) knowledge.push(`Q: ${f.question}\nA: ${f.answer}`);

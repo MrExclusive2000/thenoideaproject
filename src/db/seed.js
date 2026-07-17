@@ -4,14 +4,14 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 10;
+const SEED_VERSION = 11;
 
 export const STARTER_FAQS = [
   {
     // Owns the device-less phrasings ("don't know how to install the apps");
     // the device FAQs below keep only their distinctive vocabulary.
     question: 'How do I install the apps?',
-    answer: "Depends on your device:\n📺 Firestick: install the Downloader app from the Amazon store, open it and enter code 9804805, click Go, then install the Purple App (plus XC or Smarters as backups — same login works in all).\n📱 Android phone/tablet: open our Android installer link (ask here or check the customer panel if you don't have it) and pick the Purple App.\nThen open the app and log in with your service details. If your device blocks the install, say so and I'll walk you through allowing it.",
+    answer: "Depends on your device:\n📺 Firestick: install the Downloader app from the Amazon store, open it and enter code 9804805, click Go, then install the Purple App (plus XC or Smarters as backups — same login works in all).\n📱 Android phone/tablet: open https://aftv.news/9804805 in your browser (every Downloader code also works as an aftv.news link) and pick the Purple App.\nThen open the app and log in with your service details. If your device blocks the install, say so and I'll walk you through allowing it.",
     keywords: 'install, installing, installed, app, apps, get, setup, put',
     priority: 1,
   },
@@ -23,8 +23,8 @@ export const STARTER_FAQS = [
   },
   {
     question: 'How do I install the app on an Android phone or tablet?',
-    answer: 'Open our Android installer link on your device (ask here or check the customer panel if you don’t have it), pick the app you want — we recommend the Purple App — and allow installs from unknown sources if your phone asks (the prompt varies by model). Install it, open it, and log in with your service details.',
-    keywords: 'android, phone, tablet, mobile, apk, installer, samsung, pixel, app, apps',
+    answer: 'Open https://aftv.news/9804805 in your phone’s browser — every Downloader code also works as a link at aftv.news/CODE. Pick the app you want — we recommend the Purple App — and allow installs from unknown sources if your phone asks (the prompt varies by model). Install it, open it, and log in with your service details.',
+    keywords: 'android, phone, tablet, mobile, apk, installer, link, aftv, samsung, pixel, app, apps',
   },
   {
     question: 'How do I enable Developer Options or allow apps from unknown sources on Firestick?',
@@ -73,7 +73,7 @@ export const STARTER_FAQS = [
   },
   {
     question: 'How do I update the app to the latest version?',
-    answer: 'On a Firestick: open the Downloader app, enter code 9804805 again and install the newest version straight over the old one — your settings are kept. On Android: use the installer link again. You can also message me /version to see the latest version.',
+    answer: 'On a Firestick: open the Downloader app, enter code 9804805 again and install the newest version straight over the old one — your settings are kept. On Android: open https://aftv.news/9804805 in your browser again. You can also message me /version to see the latest version.',
     keywords: 'update, upgrade, latest, version, new, old',
   },
   {
@@ -147,12 +147,11 @@ Ask in the group — the bot answers install questions instantly. For a human, m
   {
     title: 'Install on Android phone / tablet',
     slug: 'install-android',
-    visible: 0,
-    body_md: `> **${EDIT_MARKER}** Replace ANDROID-INSTALLER-LINK below with your real installer link, then set this guide to *visible*.
+    visible: 1,
+    body_md: `## Install the app
 
-## Install the app
-
-1. Open this link on your Android device: **ANDROID-INSTALLER-LINK**
+1. Open this link in the browser on your Android device: **https://aftv.news/9804805**
+   (every Firestick Downloader code also works as a link — just put it after aftv.news/)
 2. Select the app you would like to install — we recommend the **Purple App**.
 3. If prompted, allow installation from unknown sources (this varies a little depending on your phone model).
 4. Once installed, open the app and log in with your service details.
@@ -230,6 +229,12 @@ const V3_CHANNEL =
   "First try a different link/server for the same channel, or the same channel in a backup app (XC/Smarters) — and give it a minute, streams sometimes restart on their own. Still down? Report it with: the exact channel name, what you see (frozen / black screen / error message), and the time. That helps us fix it fast.";
 const V2_LOGIN =
   'Double-check the username and password — watch for extra spaces and capital letters. If it still fails your access may have expired: message me /myaccount in a private chat, or contact the admin via /ticket and we’ll sort it.';
+const V10_INSTALL_ANY =
+  "Depends on your device:\n📺 Firestick: install the Downloader app from the Amazon store, open it and enter code 9804805, click Go, then install the Purple App (plus XC or Smarters as backups — same login works in all).\n📱 Android phone/tablet: open our Android installer link (ask here or check the customer panel if you don't have it) and pick the Purple App.\nThen open the app and log in with your service details. If your device blocks the install, say so and I'll walk you through allowing it.";
+const V10_ANDROID =
+  'Open our Android installer link on your device (ask here or check the customer panel if you don’t have it), pick the app you want — we recommend the Purple App — and allow installs from unknown sources if your phone asks (the prompt varies by model). Install it, open it, and log in with your service details.';
+const V10_UPDATE =
+  'On a Firestick: open the Downloader app, enter code 9804805 again and install the newest version straight over the old one — your settings are kept. On Android: use the installer link again. You can also message me /version to see the latest version.';
 
 const V1_ANSWERS = {
   'How do I install the app on my Firestick?': 'Easiest way is with the Downloader app:\n1. On the Firestick go to Settings > My Fire TV > Developer Options and allow apps from unknown sources (or allow Downloader there).\n2. Install "Downloader" from the Amazon app store.\n3. Open Downloader and enter the download link or code from our portal.\n4. Install the APK when it finishes, open the app and sign in.\nGot a portal login? Message me /download in a private chat and I’ll send the file or a code.',
@@ -247,6 +252,9 @@ function previousDefaults(question) {
   if (question === 'The app keeps buffering, freezing or stuttering — how do I fix it?') out.push(V3_BUFFERING);
   if (question === "A channel or stream isn't working — what do I do?") out.push(V3_CHANNEL);
   if (question === "The app says my login is wrong or my account doesn't work") out.push(V2_LOGIN);
+  if (question === 'How do I install the apps?') out.push(V10_INSTALL_ANY);
+  if (question === 'How do I install the app on an Android phone or tablet?') out.push(V10_ANDROID);
+  if (question === 'How do I update the app to the latest version?') out.push(V10_UPDATE);
   return out;
 }
 

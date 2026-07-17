@@ -23,10 +23,11 @@ test('first boot seeds starter FAQs and guides', () => {
   // Real-content guides ship visible; placeholder guides ship hidden.
   assert.equal(guides.find((g) => g.slug === 'install-firestick').visible, 1);
   assert.equal(guides.find((g) => g.slug === 'pay-with-crypto').visible, 1);
-  assert.equal(guides.find((g) => g.slug === 'install-android').visible, 0);
+  assert.equal(guides.find((g) => g.slug === 'install-android').visible, 1);
   assert.equal(guides.find((g) => g.slug === 'customer-panel').visible, 0);
   // The user's real content made it in.
   assert.match(guides.find((g) => g.slug === 'install-firestick').body_md, /9804805/);
+  assert.match(guides.find((g) => g.slug === 'install-android').body_md, /aftv\.news\/9804805/);
   assert.match(guides.find((g) => g.slug === 'pay-with-crypto').body_md, /Exodus/);
 });
 
@@ -43,8 +44,14 @@ test('upgrade pass refreshes untouched defaults but never edited content', () =>
   const v1BufferingAnswer = 'Try these in order — they fix most buffering:\n1. Restart the app and your device.\n2. Restart your router.\n3. Clear the app cache (Settings > Applications > Manage Installed Applications > the app > Clear cache).\n4. Use 5GHz WiFi or wired ethernet if you can — 2.4GHz struggles with HD streams.\n5. Try a lower quality stream or a different link/server for the same channel.\n6. Run a speed test — HD needs about 10 Mbps, 4K about 25 Mbps.\nStill buffering after all that? Tell us the channel and the time it happened.';
   db.prepare('UPDATE faqs SET answer = ? WHERE question = ?')
     .run(v1BufferingAnswer, 'The app keeps buffering, freezing or stuttering — how do I fix it?');
+  const v10AndroidAnswer = 'Open our Android installer link on your device (ask here or check the customer panel if you don’t have it), pick the app you want — we recommend the Purple App — and allow installs from unknown sources if your phone asks (the prompt varies by model). Install it, open it, and log in with your service details.';
+  db.prepare('UPDATE faqs SET answer = ? WHERE question = ?')
+    .run(v10AndroidAnswer, 'How do I install the app on an Android phone or tablet?');
   db.prepare('UPDATE faqs SET answer = ? WHERE question = ?')
     .run('MY CUSTOM ANSWER', 'Can I use a VPN with the app?');
+  // Guides still carrying the old placeholder marker get replaced too.
+  db.prepare('UPDATE guides SET body_md = ?, visible = 0 WHERE slug = ?')
+    .run('> **Admin: edit this guide first!** Replace ANDROID-INSTALLER-LINK...', 'install-android');
   db.prepare('UPDATE guides SET body_md = ? WHERE slug = ?')
     .run('my own firestick guide text', 'install-firestick');
   db.prepare("DELETE FROM faqs WHERE question = 'How do I pay with crypto?'").run();
@@ -54,6 +61,12 @@ test('upgrade pass refreshes untouched defaults but never edited content', () =>
   const buffering = db.prepare('SELECT answer FROM faqs WHERE question = ?')
     .get('The app keeps buffering, freezing or stuttering — how do I fix it?');
   assert.match(buffering.answer, /XC or Smarters/, 'untouched v1 default upgraded to v2');
+  const android = db.prepare('SELECT answer FROM faqs WHERE question = ?')
+    .get('How do I install the app on an Android phone or tablet?');
+  assert.match(android.answer, /aftv\.news\/9804805/, 'untouched v10 default upgraded to v11');
+  const androidGuide = db.prepare("SELECT body_md, visible FROM guides WHERE slug = 'install-android'").get();
+  assert.match(androidGuide.body_md, /aftv\.news\/9804805/, 'placeholder guide replaced with real content');
+  assert.equal(androidGuide.visible, 1, 'replaced guide made visible');
   const vpn = db.prepare('SELECT answer FROM faqs WHERE question = ?').get('Can I use a VPN with the app?');
   assert.equal(vpn.answer, 'MY CUSTOM ANSWER', 'edited FAQ left alone');
   const fireGuide = db.prepare("SELECT body_md FROM guides WHERE slug = 'install-firestick'").get();
@@ -93,7 +106,8 @@ test('starter FAQs actually match how people ask', () => {
     ['how do i invite them to this group', 'friend'],
     ['dont know how to install the apps', 'Depends on your device'],
     ['how do i get the apps on my firestick', '9804805'],
-    ['how do i install this on my android phone', 'Android installer link'],
+    ['how do i install this on my android phone', 'aftv.news'],
+    ['whats the android download link', 'aftv.news'],
     ['guys how do i instal this on my fire stick??', 'Downloader'],
     ['episode 3 of severance wont play', 'episode'],
     ['the movie is in spanish how do i get english', 'language'],
