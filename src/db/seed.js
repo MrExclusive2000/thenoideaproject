@@ -4,23 +4,24 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 8;
+const SEED_VERSION = 9;
 
 export const STARTER_FAQS = [
   {
     question: 'How do I install the app on my Firestick?',
     answer: 'Install the Downloader app from the Amazon app store, open it and enter code 9804805, then click Go. That page has all our apps — install the Purple App as your main one, plus XC or Smarters as backups (the same login works in all of them).\nIf the Firestick blocks the install: Settings > My Fire TV > About > click the device name 7–10 times to unlock Developer Options, then enable both options in there and go back to Downloader.\nOnce installed, open the app and log in with your service details. Full walkthrough is in the Firestick guide.',
-    keywords: 'install, firestick, fire, stick, downloader, setup, tv, code, 9804805, sideload',
+    keywords: 'install, installing, app, apps, get, firestick, fire, stick, downloader, setup, tv, code, 9804805, sideload',
+    priority: 2,
   },
   {
     question: 'How do I install the app on an Android phone or tablet?',
     answer: 'Open our Android installer link on your device (ask here or check the customer panel if you don’t have it), pick the app you want — we recommend the Purple App — and allow installs from unknown sources if your phone asks (the prompt varies by model). Install it, open it, and log in with your service details.',
-    keywords: 'android, phone, tablet, mobile, apk, installer, samsung, pixel',
+    keywords: 'android, phone, tablet, mobile, apk, installer, install, app, apps, samsung, pixel',
   },
   {
     question: 'How do I enable Developer Options or allow apps from unknown sources on Firestick?',
     answer: 'If the Firestick blocks the install or asks for "unknown sources":\n1. Press the Home button on the remote.\n2. Go to Settings > My Fire TV > About.\n3. Highlight your device name and press it 7–10 times until it says Developer Options are enabled.\n4. Go back and open Developer Options.\n5. Turn ON both options (Apps from Unknown Sources / ADB debugging).\n6. Go back to the Downloader app and continue installing.\nThen open the app and log in with your service details.',
-    keywords: 'developer, options, unknown, sources, enable, allow, apps, permission, blocked, install, sideload, adb, about',
+    keywords: 'developer, options, unknown, sources, enable, allow, permission, blocked, adb, about',
   },
   {
     question: "The install is blocked or says I can't install unknown apps",
@@ -246,14 +247,14 @@ function previousDefaults(question) {
 export function addStarterFaqs() {
   const exists = db.prepare('SELECT 1 FROM faqs WHERE question = ? COLLATE NOCASE');
   const insert = db.prepare(
-    'INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at) VALUES (?, ?, ?, 1, 0, ?, ?)'
+    'INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?)'
   );
   const t = now();
   let added = 0;
   const tx = db.transaction(() => {
     for (const faq of STARTER_FAQS) {
       if (exists.get(faq.question)) continue;
-      insert.run(faq.question, faq.answer, faq.keywords, t, t);
+      insert.run(faq.question, faq.answer, faq.keywords, faq.priority || 0, t, t);
       added++;
     }
   });
@@ -272,14 +273,14 @@ function upgradeStarterContent() {
     for (const faq of STARTER_FAQS) {
       const row = getFaq.get(faq.question);
       if (!row) {
-        db.prepare('INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at) VALUES (?, ?, ?, 1, 0, ?, ?)')
-          .run(faq.question, faq.answer, faq.keywords, t, t);
+        db.prepare('INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?)')
+          .run(faq.question, faq.answer, faq.keywords, faq.priority || 0, t, t);
         faqsAdded++;
       } else if (row.answer === faq.answer || previousDefaults(faq.question).includes(row.answer)) {
         // Unchanged from a shipped default (current or previous) — safe to
         // refresh, which also lets keyword-only upgrades through.
-        db.prepare('UPDATE faqs SET answer = ?, keywords = ?, updated_at = ? WHERE id = ?')
-          .run(faq.answer, faq.keywords, t, row.id);
+        db.prepare('UPDATE faqs SET answer = ?, keywords = ?, priority = ?, updated_at = ? WHERE id = ?')
+          .run(faq.answer, faq.keywords, faq.priority || 0, t, row.id);
         faqsUpgraded++;
       }
     }

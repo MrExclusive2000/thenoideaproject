@@ -91,6 +91,8 @@ test('starter FAQs actually match how people ask', () => {
     ['how can my friend join the service?', 'friend'],
     ['my mate wants to sign up', 'friend'],
     ['how do i invite them to this group', 'friend'],
+    ['dont know how to install the apps', '9804805'],
+    ['how do i get the apps on my firestick', '9804805'],
     ['episode 3 of severance wont play', 'episode'],
     ['the movie is in spanish how do i get english', 'language'],
     ['wrong audio on this film', 'language'],
