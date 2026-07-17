@@ -16,6 +16,11 @@
       <input type="checkbox" id="dmEnabled" name="dmEnabled" value="1" <%= s.dmEnabled ? 'checked' : '' %>>
       <label for="dmEnabled">Answer private (DM) messages too</label>
     </div>
+    <div class="checkline">
+      <input type="checkbox" id="ignoreAdmins" name="ignoreAdmins" value="1" <%= s.ignoreAdmins ? 'checked' : '' %>>
+      <label for="ignoreAdmins">Never auto-answer admins in the group (mentions/replies to the bot still work)</label>
+    </div>
+    <p class="hint">Even when off, admin announcements (statements addressing the group or spanning several lines) are always ignored — only an admin's actual questions get answered.</p>
 
     <label for="responseMode">When should the bot reply in the group?</label>
     <select id="responseMode" name="responseMode">

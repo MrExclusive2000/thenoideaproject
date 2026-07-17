@@ -7,7 +7,7 @@ import { containsBannedWord } from '../ai/guardrails.js';
 import { state } from '../state.js';
 import {
   sendChunked, logMessage, setLogSource, recordUnanswered, chatAllowed,
-  isLikelyInScope, recordProblem, extractProblemTopic,
+  isLikelyInScope, recordProblem, extractProblemTopic, isAdminUser,
 } from './helpers.js';
 import { alertAdmins } from './reports.js';
 import { queueProblemAlert, setProblemRearmHook } from './problems.js';
@@ -320,6 +320,19 @@ export async function handleGroupMessage(ctx) {
   const mentioned = mentionsBot(ctx, text);
   const question = stripMention(text);
   if (question.length < 3) return;
+
+  // Admins post ANNOUNCEMENTS ("Guys — ask about URLs, install guides,
+  // buffering...") that are full of trigger vocabulary but aren't support
+  // requests — never run those through the FAQ or problem triage. An
+  // announcement is an admin statement that addresses the group or spans
+  // multiple lines. Admins' real questions still get answered (easy
+  // self-testing), as does anything mentioning or replying to the bot.
+  // bot.ignoreAdmins silences the bot for admin messages entirely.
+  if (isAdminUser(ctx.from.id) && !mentioned) {
+    const announcement = !looksLikeQuestion(text) &&
+      (text.includes('\n') || /^(guys|everyone|all|lads|folks|team|announcement|attention|update|reminder|notice|fyi|psa|morning|evening|afternoon)\b/i.test(text.trim()));
+    if (announcement || getSetting('bot.ignoreAdmins')) return;
+  }
 
   const isProblem = looksLikeProblem(text);
   const faqThreshold = Number(getSetting('faq.threshold')) || 0.5;

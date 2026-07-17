@@ -868,3 +868,57 @@ test('banned words are never answered', async () => {
   await handleDirectMessage(ctx);
   assert.equal(ctx.sent.length, 0);
 });
+
+test('admin announcements never trigger the bot, even full of trigger words', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.responseMode', 'questions');
+  setSetting('reports.adminTelegramIds', [777]);
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  // The exact live incident: a group announcement mentioning buffering,
+  // URLs and install guides pulled the iOS FAQ + problem-triage suffix.
+  const ctx = fakeCtx(
+    'Guys\nAsk questions in the chat, literally, URLs, install guides, buffering.\n\n"How do I install on iPhone"',
+    { chatType: 'group', userId: 777 }
+  );
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 0, 'announcement ignored');
+  const row = db.prepare('SELECT * FROM problem_reports ORDER BY id DESC LIMIT 1').get();
+  assert.equal(row, undefined, 'no problem report recorded from an announcement');
+
+  // Single-line vocative statement is an announcement too.
+  const ctx2 = fakeCtx('Everyone remember the app got an update for buffering', { chatType: 'group', userId: 777 });
+  await handleGroupMessage(ctx2);
+  assert.equal(ctx2.sent.length, 0, 'vocative statement ignored');
+});
+
+test("an admin's real question is still answered (self-testing works)", async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('reports.adminTelegramIds', [777]);
+  const ctx = fakeCtx('How do I install on iPhone?', { chatType: 'group', userId: 777 });
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 1, 'admin question answered');
+});
+
+test('bot.ignoreAdmins silences admin questions too, but a mention still works', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('reports.adminTelegramIds', [777]);
+  setSetting('bot.ignoreAdmins', true);
+  const ctx = fakeCtx('How do I install on iPhone?', { chatType: 'group', userId: 777 });
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 0, 'admin ignored when the toggle is on');
+
+  // Replying to the bot is an explicit ask — always answered.
+  const ctx2 = fakeCtx('How do I install on iPhone?', { chatType: 'group', userId: 777 });
+  ctx2.message.reply_to_message = { from: { id: 999 }, text: 'earlier bot message' };
+  await handleGroupMessage(ctx2);
+  assert.equal(ctx2.sent.length, 1, 'reply to the bot still answered');
+  setSetting('bot.ignoreAdmins', false);
+});
+
+test("a member's message starting with 'guys' is still answered", async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  const ctx = fakeCtx('guys how do i instal this on my fire stick??', { chatType: 'group', userId: 91008 });
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 1, 'member question answered regardless of vocative');
+});

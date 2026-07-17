@@ -41,6 +41,9 @@ export const DEFAULTS = {
   // Sent when the AI is overloaded (queue full or generation timed out).
   // Empty = stay silent.
   'bot.busyMessage': "I'm helping a lot of people right now 😅 — give me a minute and send your question again.",
+  // Never auto-answer group messages from the admins listed in Reports —
+  // their questions, mentions and replies to the bot still work.
+  'bot.ignoreAdmins': false,
   'bot.welcomeEnabled': false,
   'bot.welcomeText': 'Welcome {name}! Ask me anything about the app — or type /help to see what I can do.',
   'bot.cooldownSeconds': 15,
