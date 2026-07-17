@@ -48,6 +48,7 @@
     <table class="list">
       <tr><td><a href="/admin/tickets">Open tickets</a></td><td style="text-align:right"><span class="badge <%= stats.openTickets ? 'badge-warn' : 'badge-dim' %>"><%= stats.openTickets %></span></td></tr>
       <tr><td><a href="/admin/problems">Problem reports</a></td><td style="text-align:right"><span class="badge <%= stats.openProblems ? 'badge-warn' : 'badge-dim' %>"><%= stats.openProblems %></span></td></tr>
+      <tr><td><a href="/admin/requests">VOD requests</a></td><td style="text-align:right"><span class="badge <%= stats.openRequests ? 'badge-warn' : 'badge-dim' %>"><%= stats.openRequests %></span></td></tr>
       <tr><td><a href="/admin/unanswered">Unanswered questions</a></td><td style="text-align:right"><span class="badge <%= stats.unanswered ? 'badge-warn' : 'badge-dim' %>"><%= stats.unanswered %></span></td></tr>
       <tr><td><a href="/admin/customers?filter=expiring">Customers expiring within 7 days</a></td><td style="text-align:right"><span class="badge <%= stats.expiringSoon ? 'badge-warn' : 'badge-dim' %>"><%= stats.expiringSoon %></span></td></tr>
     </table>

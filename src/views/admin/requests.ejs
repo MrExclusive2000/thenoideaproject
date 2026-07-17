@@ -1,0 +1,45 @@
+<%- include('../partials/admin-top', { title }) %>
+
+<h1>VOD requests</h1>
+<p class="sub">Captured automatically from "Request: Title (Year)" messages. <strong>Mark added</strong> tags the requester in the group to say it's live (message configurable in <a href="/admin/bot">Bot settings</a>).</p>
+
+<div class="toolbar">
+  <a class="btn-ghost btn-sm" href="/admin/requests">Open</a>
+  <a class="btn-ghost btn-sm" href="/admin/requests?show=done">Handled</a>
+  <span class="spacer"></span>
+  <% if (show === 'done') { %>
+  <form method="post" action="/admin/requests/clear-done">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <button class="btn-ghost btn-sm">Clear handled</button>
+  </form>
+  <% } %>
+</div>
+
+<div class="card">
+  <table class="list">
+    <tr><th>When</th><th>From</th><th>Title</th><th>Asked</th><th></th></tr>
+    <% for (const r of requests) { %>
+    <tr>
+      <td class="hint" style="white-space:nowrap"><%= formatDate(r.ts) %></td>
+      <td><%= r.tg_user || ('id ' + r.tg_user_id) %></td>
+      <td><strong><%= r.title %></strong><% if (r.status !== 'open') { %> <span class="badge badge-dim"><%= r.status %></span><% } %></td>
+      <td><% if (r.ask_count > 1) { %><span class="badge badge-warn">×<%= r.ask_count %></span><% } else { %>—<% } %></td>
+      <td class="actions">
+        <% if (r.status === 'open') { %>
+        <form method="post" action="/admin/requests/<%= r.id %>/added">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <button class="btn-sm">Mark added</button>
+        </form>
+        <form method="post" action="/admin/requests/<%= r.id %>/dismiss">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <button class="btn-ghost btn-sm">Dismiss</button>
+        </form>
+        <% } %>
+      </td>
+    </tr>
+    <% } %>
+    <% if (!requests.length) { %><tr><td colspan="5" class="hint">No <%= show %> requests. 🎉</td></tr><% } %>
+  </table>
+</div>
+
+<%- include('../partials/admin-bottom') %>

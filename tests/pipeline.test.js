@@ -1264,3 +1264,21 @@ test('with no URLs configured, URL questions fall through to normal answering', 
   assert.doesNotMatch(ctx.sent[0].msg, /Reply with just the username/, 'flow stays off when unconfigured');
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
+
+test('a "Request: Title (Year)" message is captured and acked, not answered by AI', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.responseMode', 'questions');
+  setSetting('reports.adminTelegramIds', [777]);
+  db.prepare('INSERT OR REPLACE INTO allowed_chats (chat_id, title, enabled, added_at) VALUES (-100123, ?, 1, 0)').run('Test Group');
+  db.prepare('DELETE FROM vod_requests').run();
+  lastAiRequest = null;
+
+  const ctx = fakeCtx('Request: Maze Runner: The Death Cure (2018)', { chatType: 'group', userId: 98601 });
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 1, 'acked');
+  assert.match(ctx.sent[0].msg, /request list|Noted/i);
+  assert.equal(lastAiRequest, null, 'no AI call spent on a request');
+  const row = db.prepare('SELECT * FROM vod_requests ORDER BY id DESC LIMIT 1').get();
+  assert.match(row.title, /Maze Runner/);
+  assert.equal(row.status, 'open');
+});

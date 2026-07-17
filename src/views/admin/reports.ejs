@@ -43,6 +43,7 @@
     <div class="checkline"><input type="checkbox" id="alertTickets" name="alertTickets" value="1" <%= s.alertTickets ? 'checked' : '' %>><label for="alertTickets">New support tickets</label></div>
     <div class="checkline"><input type="checkbox" id="alertProblems" name="alertProblems" value="1" <%= s.alertProblems ? 'checked' : '' %>><label for="alertProblems">Problem reports in the group (buffering, channels down…) — batched, with outage detection</label></div>
     <div class="checkline"><input type="checkbox" id="alertBannedWords" name="alertBannedWords" value="1" <%= s.alertBannedWords ? 'checked' : '' %>><label for="alertBannedWords">Banned-word triggers</label></div>
+    <div class="checkline"><input type="checkbox" id="alertVod" name="alertVod" value="1" <%= s.alertVod ? 'checked' : '' %>><label for="alertVod">VOD requests ("Request: Title") — also listed in <a href="/admin/requests">VOD requests</a></label></div>
 
     <h2>Automatic degradation</h2>
     <p class="hint">When this many <strong>different people</strong> report service-wide problems (buffering, streams not loading, login failures) within the window, the service status flips to <em>degraded</em> automatically — reporters see the known-issue banner, and you get a DM. Complaints about a single episode or movie never count. The status clears itself once reports stop; a status you set by hand is never touched.</p>

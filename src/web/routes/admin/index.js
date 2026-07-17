@@ -11,6 +11,7 @@ import { adminsRouter } from './admins.js';
 import { broadcastsRouter } from './broadcasts.js';
 import { ticketsRouter } from './tickets.js';
 import { problemsRouter } from './problems.js';
+import { requestsRouter } from './requests.js';
 import { reportsRouter } from './reports.js';
 import { systemRouter } from './system.js';
 
@@ -28,5 +29,6 @@ adminRouter.use(adminsRouter);
 adminRouter.use(broadcastsRouter);
 adminRouter.use(ticketsRouter);
 adminRouter.use(problemsRouter);
+adminRouter.use(requestsRouter);
 adminRouter.use(reportsRouter);
 adminRouter.use(systemRouter);

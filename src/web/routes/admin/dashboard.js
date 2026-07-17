@@ -22,6 +22,7 @@ dashboardRouter.get('/', (req, res) => {
     openTickets: db.prepare("SELECT COUNT(*) n FROM tickets WHERE status != 'closed'").get().n,
     unanswered: db.prepare('SELECT COUNT(*) n FROM unanswered WHERE resolved = 0').get().n,
     openProblems: db.prepare('SELECT COUNT(*) n FROM problem_reports WHERE resolved = 0').get().n,
+    openRequests: db.prepare("SELECT COUNT(*) n FROM vod_requests WHERE status = 'open'").get().n,
     ai: aiUsageToday(),
   };
 

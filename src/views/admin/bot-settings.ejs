@@ -23,6 +23,13 @@
     <input id="thanksMessage" name="thanksMessage" type="text" maxlength="500" value="<%= s.thanksMessage %>">
     <p class="hint">Both work in DMs and when someone mentions or replies to the bot in the group. During problem triage, "cheers" counts as "it's fixed".</p>
 
+    <label for="requestAckMessage">Reply when someone posts "Request: Title" ({title} — empty = silent)</label>
+    <input id="requestAckMessage" name="requestAckMessage" type="text" maxlength="500" value="<%= s.requestAckMessage %>">
+
+    <label for="requestAddedMessage">Tag the requester when you Mark added in the panel ({name}, {title} — empty = silent)</label>
+    <input id="requestAddedMessage" name="requestAddedMessage" type="text" maxlength="500" value="<%= s.requestAddedMessage %>">
+    <p class="hint">Requests are captured to <a href="/admin/requests">VOD requests</a> automatically. "Mark added" there tags the requester in the group it came from (DM fallback).</p>
+
     <div class="checkline">
       <input type="checkbox" id="ignoreAdmins" name="ignoreAdmins" value="1" <%= s.ignoreAdmins ? 'checked' : '' %>>
       <label for="ignoreAdmins">Never auto-answer admins in the group (mentions/replies to the bot still work)</label>

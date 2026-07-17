@@ -290,6 +290,21 @@ const migrations = [
   `
   ALTER TABLE ticket_messages ADD COLUMN delivered INTEGER;
   `,
+  // v9 — VOD requests captured from "Request: Title (Year)" messages
+  `
+  CREATE TABLE vod_requests (
+    id         INTEGER PRIMARY KEY,
+    title      TEXT NOT NULL,
+    norm_title TEXT NOT NULL,
+    tg_user_id INTEGER,
+    tg_user    TEXT,
+    chat_id    INTEGER,
+    ask_count  INTEGER NOT NULL DEFAULT 1,
+    status     TEXT NOT NULL DEFAULT 'open',
+    ts         INTEGER NOT NULL
+  );
+  CREATE INDEX idx_vod_requests_status ON vod_requests(status, ts);
+  `,
 ];
 
 export function migrate(db) {

@@ -11,6 +11,7 @@ import {
 } from './helpers.js';
 import { alertAdmins } from './reports.js';
 import { queueProblemAlert, setProblemRearmHook, maybeAutoDegrade } from './problems.js';
+import { parseVodRequest, recordVodRequest } from './requests.js';
 import { hub } from './hub.js';
 
 // Per-user answer cooldowns and short DM conversation memory.
@@ -503,6 +504,18 @@ export async function handleGroupMessage(ctx) {
     await handleUrlRequest(ctx, logId, groupReplyParams)
   ) return;
 
+  // "Request: Title (Year)" — the VOD request format the FAQ teaches.
+  // Capture it: save for the panel, ack the requester, DM the admins.
+  {
+    const vodTitle = parseVodRequest(text);
+    if (vodTitle) {
+      setLogSource(logId, 'vod-request');
+      const ack = recordVodRequest(ctx, vodTitle);
+      await ctx.api.sendMessage(ctx.chat.id, ack, groupReplyParams).catch(() => {});
+      return;
+    }
+  }
+
   // Greeting or thanks aimed AT the bot (mention or reply) gets the warm
   // reply — but never while problem triage is mid-flight for this user:
   // "cheers" after fixes belongs to the resolution logic below.
@@ -771,6 +784,16 @@ export async function handleDirectMessage(ctx) {
   // flow when they ask for a URL — only ever THEIR service's URL.
   if (await handleUrlServiceReply(ctx, text, logId, {})) return;
   if (isUrlRequest(text) && await handleUrlRequest(ctx, logId, {})) return;
+
+  // "Request: Title (Year)" works in DMs too.
+  {
+    const vodTitle = parseVodRequest(text);
+    if (vodTitle) {
+      setLogSource(logId, 'vod-request');
+      await ctx.reply(recordVodRequest(ctx, vodTitle)).catch(() => {});
+      return;
+    }
+  }
 
   // A wave back beats the topic police: greetings and thanks get warm canned
   // replies (configurable) and never reach the AI or the off-topic path.
