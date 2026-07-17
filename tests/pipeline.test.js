@@ -96,15 +96,16 @@ test('AI fallback answers when no FAQ matches', async () => {
   assert.match(ctx.sent[0].msg, /clear the cache/);
 });
 
-test('OFFTOPIC AI verdict suppresses the reply and records unanswered', async () => {
+test('OFFTOPIC AI verdict suppresses the reply and stays OUT of the Unanswered inbox', async () => {
   aiResponse = 'OFFTOPIC';
   setSetting('bot.offtopicBehavior', 'silent');
   const ctx = fakeCtx('who will win the football tonight?');
   const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
   assert.equal(result, 'offtopic');
   assert.equal(ctx.sent.length, 0, 'nothing sent in silent mode');
+  // Banter must never clutter the inbox (or feed the FAQ-suggestion sweep).
   const row = db.prepare("SELECT * FROM unanswered WHERE source = 'offtopic' ORDER BY id DESC").get();
-  assert.match(row.text, /football/);
+  assert.equal(row, undefined, 'off-topic questions are not recorded');
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
 

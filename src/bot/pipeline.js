@@ -703,9 +703,10 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         }
 
         // Truly unrelated to the service — strict-topic rule kicked in.
-        // Still logged as off-topic for the admin's scope-gap view, even when
-        // the banter free pass below sends a real answer.
-        if (looksLikeQuestion(question)) recordUnanswered(question, ctx, 'offtopic', null);
+        // NOT recorded in the Unanswered inbox: that inbox exists to surface
+        // FAQ-worthy questions, and banter would clutter it (and pollute the
+        // weekly FAQ-suggestion clustering). Genuine scope gaps still land
+        // there via the 'ai-refused' and 'nomatch' paths above/below.
         // Off-topic replies (banter AND brush-off) only when the bot is being
         // spoken to: always in a DM; in a group only on a mention or a reply
         // to the bot. "Anyone coming to the pub later?" is aimed at the

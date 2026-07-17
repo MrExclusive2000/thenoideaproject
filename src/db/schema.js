@@ -309,6 +309,11 @@ const migrations = [
   `
   ALTER TABLE vod_requests ADD COLUMN service TEXT;
   `,
+  // v11 — off-topic questions are no longer recorded in the Unanswered inbox
+  // (pure banter clutter); sweep out the rows older builds collected.
+  `
+  DELETE FROM unanswered WHERE source = 'offtopic';
+  `,
 ];
 
 export function migrate(db) {
