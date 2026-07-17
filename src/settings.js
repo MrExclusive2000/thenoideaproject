@@ -65,6 +65,10 @@ const DEFAULTS = {
   // off-topic brush-off. Empty = silent.
   'bot.greetingMessage': "Hey! 👋 I'm the team's support bot — ask me anything about the service: installs, buffering fixes, logins, what to watch it on. /help shows all my tricks. What can I sort for you?",
   'bot.thanksMessage': 'Anytime! 👍 Shout if you need anything else.',
+  // Sent when someone shows the bot a photo/video/voice note it can't read —
+  // in a DM always, in a group only when the media replies to the bot.
+  // Empty = stay silent.
+  'bot.photoMessage': "I can't open photos, videos or voice notes 📷 Type out what you're seeing — any error message word for word, plus the channel or film name — and I'll sort it from there.",
   'bot.welcomeEnabled': false,
   'bot.welcomeText': 'Welcome {name}! Ask me anything about the app — or type /help to see what I can do.',
   'bot.cooldownSeconds': 15,

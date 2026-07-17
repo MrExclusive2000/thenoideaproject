@@ -530,6 +530,31 @@ export function _resetSmallTalk() {
   smallTalkUsed.clear();
 }
 
+// Photos, screen recordings and voice notes: the bot can't see or hear them.
+// Ask the sender to TYPE it instead — but only when the media is aimed at
+// the bot (always in a DM; in a group only when it replies to the bot).
+// Stickers and GIFs are reactions, not content — never nagged.
+const MEDIA_NAG_MS = 60 * 1000; // albums arrive as N separate messages — one nag covers the burst
+const mediaNagged = new Map(); // userId -> ts of last nag
+
+function unreadableMedia(msg) {
+  if (!msg || msg.sticker || msg.animation) return false;
+  return Boolean(
+    msg.photo || msg.video || msg.voice || msg.video_note || msg.audio ||
+    /^image\//.test(msg.document?.mime_type || '')
+  );
+}
+
+async function sendMediaNag(ctx) {
+  const msgText = String(getSetting('bot.photoMessage') || '').trim();
+  const userId = ctx.from?.id;
+  if (!msgText || !userId) return;
+  if (Date.now() - (mediaNagged.get(userId) || 0) < MEDIA_NAG_MS) return;
+  mediaNagged.set(userId, Date.now());
+  if (mediaNagged.size > 2000) mediaNagged.clear();
+  await ctx.api.sendMessage(ctx.chat.id, msgText, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
+}
+
 // "Which service is the best?" — never let the model freestyle a comparison
 // of the admin's own products (live bug: it invented a Purple-vs-Smarters
 // listicle). With two services configured, a canned admin-editable plug for
@@ -735,8 +760,23 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
 }
 
 export async function handleGroupMessage(ctx) {
-  const text = ctx.message?.text;
-  if (!text) return;
+  // Captioned media counts as text (the caption flows through every normal
+  // gate below — mention/question/problem shape, reply-to-other-member rule).
+  const text = ctx.message?.text ?? ctx.message?.caption;
+  if (!text) {
+    // A captionless photo/video REPLYING TO THE BOT is someone showing it a
+    // screenshot — ask them to type it out. Anything else (member-to-member
+    // photos, memes, stickers) is none of the bot's business: stay silent.
+    if (
+      unreadableMedia(ctx.message) &&
+      ctx.message?.reply_to_message?.from?.id === ctx.me?.id &&
+      chatAllowed(ctx.chat.id) &&
+      getSetting('bot.enabled')
+    ) {
+      await sendMediaNag(ctx);
+    }
+    return;
+  }
   state.bot.groupMessagesSeen++;
   state.bot.lastUpdateAt = Date.now();
 
@@ -1021,8 +1061,9 @@ export async function handleGroupMessage(ctx) {
 }
 
 export async function handleDirectMessage(ctx) {
-  const text = ctx.message?.text;
-  if (!text) return;
+  const media = unreadableMedia(ctx.message);
+  const text = ctx.message?.text ?? ctx.message?.caption;
+  if (!text && !media) return;
   state.bot.lastUpdateAt = Date.now();
   if (!getSetting('bot.enabled')) return;
 
@@ -1031,6 +1072,13 @@ export async function handleDirectMessage(ctx) {
   const openTicket = db.prepare(
     "SELECT * FROM tickets WHERE telegram_user_id = ? AND status != 'closed' ORDER BY id DESC LIMIT 1"
   ).get(ctx.from.id);
+
+  // Media with no caption: everything in a DM is aimed at the bot, and the
+  // bot can't see it — ask them to type it out instead.
+  if (!text) {
+    if (openTicket || getSetting('bot.dmEnabled')) await sendMediaNag(ctx);
+    return;
+  }
   if (openTicket) {
     // The customer is talking to us — deliver any admin replies that were
     // stranded earlier (bot offline, or Telegram refused to DM them before
@@ -1046,8 +1094,11 @@ export async function handleDirectMessage(ctx) {
         break; // still failing — keep them queued
       }
     }
+    // A photo alongside the caption never reaches the panel — say so, so the
+    // admin knows to ask for the details in text.
+    const ticketBody = media ? `${text} [also sent a photo/video the bot can't view]` : text;
     db.prepare('INSERT INTO ticket_messages (ticket_id, sender, body, ts) VALUES (?, ?, ?, ?)')
-      .run(openTicket.id, 'customer', text.slice(0, 3500), now());
+      .run(openTicket.id, 'customer', ticketBody.slice(0, 3500), now());
     db.prepare("UPDATE tickets SET status = 'open', updated_at = ? WHERE id = ?").run(now(), openTicket.id);
     alertAdmins('ticket', `🎫 New reply on ticket #${openTicket.id} from @${ctx.from?.username || ctx.from?.first_name}:\n"${text.slice(0, 200)}"`);
     await ctx.reply(`Added to your ticket #${openTicket.id} — the team will get back to you. (Send /close to close it.)`);

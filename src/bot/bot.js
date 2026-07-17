@@ -76,7 +76,9 @@ export async function startBot() {
   // Fire-and-forget so one slow AI answer never blocks other users' messages
   // — FAQ replies stay instant while a generation is in flight. The AI itself
   // is protected by its own concurrency gate in ai/client.js.
-  bot.on('message:text', (ctx) => {
+  // All messages, not message:text — photos/captions need handling too (the
+  // pipeline decides what deserves a reply and ignores the rest).
+  bot.on('message', (ctx) => {
     const handled = ctx.chat.type === 'private' ? handleDirectMessage(ctx) : handleGroupMessage(ctx);
     handled.catch((err) => {
       console.error('handler error:', err.message);

@@ -1661,3 +1661,77 @@ test('"best way to pay for the service" is NOT hijacked by the best-service plug
   setSetting('services.name1', '');
   setSetting('services.name2', '');
 });
+
+// ---- Photos & media the bot can't read --------------------------------------
+
+test('captionless photo in a DM gets the type-it-out ask (once per burst)', async () => {
+  setSetting('bot.photoMessage', "Can't read images — type it out please.");
+  const ctx = fakeCtx('', { userId: 66601 });
+  ctx.message = { message_id: 7, photo: [{ file_id: 'p1' }] };
+  await handleDirectMessage(ctx);
+  assert.equal(ctx.sent.length, 1);
+  assert.match(ctx.sent[0].msg, /type it out/);
+
+  // Albums arrive as several photo messages — one nag covers the burst.
+  const ctx2 = fakeCtx('', { userId: 66601 });
+  ctx2.message = { message_id: 8, photo: [{ file_id: 'p2' }] };
+  await handleDirectMessage(ctx2);
+  assert.equal(ctx2.sent.length, 0, 'no second nag for the album');
+});
+
+test('a photo WITH a caption is answered from the caption text', async () => {
+  const ctx = fakeCtx('how do i install on firestick??', { userId: 66602 });
+  ctx.message.photo = [{ file_id: 'p' }];
+  ctx.message.caption = ctx.message.text;
+  delete ctx.message.text;
+  await handleDirectMessage(ctx);
+  assert.match(ctx.sent[0].msg, /Downloader app/);
+});
+
+test('group photos between members never trigger the bot', async () => {
+  const standalone = fakeCtx('', { chatType: 'group', userId: 66603 });
+  standalone.message = { message_id: 9, photo: [{ file_id: 'p' }] };
+  await handleGroupMessage(standalone);
+  assert.equal(standalone.sent.length, 0, 'standalone photo ignored');
+
+  const toMember = fakeCtx('', { chatType: 'group', userId: 66603 });
+  toMember.message = { message_id: 10, photo: [{ file_id: 'p' }], reply_to_message: { message_id: 2, from: { id: 424242 } } };
+  await handleGroupMessage(toMember);
+  assert.equal(toMember.sent.length, 0, 'photo aimed at another member ignored');
+
+  const sticker = fakeCtx('', { chatType: 'group', userId: 66603 });
+  sticker.message = { message_id: 11, sticker: {}, reply_to_message: { message_id: 3, from: { id: 999 } } };
+  await handleGroupMessage(sticker);
+  assert.equal(sticker.sent.length, 0, 'stickers are reactions, never nagged');
+});
+
+test('group photo replying to the BOT gets the type-it-out ask', async () => {
+  const ctx = fakeCtx('', { chatType: 'group', userId: 66604 });
+  ctx.message = { message_id: 12, photo: [{ file_id: 'p' }], reply_to_message: { message_id: 4, from: { id: 999 } } };
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 1);
+  assert.match(ctx.sent[0].msg, /type it out/);
+});
+
+test('photos sent into an open ticket are flagged for the admin', async () => {
+  const t = Math.floor(Date.now() / 1000);
+  db.prepare("INSERT INTO tickets (telegram_user_id, tg_username, subject, status, created_at, updated_at) VALUES (66605, 'pat', 'help', 'open', ?, ?)").run(t, t);
+  const ticketId = db.prepare('SELECT id FROM tickets WHERE telegram_user_id = 66605').get().id;
+
+  // Captionless photo → the ask, nothing stored on the ticket.
+  const ctx = fakeCtx('', { userId: 66605 });
+  ctx.message = { message_id: 13, photo: [{ file_id: 'p' }] };
+  await handleDirectMessage(ctx);
+  assert.match(ctx.sent[0].msg, /type it out/);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM ticket_messages WHERE ticket_id = ?').get(ticketId).n, 0);
+
+  // Caption + photo → the caption is stored, with the photo called out.
+  const ctx2 = fakeCtx('heres the error', { userId: 66605 });
+  ctx2.message.photo = [{ file_id: 'p' }];
+  ctx2.message.caption = 'heres the error';
+  delete ctx2.message.text;
+  await handleDirectMessage(ctx2);
+  const row = db.prepare('SELECT body FROM ticket_messages WHERE ticket_id = ? ORDER BY id DESC').get(ticketId);
+  assert.match(row.body, /heres the error/);
+  assert.match(row.body, /also sent a photo/);
+});
