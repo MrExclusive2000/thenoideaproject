@@ -107,9 +107,16 @@ function hasTimeDetail(text) {
   return /\b\d{1,2}[:.]\d{2}\b|\b\d{1,2}\s?(am|pm)\b/i.test(text);
 }
 
+// "username is fine", "already tried that", "nothing works" — the user is
+// telling us the suggested fixes don't apply. That's an implicit "still
+// broken", not a reason to repeat the same FAQ.
+function negatesFixes(text) {
+  return /\b((is|are|was|were|looks?) (fine|right|correct|ok|okay)|already (tried|did|done|checked)|(tried|checked|done|did) (it|that|them|those|all|everything)|nothing (works|worked|changed|happens)|(didnt|didn't|doesnt|doesn't) (help|work|change))\b/i.test(text);
+}
+
 // "that fixed it", "working now", "all good" — the problem is over.
 function saysResolved(text) {
-  return /\b(fixed|sorted|solved|resolved|working now|works now|all good|that (worked|did it)|back to normal|no more (buffering|freezing|lagging|issues?|problems?))\b/i.test(text);
+  return /\b(fixed|sorted|solved|resolved|working now|works now|all good|that (worked|did it)|back to normal|(fine|good|ok|okay|sorted|perfect) now|no more (buffering|freezing|lagging|issues?|problems?))\b/i.test(text);
 }
 
 // Test helper: clear triage memory between scenarios.
@@ -331,6 +338,7 @@ export async function handleGroupMessage(ctx) {
       isConfirmation =
         isProblem ||
         saysStillBroken(text) ||
+        negatesFixes(text) ||
         hasTimeDetail(text) ||
         (isFollowUp && !looksLikeQuestion(text));
     } else if (isProblem) {

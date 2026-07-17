@@ -524,6 +524,51 @@ test('during a known service issue, problem answers lead with the status banner'
   _resetProblemTriage();
 });
 
+test('"Username is fine and password is right" escalates instead of repeating the login FAQ (live bug)', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
+
+  // Login FAQ with the same keywords the real one carries.
+  db.prepare(`INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at)
+              VALUES ('The app says my login is wrong', 'Double-check the username and password for spaces and capitals.', 'login, invalid, user, username, password, details', 1, 0, 0, 0)`).run();
+
+  await handleGroupMessage(fakeCtx('Saying invalid user', { chatType: 'group', userId: 98001 }));
+
+  // Not a reply, no problem words, but it negates the suggested fix — and its
+  // username/password keywords would otherwise re-match the same FAQ.
+  const negate = fakeCtx('Username is fine and password is right', { chatType: 'group', userId: 98001 });
+  await handleGroupMessage(negate);
+  assert.equal(negate.sent.length, 1);
+  assert.match(negate.sent[0].msg, /Flagged to the team/, 'escalated, not repeated');
+  assert.doesNotMatch(negate.sent[0].msg, /Double-check the username/, 'same FAQ not re-dumped');
+
+  await flushProblemAlerts();
+  assert.equal(adminDms.length, 1);
+  assert.match(adminDms[0].text, /Saying invalid user/, 'original report included');
+  db.prepare("DELETE FROM faqs WHERE question = 'The app says my login is wrong'").run();
+  hub.api = null;
+});
+
+test('"its fine now" after a report is a resolution, not an escalation', async () => {
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
+
+  await handleGroupMessage(fakeCtx('purple app keeps crashing', { chatType: 'group', userId: 98002 }));
+  const fine = fakeCtx('its fine now actually', { chatType: 'group', userId: 98002 });
+  await handleGroupMessage(fine);
+  assert.match(fine.sent[0].msg, /glad it's sorted/i);
+  await flushProblemAlerts();
+  assert.equal(adminDms.length, 0, 'no escalation for a resolution');
+  hub.api = null;
+});
+
 test('3 different users reporting within 15 minutes triggers an outage alert immediately', async () => {
   setSetting('bot.cooldownSeconds', 0);
   db.prepare('DELETE FROM problem_reports').run();
