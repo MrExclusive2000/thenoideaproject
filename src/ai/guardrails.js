@@ -60,18 +60,37 @@ export function endsWithQuestion(text) {
 // content precedes them; a pure clarifying question is left untouched.
 export function stripDeadEndQuestion(reply) {
   let out = String(reply || '').trimEnd();
-  for (let i = 0; i < 3 && endsWithQuestion(out); i++) {
-    // The decorations go with the question sentence they decorate.
-    out = out.replace(TRAILING_DECOR, '');
-    const lineIdx = out.lastIndexOf('\n');
-    const head = lineIdx === -1 ? '' : out.slice(0, lineIdx + 1);
-    const lastLine = out.slice(lineIdx + 1);
-    // Keep any complete sentences on the last line before the question.
-    const m = lastLine.match(/^([\s\S]*[.!:)])\s*[^.!?\n]*\?$/);
-    const candidate = (head + (m ? m[1] : '')).trimEnd();
-    // Nothing of substance left → the reply IS the clarifying question.
-    if (candidate.length < 25) return out;
-    out = candidate;
+  for (let i = 0; i < 12; i++) {
+    const bare = out.replace(TRAILING_DECOR, '');
+    if (bare.endsWith('?')) {
+      out = bare; // the decorations go with the question they decorate
+      const lineIdx = out.lastIndexOf('\n');
+      const head = lineIdx === -1 ? '' : out.slice(0, lineIdx + 1);
+      const lastLine = out.slice(lineIdx + 1);
+      // A bullet/numbered question ("- Which film did you watch?") goes as a
+      // whole line — sentence-cutting one would leave a dangling "3." stub.
+      const isBullet = /^\s*(?:[-•*]|\d+[.)])\s/.test(lastLine);
+      // Otherwise keep any complete sentences on the line before the question.
+      const m = isBullet ? null : lastLine.match(/^([\s\S]*[.!:)])\s*[^.!?\n]*\?$/);
+      const candidate = (head + (m ? m[1] : '')).trimEnd();
+      // Nothing of substance left → the reply IS the clarifying question.
+      if (candidate.length < 25) return out;
+      out = candidate;
+      continue;
+    }
+    // Stripping a question list can leave its intro dangling — "here are a
+    // few things we can check:" — cut that trailing colon sentence too and
+    // keep going (it may expose another question above it).
+    if (i > 0 && out.endsWith(':')) {
+      const lineIdx = out.lastIndexOf('\n');
+      const lastLine = out.slice(lineIdx + 1);
+      const m = lastLine.match(/^([\s\S]*[.!?)])\s*[^.!?\n]*:$/);
+      const candidate = ((lineIdx === -1 ? '' : out.slice(0, lineIdx + 1)) + (m ? m[1] : '')).trimEnd();
+      if (candidate.length < 25) return out;
+      out = candidate;
+      continue;
+    }
+    break;
   }
   return out;
 }

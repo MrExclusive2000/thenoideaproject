@@ -463,6 +463,17 @@ function saysResolved(text) {
   return /\b(fixed|sorted|solved|resolved|working now|works now|all good|that (worked|did it)|back to normal|(fine|good|ok|okay|sorted|perfect) now|no more (buffering|freezing|lagging|issues?|problems?))\b/i.test(text);
 }
 
+// Is this bot message the auto-close notice? Matched by TEXT, not by tracked
+// message id — triage state is in-memory, and the whole point of the check is
+// surviving restarts and long gaps. The template is admin-configurable, so
+// compare against its literal chunks (placeholders stripped).
+function looksLikeAutoCloseMsg(text) {
+  const template = String(getSetting('bot.problemAutoCloseMessage') || '').trim();
+  if (!template || !text) return false;
+  const chunks = template.split(/\{name\}|\{topic\}/g).map((s) => s.trim()).filter((s) => s.length >= 12);
+  return chunks.some((c) => text.includes(c));
+}
+
 // Test helper: clear triage memory between scenarios.
 export function _resetProblemTriage() {
   problemState.clear();
@@ -899,7 +910,16 @@ export async function handleGroupMessage(ctx) {
   // repeat problem message escalates. Questions keep the conversation going.
   let problemId = null;
   let problemSuffix = null;
-  const st = getProblemState(ctx.from.id);
+  let st = getProblemState(ctx.from.id);
+  // A reply to the AUTO-CLOSE message re-enters triage no matter how much
+  // later it arrives: the message promised "reply here and I'll flag it
+  // straight to the team", but the triage state lives in memory and dies on
+  // restart or timeout (live bug: a next-morning reply got a generic AI
+  // interrogation instead). Rebuild the state from the replied-to text.
+  if (!st && isFollowUp && looksLikeAutoCloseMsg(repliedTo.text)) {
+    setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: null, answeredAt: null, nudgedAt: Date.now() });
+    st = getProblemState(ctx.from.id);
+  }
   const alreadyEscalated = Boolean(st?.escalatedAt && Date.now() - st.escalatedAt < PROBLEM_WINDOW_MS);
 
   // "That fixed it" closes the report — never escalate a resolution. A bare

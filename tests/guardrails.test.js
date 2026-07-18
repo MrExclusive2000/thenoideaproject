@@ -134,3 +134,25 @@ test('single-asterisk italics are stripped like the rest of the markdown', () =>
     "I'd say Mad Max: Fury Road wins, with Beyond Thunderdome second."
   );
 });
+
+test('a trailing LIST of questions collapses down to the real content', () => {
+  const live = [
+    "It sounds like you were able to watch part of a film before going to bed! If you haven't tried it today, do you have any specific issues or questions? Here are a few things we can check:",
+    '',
+    '1. Service Status: Is the service operational and showing content as expected?',
+    '2. Playback Issues: Did you experience any buffering or playback problems?',
+    "3. Content Availability: Are there any specific films or channels that aren't available when you try to watch?",
+    '',
+    'If you could provide more details, I can help troubleshoot further:',
+    '- Which film did you try to watch?',
+  ].join('\n');
+  assert.equal(
+    stripDeadEndQuestion(live),
+    'It sounds like you were able to watch part of a film before going to bed!'
+  );
+});
+
+test('a pure clarifying question still passes through untouched', () => {
+  const q = 'Which device are you on — Firestick or Android phone?';
+  assert.equal(stripDeadEndQuestion(q), q);
+});
