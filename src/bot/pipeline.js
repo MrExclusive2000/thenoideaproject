@@ -8,6 +8,7 @@ import { state } from '../state.js';
 import {
   sendChunked, logMessage, setLogSource, recordUnanswered, chatAllowed,
   isLikelyInScope, hasScopeSignal, recordProblem, extractProblemTopic, isAdminUser,
+  isContentIssue, looksLikeLiveIssue,
 } from './helpers.js';
 import { alertAdmins } from './reports.js';
 import { queueProblemAlert, setProblemRearmHook, maybeAutoDegrade } from './problems.js';
@@ -678,7 +679,12 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         let reply = null;
         if (!offScript) {
           await ctx.replyWithChatAction?.('typing')?.catch?.(() => {});
-          reply = await askAi(question, { history, assumeOnTopic });
+          // Live vs VOD hint for problem reports: pause/rewind advice is
+          // nonsense for a live channel, and valid for a film/episode.
+          const playback = looksLikeProblem(question)
+            ? (isContentIssue(question) ? 'vod' : (looksLikeLiveIssue(question) ? 'live' : null))
+            : null;
+          reply = await askAi(question, { history, assumeOnTopic, playback });
         }
 
         if (reply) {

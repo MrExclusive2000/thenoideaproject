@@ -169,6 +169,16 @@ export function isContentIssue(text) {
   return /\b(episode|episodes|season|series|movie|movies|film|films|documentary|s\d{1,2}\s?e\d{1,3})\b/i.test(String(text));
 }
 
+// LIVE vs VOD matters for the advice given: a live channel cannot be paused
+// or rewound, so those fixes must never be suggested for it. Channel-ish and
+// event-ish vocabulary marks a report as live playback; a named film/episode
+// wins over channel words ("that film on bbc 1" is a VOD-style issue).
+export function looksLikeLiveIssue(text) {
+  const t = String(text);
+  if (isContentIssue(t)) return false;
+  return /\b(channels?|live|match|matches|game|fixture|fixtures|kick ?off|ppv|ufc|boxing|f1|racing|footy|football|sports?|news|bbc ?\d?|itv ?\d?|espn|tnt|sky sports)\b/i.test(t);
+}
+
 // Best-effort label for a problem report so admin alerts can group them
 // ("buffering ×4"). Returns null when nothing recognizable is found.
 export function extractProblemTopic(text) {

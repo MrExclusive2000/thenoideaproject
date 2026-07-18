@@ -269,9 +269,11 @@ test('problem statements in the group trigger an answer (no question mark needed
   await handleGroupMessage(ctx);
   assert.equal(ctx.sent.length, 1, 'bot answered the problem report');
   assert.match(ctx.sent[0].msg, /BBC1/);
-  // Problem reports carry the on-topic hint so the model can't bail with OFFTOPIC.
-  assert.equal(lastAiRequest.messages.filter((m) => m.role === 'system').length, 2);
-  assert.match(lastAiRequest.messages[1].content, /IS in scope/);
+  // Problem reports carry the on-topic hint so the model can't bail with
+  // OFFTOPIC — and a channel report carries the live-TV hint too.
+  const sysNotes = lastAiRequest.messages.filter((m) => m.role === 'system');
+  assert.ok(sysNotes.some((m) => /IS in scope/.test(m.content)), 'on-topic hint present');
+  assert.ok(sysNotes.some((m) => /LIVE TV/.test(m.content)), 'bbc1 report marked as live playback');
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
 
@@ -2032,4 +2034,29 @@ test('fix rounds 2 in the GROUP: second round before the flag there too', async 
   assert.ok(db.prepare('SELECT 1 FROM problem_reports WHERE tg_user_id = 89002 AND escalated = 1').get());
   setSetting('bot.problemFixRounds', 1);
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('VOD problems get the VOD hint; a named film beats channel words', async () => {
+  _resetProblemTriage();
+  setSetting('bot.cooldownSeconds', 0);
+  const ctx = fakeCtx('this film keeps buffering halfway through', { userId: 89101 });
+  await handleDirectMessage(ctx);
+  let sysNotes = lastAiRequest.messages.filter((m) => m.role === 'system');
+  assert.ok(sysNotes.some((m) => /about VOD/.test(m.content)), 'film report marked as VOD');
+  assert.ok(!sysNotes.some((m) => /LIVE TV/.test(m.content)));
+
+  // "that film on bbc 1" is still a VOD-style issue — the named film wins.
+  _resetProblemTriage();
+  const ctx2 = fakeCtx('the film on bbc 1 keeps freezing', { userId: 89102 });
+  await handleDirectMessage(ctx2);
+  sysNotes = lastAiRequest.messages.filter((m) => m.role === 'system');
+  assert.ok(sysNotes.some((m) => /about VOD/.test(m.content)));
+
+  // A live event report gets the live hint.
+  _resetProblemTriage();
+  const ctx3 = fakeCtx('the match keeps freezing on sky sports', { userId: 89103 });
+  await handleDirectMessage(ctx3);
+  sysNotes = lastAiRequest.messages.filter((m) => m.role === 'system');
+  assert.ok(sysNotes.some((m) => /LIVE TV/.test(m.content)), 'match report marked live');
+  _resetProblemTriage();
 });
