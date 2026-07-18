@@ -18,6 +18,7 @@ const { state } = await import('../src/state.js');
 // Mock OpenAI-compatible endpoint: replies based on the question content.
 let aiServer;
 let aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+let aiFinishReason = 'stop';
 let aiDelayMs = 0;
 let lastAiRequest = null;
 
@@ -30,7 +31,7 @@ before(async () => {
       setTimeout(() => {
         res.setHeader('content-type', 'application/json');
         res.end(JSON.stringify({
-          choices: [{ message: { content: aiResponse } }],
+          choices: [{ message: { content: aiResponse }, finish_reason: aiFinishReason }],
           usage: { total_tokens: 42 },
         }));
       }, aiDelayMs);
@@ -1881,4 +1882,15 @@ test('configured service names are given to the model — the URLs never are', a
   setSetting('services.name1', '');
   setSetting('services.name2', '');
   setSetting('services.url1', '');
+});
+
+test('a token-capped reply is trimmed to the last complete sentence', async () => {
+  aiFinishReason = 'length'; // the model ran out of max_tokens mid-word
+  aiResponse = 'Go to Settings > Applications and clear the cache from the same menu.\n\nInternet Speed Issues\n1. **Use';
+  const reply = await askAi('my app keeps buffering, help');
+  assert.match(reply, /clear the cache from the same menu\.$/);
+  assert.ok(!reply.includes('Internet Speed Issues'), 'dangling section header dropped');
+  assert.ok(!reply.includes('**'), 'broken bold marker gone');
+  aiFinishReason = 'stop';
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });

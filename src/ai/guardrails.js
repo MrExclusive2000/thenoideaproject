@@ -25,7 +25,8 @@ export function cleanReply(raw, { maxChars = 1500 } = {}) {
     .replace(/\*([^*\n]+)\*/g, '$1') // single-asterisk *italics* leak too
     .replace(/__([^_]+)__/g, '$1')
     .replace(/`([^`]*)`/g, '$1')
-    .replace(/^#{1,6}\s+/gm, '');
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\*\*/g, ''); // unpaired ** left by a mid-bold truncation
 
   text = text.replace(/^["'\s]+|["'\s]+$/g, '').trim();
 
@@ -115,6 +116,32 @@ export function stripInvitationTail(reply) {
     if (!INVITE_RE.test(last)) return out;
     const candidate = out.slice(0, idx + 1).trimEnd();
     if (candidate.length < 25) return out; // nothing of substance would remain
+    out = candidate;
+  }
+  return out;
+}
+
+// The model hit its token cap mid-sentence ("Internet Speed Issues\n1. Use") —
+// cut back to the last complete sentence, then drop any heading or bullet
+// stub left dangling above the cut.
+export function trimTruncatedTail(reply) {
+  let out = String(reply || '').trimEnd();
+  for (let i = 0; i < 5; i++) {
+    const lineIdx = out.lastIndexOf('\n');
+    const lastLine = out.slice(lineIdx + 1).trim();
+    // A complete line ends in real punctuation — and "1." alone is a list
+    // enumerator stub, not a sentence.
+    if (lastLine && /[.!?:)\]…]$/.test(lastLine) && !/^\d+[.)]$/.test(lastLine)) break;
+    if (lineIdx === -1) {
+      // Single line: cut at the last true sentence end ("1. Use" is not one).
+      let cut = -1;
+      for (const m of out.matchAll(/[.!?](?=\s)/g)) {
+        if (!/\d/.test(out[m.index - 1] || '')) cut = m.index;
+      }
+      return cut >= 12 ? out.slice(0, cut + 1) : out;
+    }
+    const candidate = out.slice(0, lineIdx).trimEnd();
+    if (candidate.length < 25) return out;
     out = candidate;
   }
   return out;

@@ -1,6 +1,6 @@
 import { db, now } from '../db/db.js';
 import { getSetting } from '../settings.js';
-import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion } from './guardrails.js';
+import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail } from './guardrails.js';
 
 const usageStmt = db.prepare(
   'INSERT INTO ai_usage (day, calls, tokens) VALUES (?, 1, ?) ' +
@@ -143,10 +143,13 @@ async function chatCompletion(messages, { maxTokens, temperature, timeoutMs } = 
     throw new Error(`AI endpoint returned ${res.status}${v1Hint}: ${body}`);
   }
   const data = await res.json();
-  const text = data?.choices?.[0]?.message?.content ?? '';
+  const choice = data?.choices?.[0];
+  const text = choice?.message?.content ?? '';
   const tokensUsed = data?.usage?.total_tokens ?? 0;
   usageStmt.run(today(), tokensUsed);
-  return { text, tokensUsed };
+  // finish_reason 'length' = the model hit max_tokens mid-sentence — callers
+  // trim the ragged tail instead of sending "1. **Use" to a customer.
+  return { text, tokensUsed, truncated: choice?.finish_reason === 'length' };
 }
 
 // Concurrency gate for the AI endpoint. A CPU Ollama typically serves ONE
@@ -246,9 +249,11 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
     { role: 'user', content: String(question).slice(0, 2000) },
   ];
 
-  const { text } = await withAiSlot(() => chatCompletion(messages, smallTalk ? { maxTokens: 150 } : {}));
+  const { text, truncated } = await withAiSlot(() => chatCompletion(messages, smallTalk ? { maxTokens: 150 } : {}));
   let reply = cleanReply(text);
   if (!reply) return null;
+  // Ran out of tokens mid-sentence → cut back to the last complete one.
+  if (truncated) reply = trimTruncatedTail(reply);
   // A question may only BE the whole reply (one short clarifying question) —
   // a full answer ending in "any other questions?" is a dead end and would
   // be mistaken for a clarify prompt by the combine flow. Enforce in code.
