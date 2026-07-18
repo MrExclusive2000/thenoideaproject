@@ -197,7 +197,7 @@ export function extractProblemTopic(text) {
   // play") only label a report when nothing better is in the text — they
   // produced junk like "keep getting" as the topic for a playback error.
   const specific = t.match(
-    /\b(buffer\w*|freez\w*|frozen|lag\w*|stutter\w*|glitch\w*|crash\w*|black ?screen|playback error|no (?:sound|audio|picture|video)|offline|error|not work\w*)\b/
+    /\b(buffer\w*|freez\w*|frozen|lag\w*|stutter\w*|glitch\w*|crash\w*|black ?screen|playback error|no (?:sound|audio|picture|video)|wrong (?:version|copy|language|audio)|missing episode|offline|error|not work\w*)\b/
   );
   if (specific) return specific[1].replace(/\s+/g, ' ');
   const generic = t.match(/\b(wont \w+|cant \w+|keeps? \w+)\b/);

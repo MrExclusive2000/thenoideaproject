@@ -257,3 +257,9 @@ test('auto-close stamps resolved_by so the panel shows how it ended', async () =
   assert.equal(row.resolved_by, 'auto-close');
   setSetting('bot.problemAutoCloseMinutes', 0);
 });
+
+test('wrong-copy reports get a real topic; missing topics collapse cleanly', async () => {
+  const { extractProblemTopic } = await import('../src/bot/helpers.js');
+  assert.equal(extractProblemTopic('SHAMELESS UK is the wrong version'), 'wrong version');
+  assert.equal(extractProblemTopic('the wrong copy is on there'), 'wrong copy');
+});

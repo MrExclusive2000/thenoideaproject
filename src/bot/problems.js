@@ -67,14 +67,20 @@ export function _resetProblemQueue() {
 
 const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+// "the {topic} issue" reads as "the buffering issue"; with no detected topic
+// it collapses to plain "the issue" (the old 'reported' filler produced
+// "the reported issue you reported").
+const fillTopic = (text, topic) => topic
+  ? text.replace(/\{topic\}/g, topic)
+  : text.replace(/\{topic\}\s+issue/g, 'issue').replace(/\{topic\}\s*/g, '');
+
 export async function notifyResolved(report) {
   const template = String(getSetting('bot.problemResolvedByAdminMessage') || '').trim();
   if (!template || !hub.online || !report?.tg_user_id) return false;
 
   const mention = `<a href="tg://user?id=${report.tg_user_id}">${escHtml(report.tg_user || 'there')}</a>`;
-  const body = escHtml(template)
+  const body = fillTopic(escHtml(template), report.topic ? escHtml(report.topic) : null)
     .replace(/\{name\}/g, mention)
-    .replace(/\{topic\}/g, escHtml(report.topic || 'reported'))
     .replace(/\s+,/g, ',')
     .replace(/ {2,}/g, ' ')
     .trim();
@@ -191,9 +197,8 @@ export async function autoCloseSweep() {
 
   if (!template.trim() || !hub.online) return;
   for (const r of toMessage.values()) {
-    const msg = template
+    const msg = fillTopic(template, r.topic || null)
       .replace(/\{name\}/g, r.tg_user ? `@${r.tg_user}` : '')
-      .replace(/\{topic\}/g, r.topic || 'reported')
       .replace(/\s+,/g, ',')
       .replace(/ {2,}/g, ' ')
       .trim();
