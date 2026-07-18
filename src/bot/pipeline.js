@@ -1039,6 +1039,9 @@ export async function handleGroupMessage(ctx) {
     if (
       tooQuick && !st.nudgedAt &&
       !negatesFixes(text) && !hasTimeDetail(text) &&
+      // A wrong/faulty copy has no fixes that "take minutes to try" — the
+      // quick-confirm pushback would be nonsense there.
+      !isContentIssue(st?.firstText || text) &&
       getSetting('service.status') === 'operational'
     ) {
       setProblemState(ctx.from.id, { at: Date.now(), nudgedAt: Date.now() });
@@ -1233,6 +1236,9 @@ async function handleDmProblemReply(ctx, text, logId) {
     if (
       tooQuick && !st.nudgedAt &&
       !negatesFixes(text) && !hasTimeDetail(text) &&
+      // A wrong/faulty copy has no fixes that "take minutes to try" — the
+      // quick-confirm pushback would be nonsense there.
+      !isContentIssue(st?.firstText || text) &&
       getSetting('service.status') === 'operational'
     ) {
       setProblemState(ctx.from.id, { at: Date.now(), nudgedAt: Date.now() });

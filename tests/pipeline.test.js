@@ -2094,7 +2094,7 @@ test('wrong-copy content issues: no troubleshooting rounds — capture the title
   _resetProblemTriage();
   _resetProblemQueue();
   setSetting('bot.problemFixRounds', 2);
-  setSetting('bot.problemNudgeMinutes', 0);
+  setSetting('bot.problemNudgeMinutes', 3); // armed — content issues must skip it
   setSetting('bot.problemFlaggedNote', '✅ Flagged to the team.');
   setSetting('bot.problemServiceQuestion', '');
   aiResponse = 'That copy itself sounds wrong — check the same title in the backup app in case its library differs, otherwise it will be flagged for replacement.';
@@ -2109,8 +2109,9 @@ test('wrong-copy content issues: no troubleshooting rounds — capture the title
   // faulty file, and the title travels in the alert.
   const c = fakeCtx('No its the wrong copy on VOD', { userId: 89301 });
   await handleDirectMessage(c);
-  assert.match(c.sent[0].msg, /Flagged to the team/, 'flagged on first confirmation');
+  assert.match(c.sent[0].msg, /Flagged to the team/, 'flagged on first confirmation — no rounds, no quick-confirm nudge');
   assert.ok(db.prepare('SELECT 1 FROM problem_reports WHERE tg_user_id = 89301 AND escalated = 1').get());
   setSetting('bot.problemFixRounds', 1);
+  setSetting('bot.problemNudgeMinutes', 0);
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
