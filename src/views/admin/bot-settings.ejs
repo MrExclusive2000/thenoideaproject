@@ -150,6 +150,9 @@
     <input id="problemAutoCloseMinutes" name="problemAutoCloseMinutes" type="number" min="0" max="1440" value="<%= s.problemAutoCloseMinutes %>">
     <label for="problemAutoCloseMessage">Closing message (<code>{name}</code> and <code>{topic}</code> are filled in; empty = close silently)</label>
     <input id="problemAutoCloseMessage" name="problemAutoCloseMessage" type="text" maxlength="500" value="<%= s.problemAutoCloseMessage %>">
+    <label for="problemSoftCloseMessage">Reply to a NEUTRAL response to the closing message (empty = off)</label>
+    <input id="problemSoftCloseMessage" name="problemSoftCloseMessage" type="text" maxlength="500" value="<%= s.problemSoftCloseMessage %>">
+    <p class="hint">Replies to the closing message sort three ways: "still broken" phrasing is flagged to you, "all sorted" gets the resolved reply, and anything neutral ("we watched the end &amp; went to bed") gets this friendly close with the door left open.</p>
     <p class="hint">Only applies to reports that never reached you — escalated reports stay open for you to resolve. If they reply to the closing message, it goes straight to you.</p>
   </div>
 

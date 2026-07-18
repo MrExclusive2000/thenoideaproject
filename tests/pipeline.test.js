@@ -1772,20 +1772,34 @@ test('the same off-topic question WITH a mention gets the one-off banter', async
 
 // ---- Auto-close replies survive restarts ------------------------------------
 
-test('a reply to the auto-close message escalates even after a restart wiped the state', async () => {
+test('a NEUTRAL reply to the auto-close message closes softly, even after a restart', async () => {
   db.prepare('DELETE FROM problem_reports').run();
   _resetProblemTriage(); // simulates the restart that loses the in-memory rearm
   _resetProblemQueue();
   setSetting('bot.cooldownSeconds', 0);
   setSetting('bot.problemFlaggedNote', '✅ Flagged to the team.');
   setSetting('bot.problemServiceQuestion', '');
+  setSetting('bot.problemSoftCloseMessage', '👍 No problem — shout here if it starts playing up again.');
   const autoCloseText = "Haven't heard back @ashley, so I'm assuming the buffering issue got sorted — closing it off 👍 Still happening? Just reply here and I'll flag it straight to the team.";
   const ctx = fakeCtx('We managed to watch the last 10 mins of film & went to bed. Havent tried it today.', { chatType: 'group', userId: 66801 });
   ctx.message.reply_to_message = { message_id: 55, from: { id: 999 }, text: autoCloseText };
   await handleGroupMessage(ctx);
   assert.equal(ctx.sent.length, 1, 'triage answered, not the AI');
+  assert.match(ctx.sent[0].msg, /No problem — shout here/);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM problem_reports WHERE tg_user_id = 66801').get().n, 0, 'nothing re-opened, nothing escalated');
+});
+
+test('a STILL-BROKEN reply to the auto-close message escalates to the team', async () => {
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  const autoCloseText = "Haven't heard back @ashley, so I'm assuming the buffering issue got sorted — closing it off 👍 Still happening? Just reply here and I'll flag it straight to the team.";
+  const ctx = fakeCtx('nope still buffering this morning', { chatType: 'group', userId: 66803 });
+  ctx.message.reply_to_message = { message_id: 57, from: { id: 999 }, text: autoCloseText };
+  await handleGroupMessage(ctx);
+  assert.equal(ctx.sent.length, 1);
   assert.match(ctx.sent[0].msg, /Flagged to the team/);
-  assert.ok(db.prepare('SELECT 1 FROM problem_reports WHERE tg_user_id = 66801 AND escalated = 1').get(), 'report re-opened and escalated');
+  assert.ok(db.prepare('SELECT 1 FROM problem_reports WHERE tg_user_id = 66803 AND escalated = 1').get(), 'report re-opened and escalated');
 });
 
 test('"all good now" replying to the auto-close message closes warmly instead', async () => {

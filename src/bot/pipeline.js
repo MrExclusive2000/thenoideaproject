@@ -455,7 +455,9 @@ function hasTimeDetail(text) {
 // telling us the suggested fixes don't apply. That's an implicit "still
 // broken", not a reason to repeat the same FAQ.
 function negatesFixes(text) {
-  return /\b((is|are|was|were|looks?) (fine|right|correct|ok|okay)|already (tried|did|done|checked)|(tried|checked|done|did) (it|that|them|those|all|everything)|nothing (works|worked|changed|happens)|(didnt|didn't|doesnt|doesn't) (help|work|change))\b/i.test(text);
+  // "tried it/that/everything" counts — "HAVEN'T tried it" is the opposite
+  // (live bug: "Haven't tried it today" escalated as a fix-negation).
+  return /\b((is|are|was|were|looks?) (fine|right|correct|ok|okay)|already (tried|did|done|checked)|(?<!\b(?:havent|haven'?t|hadnt|hadn'?t|not|never)\s)(tried|checked|done|did) (it|that|them|those|all|everything)|nothing (works|worked|changed|happens)|(didnt|didn't|doesnt|doesn't) (help|work|change))\b/i.test(text);
 }
 
 // "that fixed it", "working now", "all good" — the problem is over.
@@ -482,8 +484,10 @@ export function _resetProblemTriage() {
 
 // When auto-close messages a user ("assuming it's sorted — reply if not"),
 // re-arm their triage state so a late "still broken" escalates directly.
+// fromAutoClose flips the default for their reply: neutral updates close
+// softly, only clear still-broken phrasing escalates.
 setProblemRearmHook((userId) => {
-  problemState.set(userId, { at: Date.now(), escalatedAt: null, answeredAt: null, nudgedAt: Date.now() });
+  problemState.set(userId, { at: Date.now(), escalatedAt: null, answeredAt: null, nudgedAt: Date.now(), fromAutoClose: true });
 });
 
 let lastOutageAlertAt = 0;
@@ -917,7 +921,7 @@ export async function handleGroupMessage(ctx) {
   // restart or timeout (live bug: a next-morning reply got a generic AI
   // interrogation instead). Rebuild the state from the replied-to text.
   if (!st && isFollowUp && looksLikeAutoCloseMsg(repliedTo.text)) {
-    setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: null, answeredAt: null, nudgedAt: Date.now() });
+    setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: null, answeredAt: null, nudgedAt: Date.now(), fromAutoClose: true });
     st = getProblemState(ctx.from.id);
   }
   const alreadyEscalated = Boolean(st?.escalatedAt && Date.now() - st.escalatedAt < PROBLEM_WINDOW_MS);
@@ -976,7 +980,10 @@ export async function handleGroupMessage(ctx) {
         saysStillBroken(text) ||
         negatesFixes(text) ||
         hasTimeDetail(text) ||
-        (isFollowUp && !looksLikeQuestion(text));
+        // After an auto-close ("assuming it's sorted?") the default flips:
+        // only explicit still-broken signals above escalate — a neutral
+        // update is a soft yes, handled below.
+        (isFollowUp && !looksLikeQuestion(text) && !st.fromAutoClose);
     } else if (isProblem) {
       // No stored state (e.g. restart) but clearly a confirmation anyway.
       isConfirmation = isFollowUp || saysStillBroken(text);
@@ -1032,6 +1039,17 @@ export async function handleGroupMessage(ctx) {
     return;
   }
 
+  // Neutral reply to the auto-close notice ("we watched the end & went to
+  // bed, not tried it today") — the notice asked "is it sorted?", so a reply
+  // without still-broken phrasing leans yes: close softly, door left open.
+  // (Clear resolutions got the warm close above; still-broken escalated.)
+  if (st?.fromAutoClose && isFollowUp && !looksLikeQuestion(text)) {
+    setLogSource(logId, 'soft-close');
+    const msg = getSetting('bot.problemSoftCloseMessage');
+    if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
+    return;
+  }
+
   if (isProblem && alreadyEscalated) {
     // Admins are already on it — stay quiet rather than nag or re-alert.
     setProblemState(ctx.from.id, { at: Date.now() });
@@ -1042,7 +1060,9 @@ export async function handleGroupMessage(ctx) {
   if (isProblem && !st) {
     // First report: save it for the panel (no admin DM), answer with the
     // fixes, and invite the user to confirm if it persists.
-    setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: null, firstText: text.slice(0, 200) });
+    // fromAutoClose: false — a FRESH report re-enters normal triage even if
+    // an old auto-close flag is still merged into this user's state.
+    setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: null, firstText: text.slice(0, 200), fromAutoClose: false });
     problemId = recordProblem(ctx, text, { answered: false });
     problemSuffix = getSetting('bot.problemFollowupNote') || null;
     // Outage/degradation check BEFORE building the banner: the report that
