@@ -1894,3 +1894,30 @@ test('a token-capped reply is trimmed to the last complete sentence', async () =
   aiFinishReason = 'stop';
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
+
+test('a service URL pasted into an FAQ never leaks — the bot points to the URL flow instead', async () => {
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.url1', 'http://exclusive.example:8080');
+  setSetting('services.name2', 'Flix');
+  setSetting('services.url2', 'http://leakedurl.xyz:8080');
+  db.prepare(`INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at)
+              VALUES ('How do I set up Smarters on iOS?', 'Install Smarters Player Lite, then enter leakedurl.xyz as the server with your username.', 'smarters, ios, iphone, setup', 1, 0, 0, 0)`).run();
+
+  // FAQ direct answer: scrubbed, points to the per-user flow.
+  const ctx = fakeCtx('how do i set up smarters on ios??', { userId: 88801 });
+  const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.equal(result, 'faq');
+  assert.ok(!ctx.sent[0].msg.includes('leakedurl'), 'URL scrubbed from the FAQ answer');
+  assert.match(ctx.sent[0].msg, /whats the service URL/);
+
+  // The model never even SEES the URL — and any URL it still produces is scrubbed.
+  aiResponse = 'Use the correct service URL (e.g. leakedurl.xyz for Flix) and your username.';
+  const reply = await askAi('my logins not working on smarters');
+  assert.ok(!lastAiRequest.messages[0].content.includes('leakedurl'), 'URL redacted from the prompt knowledge');
+  assert.ok(reply && !reply.includes('leakedurl'), 'URL scrubbed from the AI reply');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+  setSetting('services.name1', '');
+  setSetting('services.url1', '');
+  setSetting('services.name2', '');
+  setSetting('services.url2', '');
+});

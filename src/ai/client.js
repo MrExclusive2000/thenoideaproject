@@ -1,5 +1,5 @@
 import { db, now } from '../db/db.js';
-import { getSetting } from '../settings.js';
+import { getSetting, redactServiceUrls } from '../settings.js';
 import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail } from './guardrails.js';
 
 const usageStmt = db.prepare(
@@ -65,7 +65,10 @@ function buildSystemPrompt() {
     knowledge.push(`## Current service status\n${status}${note ? ` — ${note}` : ''}`);
   }
 
-  return [
+  // Redacted at the very end: even a URL the admin pasted into an FAQ or
+  // guide must never reach the model — it would quote it to ANY user, and
+  // each user may only ever receive their own service's URL.
+  return redactServiceUrls([
     instructions,
     '',
     'STRICT RULES — follow these exactly:',
@@ -90,7 +93,7 @@ function buildSystemPrompt() {
     '',
     '# KNOWLEDGE',
     knowledge.join('\n\n') || '(no FAQ or guides configured yet)',
-  ].join('\n');
+  ].join('\n'));
 }
 
 async function chatCompletion(messages, { maxTokens, temperature, timeoutMs } = {}) {
@@ -298,7 +301,9 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
     if (brands.some((b) => !known.includes(b.toLowerCase()))) return null;
   }
 
-  return reply;
+  // Belt to the prompt redaction's braces: even if a service URL sneaks into
+  // a reply (user pasted it, model recombined it), it never goes out.
+  return redactServiceUrls(reply);
 }
 
 // Reword a canned reply so the bot doesn't repeat itself verbatim. The saved

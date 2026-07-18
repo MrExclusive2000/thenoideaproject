@@ -189,6 +189,33 @@ export function setSetting(key, value) {
   cache.set(key, value);
 }
 
+// The per-user service login URLs must never ride along in FAQ/guide text or
+// AI answers — each user gets THEIR url from the dedicated flow only, so a
+// URL the admin pasted into an FAQ would leak to the other service's
+// customers. Replace any occurrence with a pointer to the flow. (The URL
+// flow itself sends the real value on purpose and does not use this.)
+export function redactServiceUrls(text) {
+  let out = String(text ?? '');
+  const needles = [];
+  for (const key of ['services.url1', 'services.url2']) {
+    const url = String(getSetting(key) || '').trim();
+    if (url.length < 8) continue;
+    const bare = url.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+    const host = bare.split('/')[0].split(':')[0];
+    for (const n of [url, bare, host]) if (n.length >= 8 && !needles.includes(n)) needles.push(n);
+  }
+  needles.sort((a, b) => b.length - a.length);
+  const pointer = 'your service URL (send me "whats the service URL" and I\'ll give you yours)';
+  for (const n of needles) {
+    if (pointer.toLowerCase().includes(n.toLowerCase())) continue; // never loop on a degenerate needle
+    let idx;
+    while ((idx = out.toLowerCase().indexOf(n.toLowerCase())) !== -1) {
+      out = out.slice(0, idx) + pointer + out.slice(idx + n.length);
+    }
+  }
+  return out;
+}
+
 export function setSettings(entries) {
   const tx = db.transaction((pairs) => {
     for (const [key, value] of pairs) {

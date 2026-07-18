@@ -3,7 +3,7 @@ import path from 'node:path';
 import { InlineKeyboard, InputFile } from 'grammy';
 import { db, now } from '../db/db.js';
 import { config } from '../config.js';
-import { getSetting } from '../settings.js';
+import { getSetting, redactServiceUrls } from '../settings.js';
 import { audit, randomCode } from '../util.js';
 import { sendChunked, isAdminUser, chatAllowed, linkedCustomer, customerUsable, latestFile } from './helpers.js';
 import { alertAdmins, sendDigest, buildStatsText } from './reports.js';
@@ -323,6 +323,8 @@ export function registerCommands(bot) {
     await ctx.answerCallbackQuery();
     const guide = db.prepare('SELECT * FROM guides WHERE id = ? AND visible = 1').get(ctx.match[1]);
     if (!guide) return;
-    await sendChunked(ctx.api, ctx.chat.id, `📖 ${guide.title}\n\n${mdToPlain(guide.body_md)}`);
+    // Guides can carry a pasted service URL — per-user URLs only ever come
+    // from the dedicated flow, so scrub them here.
+    await sendChunked(ctx.api, ctx.chat.id, redactServiceUrls(`📖 ${guide.title}\n\n${mdToPlain(guide.body_md)}`));
   });
 }

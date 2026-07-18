@@ -1,6 +1,6 @@
 import { InlineKeyboard } from 'grammy';
 import { db, now } from '../db/db.js';
-import { getSetting } from '../settings.js';
+import { getSetting, redactServiceUrls } from '../settings.js';
 import { matchFaq } from '../faq/matcher.js';
 import { askAi, aiBudgetExceeded, rephraseCanned } from '../ai/client.js';
 import { containsBannedWord, endsWithQuestion } from '../ai/guardrails.js';
@@ -629,6 +629,9 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
   if (result.match) {
     db.prepare('UPDATE faqs SET hit_count = hit_count + 1 WHERE id = ?').run(result.match.id);
     setLogSource(logId, 'faq');
+    // A service URL the admin pasted into the FAQ must not go to everyone —
+    // the per-user URL flow is the only outlet for those.
+    const faqAnswer = redactServiceUrls(result.match.answer);
     // FAQ answers join the DM conversation memory too, so a bare follow-up
     // ("THM4821" after the which-service FAQ) reaches the AI with context.
     if (isDm) {
@@ -636,10 +639,10 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
       dmHistory.set(historyKey, [
         ...(dmHistory.get(historyKey) || []),
         { role: 'user', content: question },
-        { role: 'assistant', content: String(result.match.answer).slice(0, 1500) },
+        { role: 'assistant', content: String(faqAnswer).slice(0, 1500) },
       ].slice(-6));
     }
-    const sent = await sendChunked(ctx.api, ctx.chat.id, withSuffix(result.match.answer), {
+    const sent = await sendChunked(ctx.api, ctx.chat.id, withSuffix(faqAnswer), {
       ...replyParams,
       reply_markup: feedbackKeyboard(),
     });
@@ -703,7 +706,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
           db.prepare('UPDATE faqs SET hit_count = hit_count + 1 WHERE id = ?').run(result.nearMiss.id);
           setLogSource(logId, 'faq');
           recordUnanswered(question, ctx, 'ai-refused', result.nearMiss.id);
-          const sent = await sendChunked(ctx.api, ctx.chat.id, withSuffix(result.nearMiss.answer), {
+          const sent = await sendChunked(ctx.api, ctx.chat.id, withSuffix(redactServiceUrls(result.nearMiss.answer)), {
             ...replyParams,
             reply_markup: feedbackKeyboard(),
           });
