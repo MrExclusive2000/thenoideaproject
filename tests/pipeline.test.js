@@ -10,7 +10,7 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-test-'));
 const { db } = await import('../src/db/db.js');
 const { setSetting } = await import('../src/settings.js');
 const { answer, handleDirectMessage, handleGroupMessage, replyContext, _resetProblemTriage, _resetSmallTalk } = await import('../src/bot/pipeline.js');
-const { _aiQueueState } = await import('../src/ai/client.js');
+const { _aiQueueState, askAi } = await import('../src/ai/client.js');
 const { flushProblemAlerts, _resetProblemQueue, autoCloseSweep } = await import('../src/bot/problems.js');
 const { hub } = await import('../src/bot/hub.js');
 const { state } = await import('../src/state.js');
@@ -1853,4 +1853,32 @@ test('aiRephrase off sends the saved text verbatim with no AI call', async () =>
   await handleDirectMessage(ctx);
   assert.equal(ctx.sent[0].msg, 'Hey! Ask me anything about the service. /help shows my tricks. What can I sort for you?');
   assert.equal(lastAiRequest, before, 'no AI call spent on a canned reply');
+});
+
+test('replies inventing third-party apps (BBC iPlayer) are suppressed', async () => {
+  aiResponse = 'Buffering can be frustrating. Have you tried 5GHz WiFi? Also, ensure the BBC iPlayer app is updated.';
+  const reply = await askAi('ive got buffering issues on bbc 1');
+  assert.equal(reply, null, 'freelanced iPlayer advice suppressed — FAQ fallback answers instead');
+  // And the strict rules now spell the ban out to the model directly.
+  assert.match(lastAiRequest.messages[0].content, /never through a broadcaster's or another provider's app/);
+
+  // Brands the knowledge/conversation DOES mention stay allowed.
+  aiResponse = 'Yes — loads of Netflix series are in the VOD section.';
+  const ok = await askAi('do you have netflix stuff on there?');
+  assert.match(ok, /Netflix series/);
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('configured service names are given to the model — the URLs never are', async () => {
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+  setSetting('services.url1', 'http://exclusive.example:8080');
+  aiResponse = 'You are on one of two services — check your username.';
+  await askAi('hows the service split between the two?');
+  const sys = lastAiRequest.messages[0].content;
+  assert.match(sys, /Exclusive or Flix/);
+  assert.ok(!sys.includes('exclusive.example'), 'login URL must never enter the prompt');
+  setSetting('services.name1', '');
+  setSetting('services.name2', '');
+  setSetting('services.url1', '');
 });

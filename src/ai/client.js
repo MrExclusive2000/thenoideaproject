@@ -29,6 +29,13 @@ function buildSystemPrompt() {
   const guides = db.prepare('SELECT title, body_md FROM guides WHERE visible = 1 ORDER BY sort, id').all();
 
   const knowledge = [];
+  // Name the services (names only — the login URLs stay OUT of the prompt on
+  // purpose) so the model talks about them naturally instead of guessing.
+  const svc1 = String(getSetting('services.name1') || '').trim();
+  const svc2 = String(getSetting('services.name2') || '').trim();
+  if (svc1 && svc2) {
+    knowledge.push(`## The services\nCustomers are on one of two services: ${svc1} or ${svc2}. Both are watched through the service's own apps from the knowledge below. You do not know the login URLs — the system hands each user the right one when they send "whats the service URL".`);
+  }
   // The bot must know its own commands — otherwise it waffles about "asking
   // an admin for an invite link" instead of saying "send me /invite".
   knowledge.push([
@@ -66,6 +73,7 @@ function buildSystemPrompt() {
     '- General questions about the devices themselves (Firestick settings, remotes, WiFi on the device, restarting it) are in scope too — help with what you know.',
     "- Be warm: when a message opens with a greeting or pleasantry ('hey mate, quick one...'), match the friendly tone in your first few words, then answer. Light friendliness is good; full off-topic chat is not.",
     '- Those support topics are ALWAYS in scope, even when the knowledge below does not mention the exact channel, show or device named by the user. In that case give the closest general fix from the knowledge.',
+    "- The service is its own standalone streaming service with its OWN apps. Channels (BBC 1, Sky Sports…) and VOD are watched INSIDE those apps — never through a broadcaster's or another provider's app. Never suggest installing, updating or checking BBC iPlayer, ITVX, Sky Go, Netflix or any other third-party app. For playback problems give the fixes from the knowledge (restart the app, clear its cache, try a different link/stream for the channel, check the connection).",
     '- Never ask the user to repeat details they already provided (such as the channel name). For problem reports, give the fixes without ending on a question — the system automatically invites the user to confirm if the problem persists.',
     "- If you can answer, answer completely in ONE message. Never offer to do something next, like 'Would you like me to...' or 'Let me know if you want...' — you cannot send a second message on your own, so every offer like that is a dead end. Never close with an invitation to keep chatting ('feel free to ask', 'let me know if you need anything else') — end on the answer itself.",
     "- ONLY if you genuinely cannot answer without one missing detail (for example: which device they use, which app they are in, or their username when they ask which service they are on), reply with exactly ONE short clarifying question and NOTHING else — no steps, no guesses before it — e.g. 'Which device are you on — Firestick, Android or iPhone?'. Their answer will come back to you. Never ask about details you don't need or that they already gave.",
@@ -270,6 +278,19 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
   if (numbers.length) {
     const known = `${systemPrompt} ${question} ${history.map((h) => h.content).join(' ')}`;
     if (numbers.some((n) => !known.includes(n))) return null;
+  }
+
+  // Models also invent third-party broadcaster/streamer apps ("update the
+  // BBC iPlayer app") for channel problems — but channels play INSIDE the
+  // service's own apps. A brand the knowledge and conversation never mention
+  // means the model is freelancing: suppress, let the FAQ fallback answer.
+  // Checked against the KNOWLEDGE only — the strict rules above deliberately
+  // NAME these apps when banning them, so the full prompt would always match.
+  const brands = reply.match(/\b(bbc iplayer|iplayer|itvx|itv hub|sky go|now tv|netflix|disney\+|disney plus|prime video|amazon prime|hulu|peacock|paramount\+|paramount plus)\b/gi) || [];
+  if (brands.length) {
+    const knowledgeText = systemPrompt.split('# KNOWLEDGE')[1] || '';
+    const known = `${knowledgeText} ${question} ${history.map((h) => h.content).join(' ')}`.toLowerCase();
+    if (brands.some((b) => !known.includes(b.toLowerCase()))) return null;
   }
 
   return reply;
