@@ -256,6 +256,12 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
           content: `The admin's playbook has these exact steps for this problem:\n${redactServiceUrls(grounding)}\n\nBase your answer on these steps — reword lightly, keep their order, and do NOT add generic internet advice (WiFi bands, router placement, calling the ISP) unless the playbook itself mentions it.`,
         }]
       : []),
+    ...(playback === 'content'
+      ? [{
+          role: 'system',
+          content: "This is a CONTENT problem — a wrong, faulty or mislabeled copy of a specific title. Device or app fixes CANNOT change the file, so do NOT suggest restarting, cache clearing or EPG refreshes. Say the copy itself looks wrong, suggest checking the same title in the backup app in case its library differs, and — if they haven't given it yet — ask for the exact title (and season/episode) so it can be flagged to the team for repair or replacement.",
+        }]
+      : []),
     ...(playback === 'live'
       ? [{
           role: 'system',

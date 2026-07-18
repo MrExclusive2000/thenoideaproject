@@ -8,7 +8,7 @@ import { state } from '../state.js';
 import {
   sendChunked, logMessage, setLogSource, recordUnanswered, chatAllowed,
   isLikelyInScope, hasScopeSignal, recordProblem, extractProblemTopic, isAdminUser,
-  isContentIssue, looksLikeLiveIssue,
+  isContentIssue, looksLikeLiveIssue, wrongCopyIssue,
 } from './helpers.js';
 import { alertAdmins } from './reports.js';
 import { queueProblemAlert, setProblemRearmHook, maybeAutoDegrade } from './problems.js';
@@ -386,7 +386,7 @@ function looksLikeQuestion(text) {
 // count on their own; generic words ("calm DOWN mate", "the PROBLEM with
 // him is...") only count when the message also mentions the service.
 const STRONG_PROBLEM =
-  /\b(buffer(ing|s)?|freez\w*|frozen|lag(gy|ging|s)?|stutter\w*|glitch\w*|crash\w*|playback|black ?screen|no (sound|audio|picture|video|streams?|channels?|epg|vod)|invalid|unauthori[sz]ed|logged (out|off)|wrong password|access denied|wrong (language|audio|sound)|only (one|1) (language|audio( track)?|track)|not work\w*|(doesnt|dont|isnt|aint|stopped) work\w*|wont (work|load|play|open|start)|cant (log ?in|sign in|watch|open|play|stream|connect)|keeps? (stopping|buffering|freezing|crashing|cutting|loading)|(is|are|was|were|gone|went|still) down|offline)\b/i;
+  /\b(buffer(ing|s)?|freez\w*|frozen|lag(gy|ging|s)?|stutter\w*|glitch\w*|crash\w*|playback|black ?screen|no (sound|audio|picture|video|streams?|channels?|epg|vod)|invalid|unauthori[sz]ed|logged (out|off)|wrong password|access denied|wrong (language|audio|sound|version|copy|cut|file)|(us|american|censored|dubbed) (version|copy|cut)|only (one|1) (language|audio( track)?|track)|not work\w*|(doesnt|dont|isnt|aint|stopped) work\w*|wont (work|load|play|open|start)|cant (log ?in|sign in|watch|open|play|stream|connect)|keeps? (stopping|buffering|freezing|crashing|cutting|loading)|(is|are|was|were|gone|went|still) down|offline)\b/i;
 const WEAK_PROBLEM = /\b(down|error|issues?|problems?|stuck|loading|broken)\b/i;
 
 function looksLikeProblem(text) {
@@ -694,7 +694,9 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
           // Live vs VOD hint for problem reports: pause/rewind advice is
           // nonsense for a live channel, and valid for a film/episode.
           const playback = looksLikeProblem(question)
-            ? (isContentIssue(question) ? 'vod' : (looksLikeLiveIssue(question) ? 'live' : null))
+            ? (wrongCopyIssue(question) ? 'content'
+              : isContentIssue(question) ? 'vod'
+              : looksLikeLiveIssue(question) ? 'live' : null)
             : null;
           // A problem with a near-miss FAQ answers from the ADMIN'S playbook,
           // not from the model's generic streaming instincts (live bug:
@@ -1054,7 +1056,10 @@ export async function handleGroupMessage(ctx) {
     // skip this — those users were promised an immediate flag — and so do
     // known outages.
     const maxRounds = Math.max(1, Math.min(4, Number(getSetting('bot.problemFixRounds')) || 1));
-    if ((st?.fixRounds || 1) < maxRounds && !st?.fromAutoClose && getSetting('service.status') === 'operational') {
+    if ((st?.fixRounds || 1) < maxRounds && !st?.fromAutoClose && getSetting('service.status') === 'operational'
+        && !isContentIssue(st?.firstText || text)) {
+      // (Content issues — a faulty copy of a title — skip extra rounds:
+      // no device fix can change the file, the admin has to.)
       const newRound = (st?.fixRounds || 1) + 1;
       setProblemState(ctx.from.id, { at: Date.now(), fixRounds: newRound });
       recordProblem(ctx, text, { answered: true });
@@ -1240,7 +1245,10 @@ async function handleDmProblemReply(ctx, text, logId) {
     // Same second-round triage as the group before flagging (DM history
     // gives the model the earlier fixes, so round two is genuinely new).
     const maxRounds = Math.max(1, Math.min(4, Number(getSetting('bot.problemFixRounds')) || 1));
-    if ((st.fixRounds || 1) < maxRounds && !st.fromAutoClose && getSetting('service.status') === 'operational') {
+    if ((st.fixRounds || 1) < maxRounds && !st.fromAutoClose && getSetting('service.status') === 'operational'
+        && !isContentIssue(st.firstText || text)) {
+      // (Faulty-copy content issues skip extra rounds — only the admin can
+      // repair or replace the file.)
       const newRound = (st.fixRounds || 1) + 1;
       setProblemState(ctx.from.id, { at: Date.now(), fixRounds: newRound });
       recordProblem(ctx, text, { answered: true });

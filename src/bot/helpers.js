@@ -165,8 +165,18 @@ export function hasScopeSignal(text) {
 // language) is a content problem, not a service problem — it must never count
 // toward automatic degradation detection, which watches for widespread
 // symptoms like buffering or streams not loading.
+// A wrong/faulty COPY of a title ("shameless uk is showing the US version"):
+// no device or app fix can change the file — these skip troubleshooting
+// rounds and go to the admin with the title. "Wrong version of the app" is
+// an update problem, not a content one.
+export function wrongCopyIssue(text) {
+  const t = String(text);
+  if (/\b(app|apk|apps|update|updated)\b/i.test(t)) return false;
+  return /\b(wrong|us|american|bad|faulty|corrupt|censored|dubbed)\s+(version|copy|cut)\b/i.test(t) || /\bwrong (file|dub)\b/i.test(t);
+}
+
 export function isContentIssue(text) {
-  return /\b(episode|episodes|season|series|movie|movies|film|films|documentary|s\d{1,2}\s?e\d{1,3})\b/i.test(String(text));
+  return /\b(episode|episodes|season|series|movie|movies|film|films|documentary|s\d{1,2}\s?e\d{1,3})\b/i.test(String(text)) || wrongCopyIssue(text);
 }
 
 // LIVE vs VOD matters for the advice given: a live channel cannot be paused

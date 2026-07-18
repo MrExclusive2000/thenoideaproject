@@ -2088,3 +2088,29 @@ test('problem reports with a near-miss FAQ are grounded in the admin playbook', 
   assert.ok(!lastAiRequest.messages.some((m) => m.role === 'system' && /exact steps for this problem/.test(m.content)));
   _resetProblemTriage();
 });
+
+test('wrong-copy content issues: no troubleshooting rounds — capture the title and flag', async () => {
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  setSetting('bot.problemFixRounds', 2);
+  setSetting('bot.problemNudgeMinutes', 0);
+  setSetting('bot.problemFlaggedNote', '✅ Flagged to the team.');
+  setSetting('bot.problemServiceQuestion', '');
+  aiResponse = 'That copy itself sounds wrong — check the same title in the backup app in case its library differs, otherwise it will be flagged for replacement.';
+  const r = fakeCtx('Hi, the copy of shameless uk is showing US version instead', { userId: 89301 });
+  await handleDirectMessage(r);
+  assert.ok(db.prepare('SELECT 1 FROM problem_reports WHERE tg_user_id = 89301').get(), 'content problem recorded');
+  const sysNotes = lastAiRequest.messages.filter((m) => m.role === 'system');
+  assert.ok(sysNotes.some((m) => /CONTENT problem/.test(m.content)), 'content hint sent to the model');
+  assert.ok(!sysNotes.some((m) => /LIVE TV/.test(m.content)));
+
+  // Confirmation escalates DIRECTLY — no second round of device fixes for a
+  // faulty file, and the title travels in the alert.
+  const c = fakeCtx('No its the wrong copy on VOD', { userId: 89301 });
+  await handleDirectMessage(c);
+  assert.match(c.sent[0].msg, /Flagged to the team/, 'flagged on first confirmation');
+  assert.ok(db.prepare('SELECT 1 FROM problem_reports WHERE tg_user_id = 89301 AND escalated = 1').get());
+  setSetting('bot.problemFixRounds', 1);
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
