@@ -227,7 +227,7 @@ export function _aiQueueState() {
 // `smallTalk`: the caller is spending the user's one off-topic free pass —
 // permit ONE brief friendly answer to an off-topic message. Replies that are
 // (or end as) a question are suppressed: banter must never fish for more chat.
-export async function askAi(question, { history = [], assumeOnTopic = false, smallTalk = false, playback = null, grounding = null } = {}) {
+export async function askAi(question, { history = [], assumeOnTopic = false, smallTalk = false, playback = null, grounding = null, secondRound = false } = {}) {
   if (!getSetting('ai.enabled')) return null;
   if (aiBudgetExceeded()) {
     const err = new Error('Daily AI budget reached');
@@ -244,6 +244,12 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
           content: `The next user message is a support request about the service (a problem report or support question). It IS in scope — do not reply ${OFFTOPIC_SENTINEL}. Answer it using the knowledge, and ask for missing details if needed. Keep it short (2-4 sentences). Never ask more than ONE question, and never send a numbered list of questions or checks. Never ask whether they tried earlier fixes — give the fixes (or the single next step) directly; the system handles the follow-up.`,
         }]
       : []),
+    ...(secondRound
+      ? [{
+          role: 'system',
+          content: 'This is a SECOND round of troubleshooting — the first-round fixes did not help. Suggest only DIFFERENT next steps drawn from the knowledge (a different link/stream, the backup app with the same login, clearing the app cache, reinstalling the app, switching off a VPN, wired ethernet). Do not repeat first-round steps, and do not pad with generic internet advice (WiFi bands, router placement, ISP calls) the knowledge does not mention.',
+        }]
+      : []),
     ...(grounding
       ? [{
           role: 'system',
@@ -253,7 +259,7 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
     ...(playback === 'live'
       ? [{
           role: 'system',
-          content: 'This problem is about LIVE TV (a channel or live event). Live streams cannot be paused, rewound or restarted from the beginning — NEVER suggest pause, rewind or resume for it. Useful live fixes: a different link/stream for the same channel, the backup app with the same login, restarting the app, lowering the quality, checking the connection.',
+          content: 'This problem is about LIVE TV (a channel or live event). Live streams cannot be paused, rewound or restarted from the beginning — NEVER suggest pause, rewind or resume for it. The go-to live fixes, in order: a different link/stream for the same channel, the backup app with the same login, restarting the app.',
         }]
       : []),
     ...(playback === 'vod'

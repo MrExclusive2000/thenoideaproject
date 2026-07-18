@@ -1989,18 +1989,25 @@ test('fix rounds 2: a confirmed DM problem gets MORE fixes first, flags on the s
   setSetting('bot.problemNudgeMinutes', 0);
   setSetting('bot.problemFlaggedNote', '✅ Flagged to the team.');
   setSetting('bot.problemServiceQuestion', '');
+  setSetting('bot.problemFollowupNote', "Still happening? Reply and I'll flag it to the team.");
+  setSetting('bot.problemMoreFixesNote', "Still happening? Reply and I'll suggest what to try next.");
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
   const r = fakeCtx('purple keeps buffering tonight', { userId: 89001 });
   await handleDirectMessage(r);
   assert.equal(r.sent.length, 1, 'first round of fixes');
+  assert.match(r.sent[0].msg, /suggest what to try next/, 'round 1 promises more steps, not a flag');
+  assert.ok(!r.sent[0].msg.includes('flag it to the team'), 'no false flag promise on round 1');
 
   aiResponse = 'Next steps: switch to the backup app with the same login, or pick a different link for the channel.';
   const c1 = fakeCtx('tried them, still buffering', { userId: 89001 });
   await handleDirectMessage(c1);
   assert.match(c1.sent[0].msg, /backup app/, 'second round of DIFFERENT fixes');
   assert.ok(!c1.sent[0].msg.includes('Flagged'), 'not escalated yet');
-  // Round two goes to the AI with the conversation attached.
+  assert.match(c1.sent[0].msg, /flag it to the team/, 'the LAST round carries the flag promise');
+  // Round two goes to the AI with the conversation attached and the
+  // different-steps-only instruction.
   assert.match(lastAiRequest.messages.at(-1).content, /still happening after trying the first fixes/);
+  assert.ok(lastAiRequest.messages.some((m) => m.role === 'system' && /SECOND round/.test(m.content)), 'second-round instruction present');
 
   const c2 = fakeCtx('nope still the same', { userId: 89001 });
   await handleDirectMessage(c2);

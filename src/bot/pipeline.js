@@ -466,6 +466,18 @@ function saysResolved(text) {
   return /\b(fixed|sorted|solved|resolved|working now|works now|all good|that (worked|did it)|back to normal|(fine|good|ok|okay|sorted|perfect) now|no more (buffering|freezing|lagging|issues?|problems?))\b/i.test(text);
 }
 
+// The invite appended to a round of fixes must match what a reply actually
+// does: earlier rounds bring MORE steps, only the last round flags. Round
+// numbers are 1-based ("this answer was round N").
+function followupNoteForRound(round) {
+  const maxRounds = Math.max(1, Math.min(4, Number(getSetting('bot.problemFixRounds')) || 1));
+  if (round < maxRounds) {
+    const more = String(getSetting('bot.problemMoreFixesNote') || '').trim();
+    if (more) return more;
+  }
+  return getSetting('bot.problemFollowupNote') || null;
+}
+
 // Is this bot message the auto-close notice? Matched by TEXT, not by tracked
 // message id — triage state is in-memory, and the whole point of the check is
 // surviving restarts and long gaps. The template is admin-configurable, so
@@ -609,7 +621,7 @@ function bestServiceReply() {
 // FAQ instead of continuing the conversation. `suffix` is appended to any
 // actual answer (e.g. "flagged to the team" after a problem report).
 // Exported so tests can drive it with a fake ctx.
-export async function answer(ctx, question, { isDm, logId, history: providedHistory = null, skipFaq = false, suffix = null, prefix = null, assumeOnTopic: forceOnTopic = false, directed = false }) {
+export async function answer(ctx, question, { isDm, logId, history: providedHistory = null, skipFaq = false, suffix = null, prefix = null, assumeOnTopic: forceOnTopic = false, directed = false, deepen = false }) {
   const faqs = db.prepare('SELECT * FROM faqs WHERE enabled = 1').all();
   const threshold = Number(getSetting('faq.threshold')) || 0.5;
   const result = skipFaq ? { match: null, nearMiss: null } : matchFaq(question, faqs, threshold);
@@ -691,7 +703,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
           const grounding = looksLikeProblem(question) && result.nearMiss
             ? String(result.nearMiss.answer).slice(0, 1200)
             : null;
-          reply = await askAi(question, { history, assumeOnTopic, playback, grounding });
+          reply = await askAi(question, { history, assumeOnTopic, playback, grounding, secondRound: deepen });
         }
 
         if (reply) {
@@ -1043,10 +1055,11 @@ export async function handleGroupMessage(ctx) {
     // known outages.
     const maxRounds = Math.max(1, Math.min(4, Number(getSetting('bot.problemFixRounds')) || 1));
     if ((st?.fixRounds || 1) < maxRounds && !st?.fromAutoClose && getSetting('service.status') === 'operational') {
-      setProblemState(ctx.from.id, { at: Date.now(), fixRounds: (st?.fixRounds || 1) + 1 });
+      const newRound = (st?.fixRounds || 1) + 1;
+      setProblemState(ctx.from.id, { at: Date.now(), fixRounds: newRound });
       recordProblem(ctx, text, { answered: true });
       const deeperQ = `${(st?.firstText || text).slice(0, 200)} — still happening after trying the first fixes. What else can I try?`;
-      const deeper = await answer(ctx, deeperQ, { isDm: false, logId, skipFaq: true, assumeOnTopic: true, directed: true, suffix: getSetting('bot.problemFollowupNote') || null });
+      const deeper = await answer(ctx, deeperQ, { isDm: false, logId, skipFaq: true, assumeOnTopic: true, directed: true, deepen: true, suffix: followupNoteForRound(newRound) });
       if (deeper === 'ai') {
         setProblemState(ctx.from.id, { answeredAt: Date.now() });
         return;
@@ -1107,7 +1120,7 @@ export async function handleGroupMessage(ctx) {
     // an old auto-close flag is still merged into this user's state.
     setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: null, firstText: text.slice(0, 200), fromAutoClose: false });
     problemId = recordProblem(ctx, text, { answered: false });
-    problemSuffix = getSetting('bot.problemFollowupNote') || null;
+    problemSuffix = followupNoteForRound(1);
     // Outage/degradation check BEFORE building the banner: the report that
     // tips the threshold gets the known-issue banner on its own answer.
     checkOutage();
@@ -1228,10 +1241,11 @@ async function handleDmProblemReply(ctx, text, logId) {
     // gives the model the earlier fixes, so round two is genuinely new).
     const maxRounds = Math.max(1, Math.min(4, Number(getSetting('bot.problemFixRounds')) || 1));
     if ((st.fixRounds || 1) < maxRounds && !st.fromAutoClose && getSetting('service.status') === 'operational') {
-      setProblemState(ctx.from.id, { at: Date.now(), fixRounds: (st.fixRounds || 1) + 1 });
+      const newRound = (st.fixRounds || 1) + 1;
+      setProblemState(ctx.from.id, { at: Date.now(), fixRounds: newRound });
       recordProblem(ctx, text, { answered: true });
       const deeperQ = `${(st.firstText || text).slice(0, 200)} — still happening after trying the first fixes. What else can I try?`;
-      const deeper = await answer(ctx, deeperQ, { isDm: true, logId, skipFaq: true, assumeOnTopic: true, suffix: getSetting('bot.problemFollowupNote') || null });
+      const deeper = await answer(ctx, deeperQ, { isDm: true, logId, skipFaq: true, assumeOnTopic: true, deepen: true, suffix: followupNoteForRound(newRound) });
       if (deeper === 'ai') {
         setProblemState(ctx.from.id, { answeredAt: Date.now() });
         return true;
@@ -1374,7 +1388,7 @@ export async function handleDirectMessage(ctx) {
   if (looksLikeProblem(text) && !getProblemState(ctx.from.id)) {
     setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: null, firstText: text.slice(0, 200), fromAutoClose: false });
     problemId = recordProblem(ctx, text, { answered: false });
-    problemSuffix = getSetting('bot.problemFollowupNote') || null;
+    problemSuffix = followupNoteForRound(1);
     checkOutage();
     problemPrefix = serviceStatusLine();
   }

@@ -31,9 +31,12 @@ const DEFAULTS = {
   // Sent when a message IS about the app/service but the bot can't answer it —
   // kinder than the off-topic line, and points the user to a human.
   'bot.unsureMessage': "I'm not totally sure on that one — send /ticket in a private message to me and the team will help you out.",
-  // Appended to the FIRST answer to a problem report: invites the user to
-  // confirm if the fixes don't help. Empty = off.
+  // Appended to the LAST round of fixes — the next "still broken" reply
+  // really does get flagged, so this note may promise it. Empty = off.
   'bot.problemFollowupNote': "Still happening after trying these? Reply here and I'll flag it straight to the team.",
+  // Appended to EARLIER rounds instead, where a reply brings more steps —
+  // promising a flag there would be a lie. Empty = use the note above.
+  'bot.problemMoreFixesNote': "Still happening after trying these? Reply here and I'll dig up the next things to try.",
   // Sent when a confirmed problem is escalated to the admins. Empty = off.
   'bot.problemFlaggedNote': "✅ Flagged to the team — they'll look into it. No need to report it again.",
   // Asked right after the flagged note so the admin knows which system to

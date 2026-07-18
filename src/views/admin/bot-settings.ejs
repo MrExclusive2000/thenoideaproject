@@ -132,8 +132,10 @@
   <div class="card">
     <h2>Problem reports</h2>
     <p class="hint">When someone reports an issue (buffering, channel down…) the bot answers with the fixes first, in the group or in a DM. A confirmed "still broken" gets further rounds of different steps (set below) before it's flagged to you (see <a href="/admin/problems">Problem reports</a> and the alert toggle in <a href="/admin/reports">Reports &amp; status</a>). 3+ different people reporting within 15 minutes triggers an outage alert immediately.</p>
-    <label for="problemFollowupNote">Added to the first answer — invites them to confirm (empty = off)</label>
+    <label for="problemFollowupNote">Added to the LAST round of fixes — may promise the flag (empty = off)</label>
     <input id="problemFollowupNote" name="problemFollowupNote" type="text" maxlength="500" value="<%= s.problemFollowupNote %>">
+    <label for="problemMoreFixesNote">Added to EARLIER rounds — a reply brings more steps, not a flag (empty = use the note above)</label>
+    <input id="problemMoreFixesNote" name="problemMoreFixesNote" type="text" maxlength="500" value="<%= s.problemMoreFixesNote %>">
     <label for="problemFlaggedNote">Reply when a confirmed problem is flagged to you (empty = off)</label>
     <input id="problemFlaggedNote" name="problemFlaggedNote" type="text" maxlength="500" value="<%= s.problemFlaggedNote %>">
 
