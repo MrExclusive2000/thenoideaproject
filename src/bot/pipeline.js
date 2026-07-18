@@ -1023,6 +1023,24 @@ export async function handleGroupMessage(ctx) {
       return;
     }
 
+    // More triage before flagging: with fix rounds left, answer the
+    // confirmation with the NEXT set of steps (different link, backup app,
+    // clear cache, reinstall…) instead of escalating. Auto-close re-entries
+    // skip this — those users were promised an immediate flag — and so do
+    // known outages.
+    const maxRounds = Math.max(1, Math.min(4, Number(getSetting('bot.problemFixRounds')) || 1));
+    if ((st?.fixRounds || 1) < maxRounds && !st?.fromAutoClose && getSetting('service.status') === 'operational') {
+      setProblemState(ctx.from.id, { at: Date.now(), fixRounds: (st?.fixRounds || 1) + 1 });
+      recordProblem(ctx, text, { answered: true });
+      const deeperQ = `${(st?.firstText || text).slice(0, 200)} — still happening after trying the first fixes. What else can I try?`;
+      const deeper = await answer(ctx, deeperQ, { isDm: false, logId, skipFaq: true, assumeOnTopic: true, directed: true, suffix: getSetting('bot.problemFollowupNote') || null });
+      if (deeper === 'ai') {
+        setProblemState(ctx.from.id, { answeredAt: Date.now() });
+        return;
+      }
+      // The AI had nothing further — fall through and escalate now.
+    }
+
     // The user tried the fixes (or told us it's still broken) — NOW it goes
     // to the admins, and the user gets an ack instead of the same FAQ again.
     setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: Date.now() });
@@ -1191,6 +1209,21 @@ async function handleDmProblemReply(ctx, text, logId) {
       const nudge = await spoken('bot.problemNudgeMessage');
       if (nudge) await send(nudge);
       return true;
+    }
+
+    // Same second-round triage as the group before flagging (DM history
+    // gives the model the earlier fixes, so round two is genuinely new).
+    const maxRounds = Math.max(1, Math.min(4, Number(getSetting('bot.problemFixRounds')) || 1));
+    if ((st.fixRounds || 1) < maxRounds && !st.fromAutoClose && getSetting('service.status') === 'operational') {
+      setProblemState(ctx.from.id, { at: Date.now(), fixRounds: (st.fixRounds || 1) + 1 });
+      recordProblem(ctx, text, { answered: true });
+      const deeperQ = `${(st.firstText || text).slice(0, 200)} — still happening after trying the first fixes. What else can I try?`;
+      const deeper = await answer(ctx, deeperQ, { isDm: true, logId, skipFaq: true, assumeOnTopic: true, suffix: getSetting('bot.problemFollowupNote') || null });
+      if (deeper === 'ai') {
+        setProblemState(ctx.from.id, { answeredAt: Date.now() });
+        return true;
+      }
+      // Nothing further to suggest — escalate below.
     }
 
     setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: Date.now() });

@@ -39,6 +39,12 @@ const DEFAULTS = {
   // Asked right after the flagged note so the admin knows which system to
   // check; the user's next reply is captured and forwarded. Empty = off.
   'bot.problemServiceQuestion': 'One more thing for the team — which service is this on? Reply with the service name, or the username you log in with (never the password).',
+  // How many rounds of fixes before a confirmed problem is flagged to the
+  // team. 1 = flag on the first "still broken"; 2 (default) = answer that
+  // with a second, DIFFERENT set of steps first and only flag when those
+  // fail too. Skipped for auto-close re-entries (those were promised an
+  // immediate flag) and during outages.
+  'bot.problemFixRounds': 2,
   // A confirmation that arrives faster than this many minutes after the fixes
   // gets one friendly "actually try it first" pushback instead of escalating.
   // 0 = off. Exceptions: detailed confirmations, fix-negations, known outages.

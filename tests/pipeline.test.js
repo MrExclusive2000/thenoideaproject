@@ -52,6 +52,8 @@ before(async () => {
   // AI rewording of canned replies has its own tests — everywhere else the
   // exact configured texts must come out verbatim.
   setSetting('bot.aiRephrase', false);
+  // Multi-round triage has its own tests — the rest assert single-round flow.
+  setSetting('bot.problemFixRounds', 1);
 
   db.prepare(`INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at)
               VALUES ('How do I install on Firestick?', 'Use the Downloader app with our code.', 'install, firestick, downloader', 1, 0, 0, 0)`).run();
@@ -1975,4 +1977,59 @@ test('DM problem triage: fixes first, instant "Yes" nudged, still-broken escalat
   setSetting('bot.problemNudgeMinutes', 0);
   _resetProblemTriage();
   _resetProblemQueue();
+});
+
+test('fix rounds 2: a confirmed DM problem gets MORE fixes first, flags on the second failure', async () => {
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  setSetting('bot.problemFixRounds', 2);
+  setSetting('bot.problemNudgeMinutes', 0);
+  setSetting('bot.problemFlaggedNote', '✅ Flagged to the team.');
+  setSetting('bot.problemServiceQuestion', '');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+  const r = fakeCtx('purple keeps buffering tonight', { userId: 89001 });
+  await handleDirectMessage(r);
+  assert.equal(r.sent.length, 1, 'first round of fixes');
+
+  aiResponse = 'Next steps: switch to the backup app with the same login, or pick a different link for the channel.';
+  const c1 = fakeCtx('tried them, still buffering', { userId: 89001 });
+  await handleDirectMessage(c1);
+  assert.match(c1.sent[0].msg, /backup app/, 'second round of DIFFERENT fixes');
+  assert.ok(!c1.sent[0].msg.includes('Flagged'), 'not escalated yet');
+  // Round two goes to the AI with the conversation attached.
+  assert.match(lastAiRequest.messages.at(-1).content, /still happening after trying the first fixes/);
+
+  const c2 = fakeCtx('nope still the same', { userId: 89001 });
+  await handleDirectMessage(c2);
+  assert.match(c2.sent[0].msg, /Flagged to the team/, 'second failure escalates');
+  assert.ok(db.prepare('SELECT 1 FROM problem_reports WHERE tg_user_id = 89001 AND escalated = 1').get());
+  setSetting('bot.problemFixRounds', 1);
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('fix rounds 2 in the GROUP: second round before the flag there too', async () => {
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  setSetting('bot.problemFixRounds', 2);
+  setSetting('bot.cooldownSeconds', 0);
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+  const r = fakeCtx('purple keeps buffering for me', { chatType: 'group', userId: 89002 });
+  await handleGroupMessage(r);
+  assert.equal(r.sent.length, 1);
+
+  aiResponse = 'Try the backup app with the same login, or a different link for the channel.';
+  const c1 = fakeCtx('still broken mate', { chatType: 'group', userId: 89002 });
+  c1.message.reply_to_message = { message_id: 70, from: { id: 999 }, text: r.sent[0].msg };
+  await handleGroupMessage(c1);
+  assert.match(c1.sent[0].msg, /backup app/, 'second round instead of a flag');
+
+  const c2 = fakeCtx('nah, still broken after all that', { chatType: 'group', userId: 89002 });
+  c2.message.reply_to_message = { message_id: 71, from: { id: 999 }, text: c1.sent[0].msg };
+  await handleGroupMessage(c2);
+  assert.match(c2.sent[0].msg, /Flagged to the team/);
+  assert.ok(db.prepare('SELECT 1 FROM problem_reports WHERE tg_user_id = 89002 AND escalated = 1').get());
+  setSetting('bot.problemFixRounds', 1);
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });

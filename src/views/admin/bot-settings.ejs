@@ -131,7 +131,7 @@
 
   <div class="card">
     <h2>Problem reports</h2>
-    <p class="hint">When someone reports an issue (buffering, channel down…) the bot answers with the fixes first. If they confirm it's still broken — or reply with the channel and time — it gets flagged to you (see <a href="/admin/problems">Problem reports</a> and the alert toggle in <a href="/admin/reports">Reports &amp; status</a>). 3+ different people reporting within 15 minutes triggers an outage alert immediately.</p>
+    <p class="hint">When someone reports an issue (buffering, channel down…) the bot answers with the fixes first, in the group or in a DM. A confirmed "still broken" gets further rounds of different steps (set below) before it's flagged to you (see <a href="/admin/problems">Problem reports</a> and the alert toggle in <a href="/admin/reports">Reports &amp; status</a>). 3+ different people reporting within 15 minutes triggers an outage alert immediately.</p>
     <label for="problemFollowupNote">Added to the first answer — invites them to confirm (empty = off)</label>
     <input id="problemFollowupNote" name="problemFollowupNote" type="text" maxlength="500" value="<%= s.problemFollowupNote %>">
     <label for="problemFlaggedNote">Reply when a confirmed problem is flagged to you (empty = off)</label>
@@ -146,6 +146,9 @@
     <p class="hint">Placeholders: {name} tags the reporter, {topic} is the detected symptom. Sent in the group the report came from, with a DM fallback.</p>
     <label for="problemResolvedNote">Reply when they say it's fixed ("that fixed it", "working now") (empty = off)</label>
     <input id="problemResolvedNote" name="problemResolvedNote" type="text" maxlength="500" value="<%= s.problemResolvedNote %>">
+    <label for="problemFixRounds">Rounds of fixes before flagging to you (1 = flag on the first "still broken")</label>
+    <input id="problemFixRounds" name="problemFixRounds" type="number" min="1" max="4" value="<%= s.problemFixRounds %>">
+    <p class="hint">With 2 (default), the first "still broken" gets a second, different set of steps — a different link, the backup app, clearing cache, reinstalling — and only the next failure is flagged. Replies to the auto-close notice always flag immediately, as promised there.</p>
     <label for="problemNudgeMinutes">"Actually try it first" pushback: nudge instead of escalating when they confirm within this many minutes (0 = off)</label>
     <input id="problemNudgeMinutes" name="problemNudgeMinutes" type="number" min="0" max="60" value="<%= s.problemNudgeMinutes %>">
     <label for="problemNudgeMessage">The pushback message (sent at most once per report)</label>
