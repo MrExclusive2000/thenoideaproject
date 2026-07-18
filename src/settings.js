@@ -65,6 +65,12 @@ const DEFAULTS = {
   // Never auto-answer group messages from the admins listed in Reports —
   // their questions, mentions and replies to the bot still work.
   'bot.ignoreAdmins': false,
+  // Let the AI reword canned replies (greeting/thanks/brush-off/closes/
+  // nudges) in fresh words each time — the saved text stays the meaning and
+  // the fallback. Never applied to messages carrying URLs, codes, the
+  // service question, or the auto-close notice. Skipped while the AI is
+  // busy with real answers.
+  'bot.aiRephrase': true,
   // Canned warmth: a bare "hey" or "cheers" gets these instead of the
   // off-topic brush-off. Empty = silent.
   'bot.greetingMessage': "Hey! 👋 I'm the team's support bot — ask me anything about the service: installs, buffering fixes, logins, what to watch it on. /help shows all my tricks. What can I sort for you?",

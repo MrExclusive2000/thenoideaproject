@@ -16,6 +16,11 @@
       <input type="checkbox" id="dmEnabled" name="dmEnabled" value="1" <%= s.dmEnabled ? 'checked' : '' %>>
       <label for="dmEnabled">Answer private (DM) messages too</label>
     </div>
+    <div class="checkline">
+      <input type="checkbox" id="aiRephrase" name="aiRephrase" value="1" <%= s.aiRephrase ? 'checked' : '' %>>
+      <label for="aiRephrase">Let the AI reword the canned replies below in fresh words each time</label>
+    </div>
+    <p class="hint">Your saved text stays the meaning — the AI just varies the wording so the bot doesn't repeat itself. If the AI is off, busy with a real answer, slow, or changes the meaning (drops a /command, invents a question), your exact text is sent instead. Messages carrying URLs, codes or the auto-close notice are never reworded.</p>
     <label for="greetingMessage">Reply to a bare greeting ("hey", "hi") — empty = silent</label>
     <input id="greetingMessage" name="greetingMessage" type="text" maxlength="500" value="<%= s.greetingMessage %>">
 

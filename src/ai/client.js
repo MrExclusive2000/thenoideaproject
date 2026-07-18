@@ -275,6 +275,51 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
   return reply;
 }
 
+// Reword a canned reply so the bot doesn't repeat itself verbatim. The saved
+// message is the MEANING CONTRACT: same intent, tone and language; every
+// /command and {placeholder} preserved; no invented questions or promises.
+// Any doubt — AI off, over budget, busy with a real answer, slow, or output
+// failing a check — sends the saved text unchanged. Callers must never use
+// this for messages carrying URLs/codes, or for the auto-close notice (its
+// literal text is matched by the triage re-entry).
+export async function rephraseCanned(message) {
+  if (!message) return message;
+  if (!getSetting('bot.aiRephrase') || !getSetting('ai.enabled')) return message;
+  if (aiBudgetExceeded()) return message;
+  // Only spice replies when the AI is idle — a greeting must never queue
+  // behind (or delay) someone's real answer.
+  if (activeCalls > 0 || aiQueue.length > 0) return message;
+  try {
+    const { text } = await withAiSlot(() => chatCompletion(
+      [
+        {
+          role: 'system',
+          content:
+            "Rewrite the user's message in fresh words with EXACTLY the same meaning and tone: a short, warm, casual chat reply from a support bot. " +
+            'Keep the same language. Keep every /command and every {placeholder} exactly as written. Keep roughly the same length. ' +
+            'Do not add questions the original does not have. Do not add new promises, offers or instructions. Plain text, no markdown. ' +
+            'Reply with the rewritten message only.',
+        },
+        { role: 'user', content: String(message) },
+      ],
+      { maxTokens: 150, temperature: 0.9, timeoutMs: 20000 }
+    ));
+    const out = cleanReply(text, { maxChars: 500 });
+    if (!out) return message;
+    // Commands and placeholders are load-bearing — all must survive.
+    for (const t of String(message).match(/\{[a-z0-9]+\}|\/[a-z]+\b/gi) || []) {
+      if (!out.includes(t)) return message;
+    }
+    if (!endsWithQuestion(message) && endsWithQuestion(out)) return message;
+    if (out.length > Math.max(String(message).length * 2, String(message).length + 80)) return message;
+    const bannedWords = db.prepare('SELECT word FROM banned_words').all().map((r) => r.word);
+    if (containsBannedWord(out, bannedWords)) return message;
+    return out;
+  } catch {
+    return message;
+  }
+}
+
 export async function testAiConnection() {
   const started = Date.now();
   const { text } = await chatCompletion(

@@ -2,7 +2,7 @@ import { InlineKeyboard } from 'grammy';
 import { db, now } from '../db/db.js';
 import { getSetting } from '../settings.js';
 import { matchFaq } from '../faq/matcher.js';
-import { askAi, aiBudgetExceeded } from '../ai/client.js';
+import { askAi, aiBudgetExceeded, rephraseCanned } from '../ai/client.js';
 import { containsBannedWord, endsWithQuestion } from '../ai/guardrails.js';
 import { state } from '../state.js';
 import {
@@ -518,6 +518,14 @@ function stripMention(text) {
   return username ? text.replace(new RegExp(`@${username}`, 'gi'), '').trim() : text;
 }
 
+// Canned replies pass through the AI reworder so the bot doesn't repeat
+// itself word-for-word; the saved setting text is the meaning contract and
+// the fallback (AI off/busy/slow/wrong → saved text goes out unchanged).
+async function spoken(key) {
+  const msg = String(getSetting(key) || '').trim();
+  return msg ? rephraseCanned(msg) : '';
+}
+
 // Off-topic banter free pass: per user, the FIRST off-topic question in a
 // while gets one short friendly AI answer (small-talk mode — no questions
 // back); anything more inside the window falls through to the brush-off.
@@ -567,7 +575,7 @@ async function sendMediaNag(ctx) {
   if (Date.now() - (mediaNagged.get(userId) || 0) < MEDIA_NAG_MS) return;
   mediaNagged.set(userId, Date.now());
   if (mediaNagged.size > 2000) mediaNagged.clear();
-  await ctx.api.sendMessage(ctx.chat.id, msgText, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
+  await ctx.api.sendMessage(ctx.chat.id, await rephraseCanned(msgText), { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
 }
 
 // "Which service is the best?" — never let the model freestyle a comparison
@@ -711,7 +719,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
           setLogSource(logId, 'unsure');
           recordUnanswered(question, ctx, 'ai-refused', null);
           if (isDm || getSetting('bot.offtopicBehavior') === 'redirect') {
-            const msg = getSetting('bot.unsureMessage');
+            const msg = await spoken('bot.unsureMessage');
             if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, replyParams);
           }
           return 'unsure';
@@ -735,12 +743,12 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
             setLogSource(logId, 'smalltalk');
             // Always steer back to support after banter — an admin-editable
             // line appended in code, never left to the model.
-            const steer = String(getSetting('bot.smallTalkSteer') || '').trim();
+            const steer = await spoken('bot.smallTalkSteer');
             await ctx.api.sendMessage(ctx.chat.id, steer ? `${banter}\n\n${steer}` : banter, replyParams);
             return 'smalltalk';
           }
           setLogSource(logId, 'offtopic');
-          const msg = getSetting('bot.offtopicMessage');
+          const msg = await spoken('bot.offtopicMessage');
           if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, replyParams);
           return 'offtopic';
         }
@@ -858,13 +866,13 @@ export async function handleGroupMessage(ctx) {
   if (mentioned && !getProblemState(ctx.from.id)) {
     if (looksLikeGreeting(question)) {
       setLogSource(logId, 'greeting');
-      const msg = getSetting('bot.greetingMessage');
+      const msg = await spoken('bot.greetingMessage');
       if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
       return;
     }
     if (looksLikeThanks(question)) {
       setLogSource(logId, 'thanks');
-      const msg = getSetting('bot.thanksMessage');
+      const msg = await spoken('bot.thanksMessage');
       if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
       return;
     }
@@ -933,7 +941,7 @@ export async function handleGroupMessage(ctx) {
   // (saysStillBroken wins on ambiguity like "still not fixed".)
   if (st && looksLikeThanks(text) && !saysResolved(text) && alreadyEscalated) {
     setLogSource(logId, 'thanks');
-    const msg = getSetting('bot.thanksMessage');
+    const msg = await spoken('bot.thanksMessage');
     if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
     return;
   }
@@ -946,7 +954,7 @@ export async function handleGroupMessage(ctx) {
       // The admin was pinged earlier — close that loop too.
       hub.notifyAdmins(`✅ @${ctx.from?.username || ctx.from?.first_name} says their issue is now fixed: "${text.slice(0, 120)}"`).catch(() => {});
     }
-    const note = getSetting('bot.problemResolvedNote');
+    const note = await spoken('bot.problemResolvedNote');
     if (note) {
       await ctx.api.sendMessage(ctx.chat.id, note, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
     }
@@ -1005,7 +1013,7 @@ export async function handleGroupMessage(ctx) {
     ) {
       setProblemState(ctx.from.id, { at: Date.now(), nudgedAt: Date.now() });
       setLogSource(logId, 'nudged');
-      const nudge = getSetting('bot.problemNudgeMessage');
+      const nudge = await spoken('bot.problemNudgeMessage');
       if (nudge) {
         await ctx.api.sendMessage(ctx.chat.id, nudge, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
       }
@@ -1028,8 +1036,9 @@ export async function handleGroupMessage(ctx) {
       topic: extractProblemTopic(st?.firstText || '') || extractProblemTopic(text),
     });
     setLogSource(logId, 'escalated');
-    const ack = getSetting('bot.problemFlaggedNote');
+    const ack = await spoken('bot.problemFlaggedNote');
     // Ask which service it's on — the answer goes to the admins too.
+    // (Kept verbatim: it's an instruction, and it must stay a question.)
     const serviceQ = getSetting('bot.problemServiceQuestion');
     const ackFull = [ack, serviceQ].filter(Boolean).join('\n');
     if (ackFull) {
@@ -1045,7 +1054,7 @@ export async function handleGroupMessage(ctx) {
   // (Clear resolutions got the warm close above; still-broken escalated.)
   if (st?.fromAutoClose && isFollowUp && !looksLikeQuestion(text)) {
     setLogSource(logId, 'soft-close');
-    const msg = getSetting('bot.problemSoftCloseMessage');
+    const msg = await spoken('bot.problemSoftCloseMessage');
     if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
     return;
   }
@@ -1182,13 +1191,13 @@ export async function handleDirectMessage(ctx) {
   // replies (configurable) and never reach the AI or the off-topic path.
   if (looksLikeGreeting(text)) {
     setLogSource(logId, 'greeting');
-    const msg = getSetting('bot.greetingMessage');
+    const msg = await spoken('bot.greetingMessage');
     if (msg) await ctx.reply(msg).catch(() => {});
     return;
   }
   if (looksLikeThanks(text)) {
     setLogSource(logId, 'thanks');
-    const msg = getSetting('bot.thanksMessage');
+    const msg = await spoken('bot.thanksMessage');
     if (msg) await ctx.reply(msg).catch(() => {});
     return;
   }

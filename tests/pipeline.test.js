@@ -48,6 +48,9 @@ before(async () => {
   // IMDb checking has its own dedicated test with a local mock server —
   // everything else must never touch the network.
   setSetting('vod.imdbCheck', false);
+  // AI rewording of canned replies has its own tests — everywhere else the
+  // exact configured texts must come out verbatim.
+  setSetting('bot.aiRephrase', false);
 
   db.prepare(`INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at)
               VALUES ('How do I install on Firestick?', 'Use the Downloader app with our code.', 'install, firestick, downloader', 1, 0, 0, 0)`).run();
@@ -1811,4 +1814,43 @@ test('"all good now" replying to the auto-close message closes warmly instead', 
   await handleGroupMessage(ctx);
   assert.equal(ctx.sent.length, 1);
   assert.match(ctx.sent[0].msg, /glad it is sorted/);
+});
+
+// ---- AI-reworded canned replies ---------------------------------------------
+
+test('canned replies get AI-reworded, with the saved text as the meaning', async () => {
+  setSetting('bot.aiRephrase', true);
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.greetingMessage', 'Hey! Ask me anything about the service. /help shows my tricks. What can I sort for you?');
+  aiResponse = 'Well hello! 👋 Fire away with any service question — /help lists everything I can do. What can I get sorted for you?';
+  const ctx = fakeCtx('hello', { userId: 77001 });
+  await handleDirectMessage(ctx);
+  assert.match(ctx.sent[0].msg, /Well hello/, 'reworded greeting sent');
+  setSetting('bot.aiRephrase', false);
+});
+
+test('rewording that drops a /command or invents a question falls back to the saved text', async () => {
+  setSetting('bot.aiRephrase', true);
+  // Dropped /help → the saved text goes out instead.
+  aiResponse = 'Well hello! Ask me anything about the service.';
+  const ctx = fakeCtx('hi there', { userId: 77002 });
+  await handleDirectMessage(ctx);
+  assert.match(ctx.sent[0].msg, /\/help shows my tricks/, 'command must survive rewording');
+
+  // The thanks reply has no question — an invented one falls back too.
+  setSetting('bot.thanksMessage', 'Anytime! Shout if you need anything else.');
+  aiResponse = 'No worries at all! Anything else I can do for you?';
+  const ctx2 = fakeCtx('thanks mate', { userId: 77003 });
+  await handleDirectMessage(ctx2);
+  assert.equal(ctx2.sent[0].msg, 'Anytime! Shout if you need anything else.');
+  setSetting('bot.aiRephrase', false);
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('aiRephrase off sends the saved text verbatim with no AI call', async () => {
+  const before = lastAiRequest;
+  const ctx = fakeCtx('hello', { userId: 77004 });
+  await handleDirectMessage(ctx);
+  assert.equal(ctx.sent[0].msg, 'Hey! Ask me anything about the service. /help shows my tricks. What can I sort for you?');
+  assert.equal(lastAiRequest, before, 'no AI call spent on a canned reply');
 });
