@@ -1921,3 +1921,58 @@ test('a service URL pasted into an FAQ never leaks — the bot points to the URL
   setSetting('services.name2', '');
   setSetting('services.url2', '');
 });
+
+// ---- DM problem triage (the group flow's sibling) ---------------------------
+
+test('DM problem triage: fixes first, instant "Yes" nudged, still-broken escalates, service captured, resolution closes', async () => {
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.problemNudgeMinutes', 3);
+  setSetting('bot.problemNudgeMessage', 'That was quick! Give them a real go first.');
+  setSetting('bot.problemFollowupNote', 'Still happening after trying these? Reply here.');
+  setSetting('bot.problemFlaggedNote', '✅ Flagged to the team.');
+  setSetting('bot.problemServiceQuestion', 'Which service is this on?');
+  setSetting('bot.problemResolvedNote', 'Great — glad its sorted!');
+
+  // The live case: a DM problem report gets fixes + the follow-up invite.
+  const r = fakeCtx('ive got buffering issues on bbc 1', { userId: 88901 });
+  await handleDirectMessage(r);
+  assert.equal(r.sent.length, 1);
+  assert.match(r.sent[0].msg, /Still happening after trying these/, 'fixes answered with follow-up note');
+  assert.ok(db.prepare('SELECT 1 FROM problem_reports WHERE tg_user_id = 88901').get(), 'report recorded from a DM');
+
+  // A bare instant "Yes" gets the physics pushback, never "Great!".
+  const y1 = fakeCtx('Yes', { userId: 88901 });
+  await handleDirectMessage(y1);
+  assert.match(y1.sent[0].msg, /That was quick/);
+
+  // Still broken → escalated to the team + which-service question.
+  const y2 = fakeCtx('yeah still doing it', { userId: 88901 });
+  await handleDirectMessage(y2);
+  assert.match(y2.sent[0].msg, /Flagged to the team/);
+  assert.match(y2.sent[0].msg, /Which service is this on\?/);
+  assert.ok(db.prepare('SELECT 1 FROM problem_reports WHERE tg_user_id = 88901 AND escalated = 1').get());
+
+  // The service answer is captured onto the report.
+  const s = fakeCtx('flix', { userId: 88901 });
+  await handleDirectMessage(s);
+  assert.match(s.sent[0].msg, /Passed that along/);
+  assert.equal(db.prepare('SELECT service FROM problem_reports WHERE tg_user_id = 88901 AND escalated = 1').get().service, 'flix');
+
+  // A question mid-triage is answered normally, not hijacked.
+  const q = fakeCtx('how do i install on my firestick??', { userId: 88901 });
+  await handleDirectMessage(q);
+  assert.match(q.sent[0].msg, /Downloader app/, 'normal FAQ answer mid-triage');
+
+  // "all good now" closes the report warmly and tells the team.
+  const done = fakeCtx('all good now mate, sorted', { userId: 88901 });
+  await handleDirectMessage(done);
+  assert.match(done.sent[0].msg, /glad its sorted/);
+  assert.equal(db.prepare("SELECT resolved_by FROM problem_reports WHERE tg_user_id = 88901 ORDER BY id DESC").get().resolved_by, 'user');
+
+  setSetting('bot.problemNudgeMinutes', 0);
+  _resetProblemTriage();
+  _resetProblemQueue();
+});

@@ -1118,6 +1118,116 @@ export async function handleGroupMessage(ctx) {
   }
 }
 
+// Problem triage for DMs — the group flow's sibling. Everything in a DM is
+// aimed at the bot, so no reply-chain logic is needed: the in-memory state
+// carries the conversation, and a bare short "Yes" after the fixes stands in
+// for the group's reply-to-bot confirmation. Returns true when the message
+// was consumed. (Live bug this fixes: DM "buffering on bbc 1" → deflecting
+// AI answer → "Yes" → "Great! How can I assist you further?" — no fixes
+// followed up, nothing escalated.)
+async function handleDmProblemReply(ctx, text, logId) {
+  const st = getProblemState(ctx.from.id);
+  if (!st) return false;
+  const send = (msg) => ctx.api.sendMessage(ctx.chat.id, msg).catch(() => {});
+  const alreadyEscalated = Boolean(st.escalatedAt && Date.now() - st.escalatedAt < PROBLEM_WINDOW_MS);
+  const isProblem = looksLikeProblem(text);
+
+  // Thanks after escalation = "thanks for passing it along" — keep it open.
+  if (looksLikeThanks(text) && !saysResolved(text) && alreadyEscalated) {
+    setLogSource(logId, 'thanks');
+    const msg = await spoken('bot.thanksMessage');
+    if (msg) await send(msg);
+    return true;
+  }
+  if ((saysResolved(text) || looksLikeThanks(text)) && !saysStillBroken(text)) {
+    problemState.delete(ctx.from.id);
+    db.prepare("UPDATE problem_reports SET resolved = 1, resolved_by = 'user' WHERE tg_user_id = ? AND resolved = 0 AND ts > ?")
+      .run(ctx.from.id, now() - 2 * 3600);
+    setLogSource(logId, 'resolved');
+    if (alreadyEscalated) {
+      hub.notifyAdmins(`✅ @${ctx.from?.username || ctx.from?.first_name} says their issue is now fixed: "${text.slice(0, 120)}"`).catch(() => {});
+    }
+    const note = await spoken('bot.problemResolvedNote');
+    if (note) await send(note);
+    return true;
+  }
+
+  // Which-service answer for an escalated report.
+  if (st.awaitingService && !looksLikeQuestion(text) && !isProblem) {
+    setProblemState(ctx.from.id, { awaitingService: false, at: Date.now() });
+    const info = text.slice(0, 100);
+    db.prepare('UPDATE problem_reports SET service = ? WHERE tg_user_id = ? AND escalated = 1 AND resolved = 0')
+      .run(info, ctx.from.id);
+    setLogSource(logId, 'service-info');
+    if (getSetting('reports.alertProblems')) {
+      hub.notifyAdmins(`↳ @${ctx.from?.username || ctx.from?.first_name} says the escalated problem is on: "${info}"`).catch(() => {});
+    }
+    await send('👍 Passed that along to the team.');
+    return true;
+  }
+
+  let isConfirmation = false;
+  if (!alreadyEscalated) {
+    const shortAffirm =
+      /^\s*(yes|yeah|yep|yup|aye|i (have|did)|did (that|them|it)|done (that|them|it|all)|tried)/i.test(text) &&
+      text.trim().split(/\s+/).length <= 8;
+    isConfirmation =
+      isProblem || saysStillBroken(text) || negatesFixes(text) || hasTimeDetail(text) ||
+      (shortAffirm && !st.fromAutoClose);
+  }
+
+  if (isConfirmation) {
+    // Same physics check as the group: an instant "Yes" gets one pushback.
+    const nudgeMinutes = Number(getSetting('bot.problemNudgeMinutes')) || 0;
+    const sinceAnswer = st.answeredAt ? Date.now() - st.answeredAt : null;
+    const tooQuick = nudgeMinutes > 0 && sinceAnswer !== null && sinceAnswer < nudgeMinutes * 60000;
+    if (
+      tooQuick && !st.nudgedAt &&
+      !negatesFixes(text) && !hasTimeDetail(text) &&
+      getSetting('service.status') === 'operational'
+    ) {
+      setProblemState(ctx.from.id, { at: Date.now(), nudgedAt: Date.now() });
+      setLogSource(logId, 'nudged');
+      const nudge = await spoken('bot.problemNudgeMessage');
+      if (nudge) await send(nudge);
+      return true;
+    }
+
+    setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: Date.now() });
+    recordProblem(ctx, text, { answered: true });
+    db.prepare('UPDATE problem_reports SET escalated = 1 WHERE tg_user_id = ? AND resolved = 0').run(ctx.from.id);
+    const alertText = st.firstText && st.firstText !== text ? `${st.firstText} — ${text}` : text;
+    queueProblemAlert({
+      tg_user: ctx.from?.username || ctx.from?.first_name,
+      tg_user_id: ctx.from?.id,
+      text: alertText,
+      topic: extractProblemTopic(st.firstText || '') || extractProblemTopic(text),
+    });
+    setLogSource(logId, 'escalated');
+    const ack = await spoken('bot.problemFlaggedNote');
+    const serviceQ = getSetting('bot.problemServiceQuestion');
+    const ackFull = [ack, serviceQ].filter(Boolean).join('\n');
+    if (ackFull) await send(ackFull);
+    if (serviceQ) setProblemState(ctx.from.id, { awaitingService: true });
+    return true;
+  }
+
+  // Neutral reply to the auto-close notice — soft close, door open.
+  if (st.fromAutoClose && !looksLikeQuestion(text) && !isProblem) {
+    setLogSource(logId, 'soft-close');
+    const msg = await spoken('bot.problemSoftCloseMessage');
+    if (msg) await send(msg);
+    return true;
+  }
+
+  if (isProblem && alreadyEscalated) {
+    // Admins are already on it — stay quiet rather than nag or re-alert.
+    setProblemState(ctx.from.id, { at: Date.now() });
+    return true;
+  }
+  return false; // questions and unrelated messages flow to normal answering
+}
+
 export async function handleDirectMessage(ctx) {
   const media = unreadableMedia(ctx.message);
   const text = ctx.message?.text ?? ctx.message?.caption;
@@ -1190,6 +1300,11 @@ export async function handleDirectMessage(ctx) {
     }
   }
 
+  // Problem triage first: with an active report, "yes" / "still broken" /
+  // "sorted" replies belong to it — a bare "cheers" then means "resolved",
+  // not a generic thank-you.
+  if (await handleDmProblemReply(ctx, text, logId)) return;
+
   // A wave back beats the topic police: greetings and thanks get warm canned
   // replies (configurable) and never reach the AI or the off-topic path.
   if (looksLikeGreeting(text)) {
@@ -1205,5 +1320,22 @@ export async function handleDirectMessage(ctx) {
     return;
   }
 
-  await answer(ctx, text, { isDm: true, logId });
+  // First report: record it for the panel, answer with the fixes, and
+  // invite the user to confirm — the same fixes-first flow as the group.
+  let problemId = null;
+  let problemSuffix = null;
+  let problemPrefix = null;
+  if (looksLikeProblem(text) && !getProblemState(ctx.from.id)) {
+    setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: null, firstText: text.slice(0, 200), fromAutoClose: false });
+    problemId = recordProblem(ctx, text, { answered: false });
+    problemSuffix = getSetting('bot.problemFollowupNote') || null;
+    checkOutage();
+    problemPrefix = serviceStatusLine();
+  }
+  const outcome = await answer(ctx, text, { isDm: true, logId, suffix: problemSuffix, prefix: problemPrefix });
+  if (problemId) {
+    const gotAnswer = ['faq', 'ai'].includes(outcome);
+    db.prepare('UPDATE problem_reports SET answered = ? WHERE id = ?').run(gotAnswer ? 1 : 0, problemId);
+    if (gotAnswer) setProblemState(ctx.from.id, { answeredAt: Date.now() });
+  }
 }

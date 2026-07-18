@@ -239,7 +239,7 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
     ...(assumeOnTopic
       ? [{
           role: 'system',
-          content: `The next user message is a support request about the service (a problem report or support question). It IS in scope — do not reply ${OFFTOPIC_SENTINEL}. Answer it using the knowledge, and ask for missing details if needed. Keep it short (2-4 sentences). Never ask more than ONE question, and never send a numbered list of questions or checks.`,
+          content: `The next user message is a support request about the service (a problem report or support question). It IS in scope — do not reply ${OFFTOPIC_SENTINEL}. Answer it using the knowledge, and ask for missing details if needed. Keep it short (2-4 sentences). Never ask more than ONE question, and never send a numbered list of questions or checks. Never ask whether they tried earlier fixes — give the fixes (or the single next step) directly; the system handles the follow-up.`,
         }]
       : []),
     ...(smallTalk
