@@ -241,7 +241,7 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
     ...(assumeOnTopic
       ? [{
           role: 'system',
-          content: `The next user message is a support request about the service (a problem report or support question). It IS in scope — do not reply ${OFFTOPIC_SENTINEL}. Answer it using the knowledge, and ask for missing details if needed. Keep it short (2-4 sentences). Never ask more than ONE question, and never send a numbered list of questions or checks. Never ask whether they tried earlier fixes — give the fixes (or the single next step) directly; the system handles the follow-up.`,
+          content: `The next user message is a support request about the service (a problem report or support question). It IS in scope — do not reply ${OFFTOPIC_SENTINEL}. Answer it using the knowledge, and ask for missing details if needed. Keep it short (2-4 sentences). Never ask more than ONE question, and never send a numbered list of questions or checks. Never ask whether they tried earlier fixes — give the fixes (or the single next step) directly; the system handles the follow-up. For playback or app problems, restarting the DEVICE (full power-cycle — e.g. unplug a Firestick for 30 seconds) always belongs among the first fixes.`,
         }]
       : []),
     ...(secondRound
@@ -259,7 +259,7 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
     ...(playback === 'live'
       ? [{
           role: 'system',
-          content: 'This problem is about LIVE TV (a channel or live event). Live streams cannot be paused, rewound or restarted from the beginning — NEVER suggest pause, rewind or resume for it. The go-to live fixes, in order: a different link/stream for the same channel, the backup app with the same login, restarting the app.',
+          content: 'This problem is about LIVE TV (a channel or live event). Live streams cannot be paused, rewound or restarted from the beginning — NEVER suggest pause, rewind or resume for it. The go-to live fixes, in order: a different link/stream for the same channel, the backup app with the same login, restarting the app and the device (full power-cycle).',
         }]
       : []),
     ...(playback === 'vod'

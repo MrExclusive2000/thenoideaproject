@@ -274,6 +274,7 @@ test('problem statements in the group trigger an answer (no question mark needed
   const sysNotes = lastAiRequest.messages.filter((m) => m.role === 'system');
   assert.ok(sysNotes.some((m) => /IS in scope/.test(m.content)), 'on-topic hint present');
   assert.ok(sysNotes.some((m) => /LIVE TV/.test(m.content)), 'bbc1 report marked as live playback');
+  assert.ok(sysNotes.some((m) => /restarting the DEVICE/.test(m.content)), 'device power-cycle pushed into first-round fixes');
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
 
