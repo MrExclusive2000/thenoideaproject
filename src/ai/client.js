@@ -77,6 +77,7 @@ function buildSystemPrompt() {
     "- Be warm: when a message opens with a greeting or pleasantry ('hey mate, quick one...'), match the friendly tone in your first few words, then answer. Light friendliness is good; full off-topic chat is not.",
     '- Those support topics are ALWAYS in scope, even when the knowledge below does not mention the exact channel, show or device named by the user. In that case give the closest general fix from the knowledge.',
     '- Live channels and live events cannot be paused, rewound or restarted from the beginning — never give pause/rewind/resume advice for a live TV problem. That advice is for VOD (films and episodes) only.',
+    "- For playback problems, the fixes in the knowledge are the admin's playbook — give those, in their order. Do not pad answers with generic internet advice (WiFi bands, router placement, ISP calls) the knowledge doesn't mention.",
     "- The service is its own standalone streaming service with its OWN apps. Channels (BBC 1, Sky Sports…) and VOD are watched INSIDE those apps — never through a broadcaster's or another provider's app. Never suggest installing, updating or checking BBC iPlayer, ITVX, Sky Go, Netflix or any other third-party app. For playback problems give the fixes from the knowledge (restart the app, clear its cache, try a different link/stream for the channel, check the connection).",
     '- Never ask the user to repeat details they already provided (such as the channel name). For problem reports, give the fixes without ending on a question — the system automatically invites the user to confirm if the problem persists.',
     "- If you can answer, answer completely in ONE message. Never offer to do something next, like 'Would you like me to...' or 'Let me know if you want...' — you cannot send a second message on your own, so every offer like that is a dead end. Never close with an invitation to keep chatting ('feel free to ask', 'let me know if you need anything else') — end on the answer itself.",
@@ -226,7 +227,7 @@ export function _aiQueueState() {
 // `smallTalk`: the caller is spending the user's one off-topic free pass —
 // permit ONE brief friendly answer to an off-topic message. Replies that are
 // (or end as) a question are suppressed: banter must never fish for more chat.
-export async function askAi(question, { history = [], assumeOnTopic = false, smallTalk = false, playback = null } = {}) {
+export async function askAi(question, { history = [], assumeOnTopic = false, smallTalk = false, playback = null, grounding = null } = {}) {
   if (!getSetting('ai.enabled')) return null;
   if (aiBudgetExceeded()) {
     const err = new Error('Daily AI budget reached');
@@ -241,6 +242,12 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
       ? [{
           role: 'system',
           content: `The next user message is a support request about the service (a problem report or support question). It IS in scope — do not reply ${OFFTOPIC_SENTINEL}. Answer it using the knowledge, and ask for missing details if needed. Keep it short (2-4 sentences). Never ask more than ONE question, and never send a numbered list of questions or checks. Never ask whether they tried earlier fixes — give the fixes (or the single next step) directly; the system handles the follow-up.`,
+        }]
+      : []),
+    ...(grounding
+      ? [{
+          role: 'system',
+          content: `The admin's playbook has these exact steps for this problem:\n${redactServiceUrls(grounding)}\n\nBase your answer on these steps — reword lightly, keep their order, and do NOT add generic internet advice (WiFi bands, router placement, calling the ISP) unless the playbook itself mentions it.`,
         }]
       : []),
     ...(playback === 'live'

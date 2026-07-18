@@ -684,7 +684,14 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
           const playback = looksLikeProblem(question)
             ? (isContentIssue(question) ? 'vod' : (looksLikeLiveIssue(question) ? 'live' : null))
             : null;
-          reply = await askAi(question, { history, assumeOnTopic, playback });
+          // A problem with a near-miss FAQ answers from the ADMIN'S playbook,
+          // not from the model's generic streaming instincts (live bug:
+          // "buffering on bbc 1" got 5GHz-WiFi advice and skipped the FAQ's
+          // "try a different link for the channel").
+          const grounding = looksLikeProblem(question) && result.nearMiss
+            ? String(result.nearMiss.answer).slice(0, 1200)
+            : null;
+          reply = await askAi(question, { history, assumeOnTopic, playback, grounding });
         }
 
         if (reply) {

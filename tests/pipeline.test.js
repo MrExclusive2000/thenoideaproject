@@ -2060,3 +2060,23 @@ test('VOD problems get the VOD hint; a named film beats channel words', async ()
   assert.ok(sysNotes.some((m) => /LIVE TV/.test(m.content)), 'match report marked live');
   _resetProblemTriage();
 });
+
+test('problem reports with a near-miss FAQ are grounded in the admin playbook', async () => {
+  _resetProblemTriage();
+  setSetting('bot.cooldownSeconds', 0);
+  // The buffering FAQ exists but scores under the full-match threshold for
+  // this phrasing — its steps must still drive the AI's answer.
+  const ctx = fakeCtx('ive got buffering issues on bbc 1', { userId: 89201 });
+  await handleDirectMessage(ctx);
+  const sysNotes = lastAiRequest.messages.filter((m) => m.role === 'system');
+  const playbook = sysNotes.find((m) => /exact steps for this problem/.test(m.content));
+  assert.ok(playbook, 'playbook grounding note present');
+  assert.match(playbook.content, /different link/, "the FAQ's own steps are the source");
+  assert.match(playbook.content, /do NOT add generic internet advice/);
+
+  // Non-problem questions get no playbook note.
+  const ctx2 = fakeCtx('what payment methods do you take?', { userId: 89202 });
+  await handleDirectMessage(ctx2);
+  assert.ok(!lastAiRequest.messages.some((m) => m.role === 'system' && /exact steps for this problem/.test(m.content)));
+  _resetProblemTriage();
+});
