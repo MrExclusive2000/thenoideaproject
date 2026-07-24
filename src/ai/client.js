@@ -1,5 +1,6 @@
 import { db, now } from '../db/db.js';
 import { getSetting, redactServiceUrls } from '../settings.js';
+import { scoreFaq, tokens } from '../faq/matcher.js';
 import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail } from './guardrails.js';
 
 const usageStmt = db.prepare(
@@ -20,13 +21,72 @@ export function aiBudgetExceeded() {
   return aiUsageToday().calls >= budget;
 }
 
-function buildSystemPrompt() {
+// The KNOWLEDGE block used to dump EVERY enabled FAQ + guide on every call.
+// With 30+ FAQs that ran ~4500 tokens, and the whole prompt hit ~6400 —
+// past a CPU node's context, so it truncated the middle (losing half the
+// rules), corrupted the chat template, and returned a 500 after 90s. The
+// FAQ matcher already runs BEFORE the AI (strong matches answer directly,
+// near-misses are injected as grounding), so the model only needs the FAQs
+// RELEVANT to the current question. This budget caps how much FAQ/guide
+// text can ever reach the prompt, so adding FAQs can never blow the context.
+const KNOWLEDGE_CHAR_BUDGET = 4200; // ~1050 tokens of FAQ text
+const KNOWLEDGE_MAX_FAQS = 10;
+const GUIDE_CHAR_BUDGET = 1400; // ~350 tokens, relevant guides only
+
+// Pick the FAQs worth showing the model for THIS question: highest-scoring
+// first, capped by count and characters. No question (rare — history-only
+// calls) falls back to the highest-priority FAQs. Never returns everything.
+function selectFaqs(question, faqs) {
+  const ranked = String(question || '').trim()
+    ? faqs
+        .map((f) => ({ f, s: scoreFaq(question, f).score }))
+        .filter((x) => x.s > 0)
+        .sort((a, b) => b.s - a.s)
+        .map((x) => x.f)
+    : [];
+  // Nothing scored (unusual phrasing) → give the top-priority FAQs as a base
+  // so the model still has grounding. faqs already arrive priority-ordered.
+  const pool = ranked.length ? ranked : faqs;
+  const out = [];
+  let used = 0;
+  for (const f of pool) {
+    if (out.length >= KNOWLEDGE_MAX_FAQS) break;
+    const size = f.question.length + f.answer.length + 8;
+    if (used + size > KNOWLEDGE_CHAR_BUDGET && out.length) break;
+    out.push(f);
+    used += size;
+  }
+  return out;
+}
+
+// Guides are large — include only ones whose title clearly relates to the
+// question, trimmed and budget-capped.
+function selectGuides(question, guides) {
+  const qTokens = new Set(tokens(question || ''));
+  if (!qTokens.size) return [];
+  const out = [];
+  let used = 0;
+  for (const g of guides) {
+    const titleTokens = tokens(g.title);
+    if (!titleTokens.some((t) => t.length >= 4 && qTokens.has(t))) continue;
+    const body = g.body_md.slice(0, 1000);
+    if (used + body.length + g.title.length > GUIDE_CHAR_BUDGET && out.length) break;
+    out.push({ title: g.title, body });
+    used += body.length + g.title.length;
+    if (out.length >= 2) break;
+  }
+  return out;
+}
+
+export function buildSystemPrompt(question = '') {
   const instructions = getSetting('bot.instructions');
   const status = getSetting('service.status');
   const note = getSetting('service.note');
 
-  const faqs = db.prepare('SELECT question, answer FROM faqs WHERE enabled = 1 ORDER BY priority DESC, id').all();
-  const guides = db.prepare('SELECT title, body_md FROM guides WHERE visible = 1 ORDER BY sort, id').all();
+  const allFaqs = db.prepare('SELECT question, answer, keywords, priority FROM faqs WHERE enabled = 1 ORDER BY priority DESC, id').all();
+  const allGuides = db.prepare('SELECT title, body_md FROM guides WHERE visible = 1 ORDER BY sort, id').all();
+  const faqs = selectFaqs(question, allFaqs);
+  const guides = selectGuides(question, allGuides);
 
   const knowledge = [];
   // Name the services (names only — the login URLs stay OUT of the prompt on
@@ -57,9 +117,7 @@ function buildSystemPrompt() {
     for (const f of faqs) knowledge.push(`Q: ${f.question}\nA: ${f.answer}`);
   }
   for (const g of guides) {
-    // Keep the prompt lean — long prompts cost real seconds on CPU nodes and
-    // the full guide text lives in the portal anyway.
-    knowledge.push(`## Guide: ${g.title}\n${g.body_md.slice(0, 2000)}`);
+    knowledge.push(`## Guide: ${g.title}\n${g.body}`);
   }
   if (status !== 'operational' || note) {
     knowledge.push(`## Current service status\n${status}${note ? ` — ${note}` : ''}`);
@@ -235,7 +293,7 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
     throw err;
   }
 
-  const systemPrompt = buildSystemPrompt();
+  const systemPrompt = buildSystemPrompt(question);
   const messages = [
     { role: 'system', content: systemPrompt },
     ...(assumeOnTopic
@@ -316,7 +374,10 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
   // the conversation — otherwise suppress and let the FAQ fallback answer.
   const numbers = reply.match(/\d{5,}/g) || [];
   if (numbers.length) {
-    const known = `${systemPrompt} ${question} ${history.map((h) => h.content).join(' ')}`;
+    // Include the grounding FAQ too — with the KNOWLEDGE block now trimmed to
+    // the question's top FAQs, a legit code can live in the near-miss FAQ that
+    // was injected separately rather than in a selected one.
+    const known = `${systemPrompt} ${grounding || ''} ${question} ${history.map((h) => h.content).join(' ')}`;
     if (numbers.some((n) => !known.includes(n))) return null;
   }
 
@@ -329,7 +390,7 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
   const brands = reply.match(/\b(bbc iplayer|iplayer|itvx|itv hub|sky go|now tv|netflix|disney\+|disney plus|prime video|amazon prime|hulu|peacock|paramount\+|paramount plus)\b/gi) || [];
   if (brands.length) {
     const knowledgeText = systemPrompt.split('# KNOWLEDGE')[1] || '';
-    const known = `${knowledgeText} ${question} ${history.map((h) => h.content).join(' ')}`.toLowerCase();
+    const known = `${knowledgeText} ${grounding || ''} ${question} ${history.map((h) => h.content).join(' ')}`.toLowerCase();
     if (brands.some((b) => !known.includes(b.toLowerCase()))) return null;
   }
 

@@ -47,6 +47,13 @@ Follow this top to bottom and you'll be live in ~15 minutes.
 4. Console shows `Panel listening on ...` when it's up.
 
 > **Ollama note:** make sure Ollama listens on an address the container can reach (`OLLAMA_HOST=0.0.0.0` on the node) and that the model is pulled (`ollama pull llama3.1`).
+>
+> **Ollama on a CPU node — set these env vars, or the AI will time out with 500s:**
+> - `OLLAMA_CONTEXT_LENGTH=8192` — the default context (often ~2048–4096) is too small for the support prompt; an overflowing prompt gets truncated mid-template and Ollama returns a 500.
+> - `OLLAMA_NUM_PARALLEL=1` — otherwise Ollama splits the context between slots (halving the usable window). One request at a time is right for a CPU model anyway.
+> - `OLLAMA_KEEP_ALIVE=-1` — keeps the model resident so it doesn't reload (a ~12s stall) between messages.
+>
+> The bot already keeps its prompt small by sending only the FAQs relevant to each question (not your whole FAQ list), so a 7B model on CPU can keep up. If answers are still slow, use a smaller/faster model (`qwen2.5:7b`, `llama3.1:8b`) and raise **AI settings → timeout** to 120s. Avoid `gemma*` on CPU — it re-reads the whole prompt every message.
 
 ## 6. First login & go-live checklist
 

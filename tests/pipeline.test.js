@@ -10,7 +10,7 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-test-'));
 const { db } = await import('../src/db/db.js');
 const { setSetting } = await import('../src/settings.js');
 const { answer, handleDirectMessage, handleGroupMessage, replyContext, _resetProblemTriage, _resetSmallTalk } = await import('../src/bot/pipeline.js');
-const { _aiQueueState, askAi } = await import('../src/ai/client.js');
+const { _aiQueueState, askAi, buildSystemPrompt } = await import('../src/ai/client.js');
 const { flushProblemAlerts, _resetProblemQueue, autoCloseSweep } = await import('../src/bot/problems.js');
 const { hub } = await import('../src/bot/hub.js');
 const { state } = await import('../src/state.js');
@@ -2114,4 +2114,27 @@ test('wrong-copy content issues: no troubleshooting rounds — capture the title
   setSetting('bot.problemFixRounds', 1);
   setSetting('bot.problemNudgeMinutes', 0);
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+// ---- System-prompt size is bounded (CPU-node context safety) ----------------
+
+test('the AI prompt only carries FAQs relevant to the question, and stays bounded', async () => {
+  // Two very distinctive, unrelated FAQs.
+  db.prepare(`INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at)
+              VALUES ('How do I pay with cryptocurrency litecoin?', 'Open your Exodus wallet and send litecoin to the address the admin gives you.', 'crypto, litecoin, payment, wallet', 1, 0, 0, 0)`).run();
+  db.prepare(`INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at)
+              VALUES ('How do I set up parental controls and the PIN?', 'Open Settings then Parental Controls and enter the default PIN to change it.', 'parental, pin, controls, kids', 1, 0, 0, 0)`).run();
+
+  const crypto = buildSystemPrompt('how do i pay with litecoin crypto');
+  assert.match(crypto, /Exodus wallet/, 'the relevant crypto FAQ is included');
+  assert.ok(!crypto.includes('Parental Controls'), 'the unrelated PIN FAQ is left out');
+
+  // Flood the DB with FAQs; the prompt must stay small enough for a CPU node.
+  const ins = db.prepare('INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at) VALUES (?, ?, ?, 1, 0, 0, 0)');
+  for (let i = 0; i < 120; i++) ins.run(`Filler question ${i} about topic ${i}`, `A long filler answer ${i}. `.repeat(15), `filler${i}, topic${i}`);
+  const flooded = buildSystemPrompt('how do i pay with litecoin crypto');
+  assert.ok(flooded.length < 14000, `prompt stays bounded under 120+ FAQs (was ${flooded.length} chars)`);
+  assert.match(flooded, /Exodus wallet/, 'the relevant FAQ survives the flood');
+  // clean up the filler so later tests are unaffected
+  db.prepare("DELETE FROM faqs WHERE question LIKE 'Filler question %'").run();
 });
