@@ -53,7 +53,12 @@ Follow this top to bottom and you'll be live in ~15 minutes.
 > - `OLLAMA_NUM_PARALLEL=1` — otherwise Ollama splits the context between slots (halving the usable window). One request at a time is right for a CPU model anyway.
 > - `OLLAMA_KEEP_ALIVE=-1` — keeps the model resident so it doesn't reload (a ~12s stall) between messages.
 >
-> The bot already keeps its prompt small by sending only the FAQs relevant to each question (not your whole FAQ list), so a 7B model on CPU can keep up. If answers are still slow, use a smaller/faster model (`qwen2.5:7b`, `llama3.1:8b`) and raise **AI settings → timeout** to 120s. Avoid `gemma*` on CPU — it re-reads the whole prompt every message.
+> The bot already keeps its prompt small by sending only the FAQs relevant to each question (not your whole FAQ list), so a 7B model on CPU won't overflow the context.
+>
+> **If answers time out (Ollama 500s even with a small prompt), the node is generating too slowly, not overflowing.** CPU generation is ~4 tokens/sec for a 7B model, so a full answer needs 60-90s. Two fixes:
+> - **AI settings** → set **timeout** to `180`s and **max answer length** to `220` tokens (these are the defaults now, but confirm them if you saved AI settings on an older build).
+> - **Use a smaller model** — a 3B (`qwen2.5:3b`, `llama3.2:3b`) generates 2-3× faster on CPU and answers support questions fine. This is the single biggest speed win. Also check the node isn't low on RAM (a 7B model that swaps crawls). Avoid `gemma*` on CPU — it re-reads the whole prompt every message.
+> - On a slow node, turn **AI-reworded replies** OFF (Bot settings) — it adds a second generation to every greeting/thanks. The saved text still sends instantly.
 
 ## 6. First login & go-live checklist
 

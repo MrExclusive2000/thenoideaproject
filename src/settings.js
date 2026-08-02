@@ -97,9 +97,14 @@ const DEFAULTS = {
   'ai.baseUrl': config.ai.baseUrl,
   'ai.apiKey': config.ai.apiKey,
   'ai.model': config.ai.model,
-  'ai.maxTokens': 350,
+  // Kept modest on purpose: answers are meant to be 2-4 sentences, and every
+  // extra token is real seconds on a CPU node (~4 tokens/sec generation).
+  'ai.maxTokens': 220,
   'ai.temperature': 0.3,
-  'ai.timeoutSeconds': 90,
+  // CPU generation is slow — a full answer can take 60-90s. The old 90s
+  // default cut answers off mid-generation (Ollama 500s). 180s gives them
+  // room to finish; raise it further for a big model on weak hardware.
+  'ai.timeoutSeconds': 180,
   // How many AI generations may run at once. Keep at 1 for CPU Ollama; raise
   // only if your endpoint genuinely serves parallel requests (GPU, cloud).
   'ai.maxConcurrent': 1,

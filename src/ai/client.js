@@ -157,7 +157,7 @@ export function buildSystemPrompt(question = '') {
 }
 
 async function chatCompletion(messages, { maxTokens, temperature, timeoutMs } = {}) {
-  timeoutMs = timeoutMs ?? (Number(getSetting('ai.timeoutSeconds')) || 90) * 1000;
+  timeoutMs = timeoutMs ?? (Number(getSetting('ai.timeoutSeconds')) || 180) * 1000;
   const baseUrl = String(getSetting('ai.baseUrl') || '').replace(/\/+$/, '');
   const apiKey = getSetting('ai.apiKey');
   const model = getSetting('ai.model');
@@ -175,7 +175,7 @@ async function chatCompletion(messages, { maxTokens, temperature, timeoutMs } = 
       body: JSON.stringify({
         model,
         messages,
-        max_tokens: maxTokens ?? (Number(getSetting('ai.maxTokens')) || 350),
+        max_tokens: maxTokens ?? (Number(getSetting('ai.maxTokens')) || 220),
         temperature: temperature ?? (Number(getSetting('ai.temperature')) || 0.3),
         stream: false,
       }),
@@ -426,7 +426,11 @@ export async function rephraseCanned(message) {
         },
         { role: 'user', content: String(message) },
       ],
-      { maxTokens: 150, temperature: 0.9, timeoutMs: 20000 }
+      // A reworded one-liner is short — cap output tight. The timeout tracks
+      // the node's real speed (canned replies are brief, so half the answer
+      // budget is plenty) but never below 40s, or a slow CPU node would fail
+      // every rephrase. Failure just falls back to the saved text.
+      { maxTokens: 80, temperature: 0.9, timeoutMs: Math.max(40000, (Number(getSetting('ai.timeoutSeconds')) || 180) * 500) }
     ));
     const out = cleanReply(text, { maxChars: 500 });
     if (!out) return message;

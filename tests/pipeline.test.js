@@ -180,7 +180,7 @@ test('AI overload/timeout gets an honest busy reply instead of silence', async (
   assert.equal(ctx.sent.length, 1);
   assert.match(ctx.sent[0].msg, /helping a lot of people/i);
   aiDelayMs = 0;
-  setSetting('ai.timeoutSeconds', 90);
+  setSetting('ai.timeoutSeconds', 180);
 });
 
 test('the AI knows its own commands and must not offer follow-ups', async () => {
