@@ -314,6 +314,17 @@ const migrations = [
   `
   DELETE FROM unanswered WHERE source = 'offtopic';
   `,
+  // v12 — CPU nodes generate at a few tokens/sec, so the old 90s timeout cut
+  // answers off mid-generation (Ollama 500s). Installs that saved AI settings
+  // on an older build kept 90s in the DB, overriding the new 180s default.
+  // Raise a too-low saved timeout, and cap a too-high saved max_tokens, so
+  // existing installs get the fix without touching the panel. Values are
+  // stored as JSON scalars ("90"), which CAST reads fine. Only nudges toward
+  // safety — never lowers a timeout or raises a token cap someone chose.
+  `
+  UPDATE settings SET value = '180' WHERE key = 'ai.timeoutSeconds' AND CAST(value AS INTEGER) < 180;
+  UPDATE settings SET value = '220' WHERE key = 'ai.maxTokens' AND CAST(value AS INTEGER) > 220;
+  `,
 ];
 
 export function migrate(db) {
