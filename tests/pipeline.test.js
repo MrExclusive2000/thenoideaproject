@@ -8,7 +8,7 @@ import path from 'node:path';
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-test-'));
 
 const { db } = await import('../src/db/db.js');
-const { setSetting } = await import('../src/settings.js');
+const { setSetting, getSetting } = await import('../src/settings.js');
 const { answer, handleDirectMessage, handleGroupMessage, replyContext, _resetProblemTriage, _resetSmallTalk } = await import('../src/bot/pipeline.js');
 const { _aiQueueState, askAi, buildSystemPrompt } = await import('../src/ai/client.js');
 const { flushProblemAlerts, _resetProblemQueue, autoCloseSweep } = await import('../src/bot/problems.js');
@@ -21,6 +21,14 @@ let aiResponse = 'Open Settings, then Applications, and clear the cache of the a
 let aiFinishReason = 'stop';
 let aiDelayMs = 0;
 let lastAiRequest = null;
+// The client asks for stream:true; the mock answers with SSE like a real
+// endpoint. Flipping this off exercises the plain-JSON fallback for servers
+// that ignore the flag.
+let aiStream = true;
+// >0: stream that many characters, then go silent forever without closing —
+// a node still grinding when the client's budget runs out.
+let aiHangAfterChars = 0;
+const openAiSockets = new Set();
 
 before(async () => {
   aiServer = http.createServer((req, res) => {
@@ -29,11 +37,27 @@ before(async () => {
     req.on('end', () => {
       lastAiRequest = JSON.parse(body);
       setTimeout(() => {
-        res.setHeader('content-type', 'application/json');
-        res.end(JSON.stringify({
-          choices: [{ message: { content: aiResponse }, finish_reason: aiFinishReason }],
-          usage: { total_tokens: 42 },
-        }));
+        if (!aiStream) {
+          res.setHeader('content-type', 'application/json');
+          res.end(JSON.stringify({
+            choices: [{ message: { content: aiResponse }, finish_reason: aiFinishReason }],
+            usage: { total_tokens: 42 },
+          }));
+          return;
+        }
+        res.setHeader('content-type', 'text/event-stream');
+        const frame = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+        const delta = (content) => frame({ choices: [{ delta: { content } }] });
+        if (aiHangAfterChars) {
+          openAiSockets.add(res);
+          delta(aiResponse.slice(0, aiHangAfterChars));
+          return; // never finishes — the client's clock must decide
+        }
+        // Chunked like a real stream so the client's assembly is exercised.
+        for (let i = 0; i < aiResponse.length; i += 16) delta(aiResponse.slice(i, i + 16));
+        frame({ choices: [{ delta: {}, finish_reason: aiFinishReason }], usage: { total_tokens: 42 } });
+        res.write('data: [DONE]\n\n');
+        res.end();
       }, aiDelayMs);
     });
   });
@@ -60,6 +84,8 @@ before(async () => {
 });
 
 after(() => {
+  for (const res of openAiSockets) res.end();
+  openAiSockets.clear();
   aiServer?.close();
   fs.rmSync(process.env.DATA_DIR, { recursive: true, force: true });
 });
@@ -2137,4 +2163,63 @@ test('the AI prompt only carries FAQs relevant to the question, and stays bounde
   assert.match(flooded, /Exodus wallet/, 'the relevant FAQ survives the flood');
   // clean up the filler so later tests are unaffected
   db.prepare("DELETE FROM faqs WHERE question LIKE 'Filler question %'").run();
+});
+
+test('the AI call is streamed', async () => {
+  await askAi('my app keeps freezing');
+  assert.equal(lastAiRequest.stream, true, 'streaming lets progress, not elapsed time, decide the timeout');
+});
+
+test('a partial answer survives the timeout instead of becoming a 500', async () => {
+  // The node writes one full sentence, then grinds on without ever finishing —
+  // exactly the shape of the CPU-node 500s (prompt read, generation crawling).
+  aiResponse = 'Restart the app first, then power-cycle the device for 30 seconds. Next you should clear the ca';
+  aiHangAfterChars = aiResponse.length;
+  setSetting('ai.timeoutSeconds', 1);
+  try {
+    const reply = await askAi('my app keeps freezing');
+    assert.ok(reply, 'partial text is kept, not thrown away');
+    assert.match(reply, /Restart the app first/);
+    assert.doesNotMatch(reply, /clear the ca$/, 'the ragged half-sentence is trimmed off');
+  } finally {
+    aiHangAfterChars = 0;
+    setSetting('ai.timeoutSeconds', 180);
+    aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+  }
+});
+
+test('a timeout with nothing written names the real cause, not the timeout', async () => {
+  aiHangAfterChars = 0;
+  aiStream = true;
+  const slow = http.createServer((req, res) => { req.resume(); openAiSockets.add(res); });
+  await new Promise((r) => slow.listen(0, '127.0.0.1', r));
+  const original = String(getSetting('ai.baseUrl'));
+  setSetting('ai.baseUrl', `http://127.0.0.1:${slow.address().port}/v1`);
+  setSetting('ai.timeoutSeconds', 1);
+  try {
+    await assert.rejects(
+      () => askAi('my app keeps freezing'),
+      (err) => {
+        assert.equal(err.code, 'AI_TIMEOUT');
+        assert.match(err.message, /token prompt|produced nothing|no response headers/);
+        assert.doesNotMatch(err.message, /raise the timeout/i);
+        assert.match(err.message, /OLLAMA_KEEP_ALIVE|smaller\/faster model/);
+        return true;
+      }
+    );
+  } finally {
+    setSetting('ai.baseUrl', original);
+    setSetting('ai.timeoutSeconds', 180);
+    slow.close();
+  }
+});
+
+test('an endpoint that ignores stream:true still works', async () => {
+  aiStream = false;
+  try {
+    const reply = await askAi('my app keeps freezing');
+    assert.match(reply, /clear the cache/, 'plain-JSON responses fall back cleanly');
+  } finally {
+    aiStream = true;
+  }
 });

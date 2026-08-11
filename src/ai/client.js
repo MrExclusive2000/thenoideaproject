@@ -156,18 +156,63 @@ export function buildSystemPrompt(question = '') {
   ].join('\n'));
 }
 
-async function chatCompletion(messages, { maxTokens, temperature, timeoutMs } = {}) {
+// A slow CPU node has TWO very different silences, and only one of them means
+// something is wrong:
+//   * before the first token — the node is reading the prompt. A 3k-token
+//     prompt at ~60 tok/s is a legitimate ~55s of silence.
+//   * between tokens, once they are flowing — a gap here means the connection
+//     or the runner actually died.
+// So the stall clock is armed only AFTER the first token; until then the wait
+// is bounded solely by the overall budget below.
+const STALL_MS = 45 * 1000;
+
+// Shared by both timeout paths. Deliberately does NOT say "raise the timeout":
+// a bigger timeout just makes the customer wait longer for the same answer.
+const SPEED_HINT =
+  'Raising the timeout will not fix this — the node needs to be faster or the prompt smaller: ' +
+  'use a smaller/faster model (llama3.1:8b, qwen2.5:7b — avoid gemma3 on CPU, it re-reads the whole prompt every message), ' +
+  'set OLLAMA_KEEP_ALIVE=-1 so it stops unloading and re-reading the model between questions, ' +
+  'set OLLAMA_NUM_PARALLEL=1 so parallel slots stop splitting the context, ' +
+  'and trim the FAQ/guide text reaching the prompt.';
+
+const approxPromptTokens = (messages) =>
+  Math.round(messages.reduce((n, m) => n + String(m.content || '').length, 0) / 4);
+
+// Streamed, so the reply is judged on PROGRESS rather than total elapsed time.
+// The old non-streaming call waited the full budget and then threw away
+// whatever the node had already written, which on a slow box meant a customer
+// waited 3 minutes for the "bot is busy" line while the node kept grinding out
+// an answer nobody would ever read. Now, hitting the budget with text in hand
+// RETURNS that text marked truncated — askAi trims the ragged tail, so the
+// customer gets a real, slightly shorter answer. Aborting also frees the
+// node's single slot immediately instead of leaving the queue stuck behind it.
+async function chatCompletion(messages, { maxTokens, temperature, timeoutMs, idleMs } = {}) {
   timeoutMs = timeoutMs ?? (Number(getSetting('ai.timeoutSeconds')) || 180) * 1000;
+  idleMs = idleMs ?? Math.min(STALL_MS, timeoutMs);
   const baseUrl = String(getSetting('ai.baseUrl') || '').replace(/\/+$/, '');
   const apiKey = getSetting('ai.apiKey');
   const model = getSetting('ai.model');
   if (!baseUrl || !model) throw new Error('AI endpoint not configured');
 
+  const ac = new AbortController();
+  let stopReason = null;
+  let stallTimer = null;
+  const budgetTimer = setTimeout(() => { stopReason = 'budget'; ac.abort(); }, timeoutMs);
+  budgetTimer.unref?.();
+  const armStall = () => {
+    clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => { stopReason = 'stall'; ac.abort(); }, idleMs);
+    stallTimer.unref?.();
+  };
+  const clearTimers = () => { clearTimeout(budgetTimer); clearTimeout(stallTimer); };
+  const started = Date.now();
+  const elapsed = () => Math.round((Date.now() - started) / 1000);
+
   let res;
   try {
     res = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: ac.signal,
       headers: {
         'Content-Type': 'application/json',
         ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
@@ -177,17 +222,18 @@ async function chatCompletion(messages, { maxTokens, temperature, timeoutMs } = 
         messages,
         max_tokens: maxTokens ?? (Number(getSetting('ai.maxTokens')) || 220),
         temperature: temperature ?? (Number(getSetting('ai.temperature')) || 0.3),
-        stream: false,
+        stream: true,
       }),
     });
   } catch (err) {
+    clearTimers();
     // Node's bare "fetch failed" hides the real cause — surface it, plus the
     // most common configuration traps.
     const cause = err.cause?.code || err.cause?.message || err.name || err.message;
-    const isTimeout = /TimeoutError|AbortError/i.test(String(cause));
+    const isTimeout = stopReason !== null || /TimeoutError|AbortError/i.test(String(cause));
     let hint = '';
     if (isTimeout) {
-      hint = ` — the model did not answer within ${Math.round(timeoutMs / 1000)}s. It is probably too slow or overloaded for this hardware: switch to a smaller/faster model (e.g. llama3.1:8b or qwen2.5:7b — avoid gemma3 on CPU, it re-reads the whole prompt every message), or raise the timeout in AI settings.`;
+      hint = ` — no response headers in ${elapsed()}s, with a ~${approxPromptTokens(messages)}-token prompt still unanswered. ${SPEED_HINT}`;
     } else if (/WRONG_VERSION_NUMBER|SSL|TLS/i.test(String(cause)) && baseUrl.startsWith('https://')) {
       hint = ' — the endpoint answered with plain HTTP, not SSL: change https:// to http:// in the AI base URL.';
     } else if (/127\.0\.0\.1|localhost/.test(baseUrl)) {
@@ -199,20 +245,89 @@ async function chatCompletion(messages, { maxTokens, temperature, timeoutMs } = 
   }
 
   if (!res.ok) {
+    clearTimers();
     const body = (await res.text().catch(() => '')).slice(0, 300);
     const v1Hint = res.status === 404 && !baseUrl.endsWith('/v1')
       ? ' — the base URL probably needs to end with /v1 (e.g. http://host:11434/v1)'
       : '';
     throw new Error(`AI endpoint returned ${res.status}${v1Hint}: ${body}`);
   }
-  const data = await res.json();
-  const choice = data?.choices?.[0];
-  const text = choice?.message?.content ?? '';
-  const tokensUsed = data?.usage?.total_tokens ?? 0;
+
+  let text = '';
+  let tokensUsed = 0;
+  let finishReason = null;
+  let sawStream = false;
+  let raw = '';
+  try {
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const decoded = decoder.decode(value, { stream: true });
+      raw += decoded;
+      buf += decoded;
+      let nl;
+      while ((nl = buf.indexOf('\n')) !== -1) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line.startsWith('data:')) continue;
+        sawStream = true;
+        const payload = line.slice(5).trim();
+        if (payload === '[DONE]') continue;
+        let chunk;
+        try { chunk = JSON.parse(payload); } catch { continue; }
+        const choice = chunk.choices?.[0];
+        const piece = choice?.delta?.content;
+        if (piece) {
+          text += piece;
+          // Tokens are flowing — from here on, a long gap means trouble.
+          armStall();
+        }
+        if (choice?.finish_reason) finishReason = choice.finish_reason;
+        if (chunk.usage?.total_tokens) tokensUsed = chunk.usage.total_tokens;
+      }
+    }
+  } catch (err) {
+    // Our own clock stopped a stream that had already produced usable text:
+    // keep it. Anything else (or nothing written yet) is a real failure.
+    if (!(stopReason && text.trim())) {
+      clearTimers();
+      const cause = err.cause?.code || err.cause?.message || err.name || err.message;
+      if (!stopReason) throw new Error(`AI stream failed after ${elapsed()}s (${cause})`);
+      const why = stopReason === 'stall'
+        ? `stopped sending tokens for ${Math.round(idleMs / 1000)}s`
+        : `produced nothing in ${elapsed()}s (a ~${approxPromptTokens(messages)}-token prompt is ~${Math.round(approxPromptTokens(messages) / 60)}s of reading alone at 60 tok/s)`;
+      const wrapped = new Error(`AI endpoint ${why}. ${SPEED_HINT}`);
+      wrapped.code = 'AI_TIMEOUT';
+      throw wrapped;
+    }
+    // Cut short mid-sentence — same shape as hitting max_tokens.
+    finishReason = 'length';
+  } finally {
+    clearTimers();
+  }
+
+  // Not every OpenAI-compatible endpoint honours stream:true. If nothing ever
+  // arrived as an SSE frame, treat the body as a plain completion so a server
+  // that ignores the flag still works instead of silently answering nothing.
+  if (!sawStream && raw.trim()) {
+    try {
+      const data = JSON.parse(raw);
+      const choice = data?.choices?.[0];
+      text = choice?.message?.content ?? text;
+      tokensUsed = data?.usage?.total_tokens ?? tokensUsed;
+      finishReason = choice?.finish_reason ?? finishReason;
+    } catch {
+      // Not JSON either — fall through with whatever the stream gave us.
+    }
+  }
+
   usageStmt.run(today(), tokensUsed);
   // finish_reason 'length' = the model hit max_tokens mid-sentence — callers
   // trim the ragged tail instead of sending "1. **Use" to a customer.
-  return { text, tokensUsed, truncated: choice?.finish_reason === 'length' };
+  return { text, tokensUsed, truncated: finishReason === 'length' };
 }
 
 // Concurrency gate for the AI endpoint. A CPU Ollama typically serves ONE

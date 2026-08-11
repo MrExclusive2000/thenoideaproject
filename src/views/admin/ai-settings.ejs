@@ -43,6 +43,7 @@
       <div>
         <label for="timeoutSeconds">Answer timeout (seconds)</label>
         <input id="timeoutSeconds" name="timeoutSeconds" type="number" min="10" max="600" value="<%= s.timeoutSeconds %>">
+        <p class="hint">How long a customer may wait. Answers stream in, so hitting this sends whatever the model has finished saying rather than failing — and a node that goes silent mid-answer is dropped straight away. If answers arrive cut short, the node is too slow for the prompt: use a smaller model or trim your FAQs and guides. Raising this only makes people wait longer.</p>
       </div>
       <div>
         <label for="maxConcurrent">Parallel AI answers (1 for CPU Ollama)</label>
