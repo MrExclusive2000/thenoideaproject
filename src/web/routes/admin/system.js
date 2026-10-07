@@ -7,6 +7,7 @@ import { config } from '../../../config.js';
 import { getSetting, setSettings, setSetting } from '../../../settings.js';
 import { audit, formatDate } from '../../../util.js';
 import { flash, csrfAfterUpload } from '../../middleware.js';
+import { localBuild, updateCheck, describeUpdate } from '../../../build.js';
 
 export const systemRouter = Router();
 
@@ -29,6 +30,14 @@ const logoUpload = multer({
   limits: { fileSize: 2 * 1024 * 1024, files: 1 },
 });
 
+// Checking costs a network round trip, so it happens on request rather than
+// on every page load. The result is cached in the module for a few minutes.
+systemRouter.post('/system/check-updates', async (req, res) => {
+  const remote = await updateCheck({ force: true });
+  flash(req, remote?.error ? 'err' : 'ok', describeUpdate(localBuild(), remote));
+  res.redirect('/admin/system');
+});
+
 systemRouter.get('/system', (req, res) => {
   const dbSize = fs.existsSync(config.dbFile) ? fs.statSync(config.dbFile).size : 0;
   let uploadsSize = 0;
@@ -37,6 +46,8 @@ systemRouter.get('/system', (req, res) => {
   }
   res.render('admin/system', {
     title: 'Branding & backup',
+    build: localBuild(),
+    autoUpdate: config.autoUpdate,
     s: {
       appName: getSetting('branding.appName'),
       accentColor: getSetting('branding.accentColor'),

@@ -1,5 +1,24 @@
 <%- include('../partials/admin-top', { title }) %>
 
+<div class="card">
+  <h2>Version</h2>
+  <% if (build.isGit) { %>
+    <p>Running build <code><%= build.commit %></code> · <%= build.date %><br>
+      <span class="hint"><%= build.subject || '' %></span><br>
+      <span class="hint">Branch <code><%= build.branch %></code> · auto-update on restart is <strong><%= autoUpdate ? 'ON' : 'OFF' %></strong></span></p>
+    <% if (build.dirty) { %>
+      <p class="hint">⚠️ This checkout has local edits. A restart with auto-update on will discard them.</p>
+    <% } %>
+  <% } else { %>
+    <p class="hint">This server wasn't installed from git, so there's no build to compare.</p>
+  <% } %>
+  <form method="post" action="/admin/system/check-updates">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <button class="btn-ghost btn-sm">Check for updates</button>
+  </form>
+  <p class="hint">Also available in Telegram: send the bot <code>/version</code> as an admin.</p>
+</div>
+
 <h1>Branding &amp; backup</h1>
 <p class="sub">Make the portal yours, and keep your data safe.</p>
 

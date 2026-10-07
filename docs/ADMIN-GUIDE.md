@@ -30,6 +30,18 @@ Endpoint (OpenAI-compatible), model, optional key, max tokens, temperature, **da
 ## FAQ manager
 Add question + answer + **keywords**. With *Understanding questions* on, keywords are context that helps the entry be found by meaning rather than a trigger that fires it — so you can write them without worrying that a stray word will serve the wrong FAQ. They are still the primary signal in the keyword fallback. Priority breaks ties. The **test box** scores any phrasing live against the keyword matcher. Hits are counted so you can see what matters.
 
+## Is the server up to date?
+
+Send the bot **`/version`** as an admin. It reports the commit and date actually running, the branch, how long it's been up, and then checks GitHub for newer commits on that branch.
+
+The answer that matters is the last line: either *"Up to date"*, or *"N newer commits available"* — and in the second case it tells you whether restarting will actually pick them up, because that depends on the **auto-update** variable in the server's Startup tab. With auto-update off, restarting looks like it should update and doesn't, which is the easiest way to think you've deployed something you haven't.
+
+It also warns if the checkout has local edits, since a restart with auto-update on discards them.
+
+Same information in the panel under **Branding & backup → Version**, with a **Check for updates** button. The check costs a network round trip so it runs on request, not on every page load, and the result is cached for a few minutes.
+
+`/version` still answers the old way for customers — service status and the latest app build — so nothing changed for them.
+
 ## Closing cases from Telegram
 
 Every problem report has a case number, and the alert DMs now print it (`• #12 @punter: "bbc one keeps buffering"`). You are usually in Telegram when you find out something is fixed — you have just restarted something, or the customer told you directly — so you can close it there:

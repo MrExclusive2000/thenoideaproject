@@ -9,6 +9,8 @@ import { sendChunked, isAdminUser, chatAllowed, linkedCustomer, latestFile, with
 import { sendDigest, buildStatsText } from './reports.js';
 import { caseNumberIn, caseSummary, closeCaseAsAdmin, openCasesList, looksLikeCaseClose } from './problems.js';
 import { hub } from './hub.js';
+import { state } from '../state.js';
+import { localBuild, updateCheck, describeUpdate } from '../build.js';
 
 const isPrivate = (ctx) => ctx.chat?.type === 'private';
 
@@ -134,7 +136,33 @@ export function registerCommands(bot) {
     await ctx.reply(lines.join('\n'));
   });
 
-  bot.command(['status', 'version'], cmdStatus);
+  bot.command('status', cmdStatus);
+  // /version means two different things depending on who asks. A customer
+  // wants to know which app build to install; the admin wants to know whether
+  // the server is running the latest code. Repurposing the command outright
+  // would have taken the customer answer away.
+  bot.command('version', async (ctx) => {
+    if (!isAdminUser(ctx.from.id)) return cmdStatus(ctx);
+    await ctx.replyWithChatAction?.('typing')?.catch?.(() => {});
+    const local = localBuild();
+    const remote = await updateCheck();
+    const upHours = Math.floor((Date.now() - state.startedAt) / 3600000);
+    const lines = [
+      `🤖 ${getSetting('branding.appName')}`,
+      local.isGit
+        ? `Build ${local.commit} · ${local.date}`
+        : 'Not installed from git — no build information.',
+    ];
+    if (local.subject) lines.push(`"${local.subject.slice(0, 120)}"`);
+    if (local.branch) lines.push(`Branch: ${local.branch}`);
+    lines.push(`Running for ${upHours}h`);
+    if (local.dirty) {
+      lines.push('', '⚠️ This checkout has local edits. A restart with auto-update on will discard them.');
+    }
+    lines.push('', describeUpdate(local, remote));
+    await ctx.reply(lines.join('\n'));
+  });
+
   bot.command('faq', cmdFaq);
   bot.command('guides', cmdGuides);
 

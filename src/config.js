@@ -71,4 +71,7 @@ export const config = {
   forceSecureCookie: bool(process.env.FORCE_SECURE_COOKIE),
   maxUploadMb: Number(process.env.MAX_UPLOAD_MB || 512),
   buildId: detectBuildId(),
+  // Set by the egg's Startup tab. Whether a restart pulls the latest code
+  // decides what advice "you are N commits behind" should come with.
+  autoUpdate: bool(process.env.AUTO_UPDATE, false),
 };

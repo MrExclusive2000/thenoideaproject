@@ -158,3 +158,44 @@ test('every {admin} in a message is replaced, not just the first', () => {
   assert.doesNotMatch(out, /\{admin\}/);
   assert.equal(out.match(/@boss/g).length, 2);
 });
+
+// --- version / update reporting ----------------------------------------------
+const { localBuild, describeUpdate } = await import('../src/build.js');
+
+test('the running build is reported from the checkout', () => {
+  const b = localBuild();
+  assert.equal(typeof b.isGit, 'boolean');
+  if (b.isGit) {
+    assert.match(b.commit, /^[0-9a-f]{7,}$/, 'a real commit hash');
+    assert.ok(b.branch, 'and the branch it came from');
+  }
+});
+
+test('"up to date" is only claimed when nothing is upstream', () => {
+  const git = { isGit: true, commit: 'abc1234', branch: 'main' };
+  assert.match(describeUpdate(git, { behind: 0, ahead: 0 }), /Up to date/);
+  assert.doesNotMatch(describeUpdate(git, { behind: 2, latest: 'def5678 newer' }), /Up to date/);
+});
+
+test('being behind says whether a restart will actually fix it', async () => {
+  const git = { isGit: true, commit: 'abc1234', branch: 'main' };
+  const { config } = await import('../src/config.js');
+  const prev = config.autoUpdate;
+  try {
+    config.autoUpdate = true;
+    assert.match(describeUpdate(git, { behind: 3, latest: 'x' }), /pull them automatically/);
+    config.autoUpdate = false;
+    // The dangerous case: restarting looks like it should update and doesn't.
+    assert.match(describeUpdate(git, { behind: 3, latest: 'x' }), /will NOT pull/);
+  } finally {
+    config.autoUpdate = prev;
+  }
+});
+
+test('a failed check says why rather than claiming to be up to date', () => {
+  const git = { isGit: true, commit: 'abc1234', branch: 'main' };
+  const msg = describeUpdate(git, { error: 'fetch-failed' });
+  assert.match(msg, /Couldn't reach GitHub/);
+  assert.doesNotMatch(msg, /Up to date/, 'an unreachable remote is not evidence of being current');
+  assert.match(describeUpdate({ isGit: false }, null), /wasn't installed from git/);
+});
