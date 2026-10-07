@@ -183,6 +183,12 @@ const DEFAULTS = {
   ],
   // Weekly AI-drafted FAQ suggestions from unanswered questions.
   'suggest.faqs': true,
+  // Also draft FAQs from questions the ADMIN answered in the group. The
+  // answer is real rather than inferred, so these drafts arrive complete —
+  // but they may carry one customer's details, so they are flagged and never
+  // auto-enabled. Needs replies to be sent with Telegram's reply action, which
+  // is what links an answer to its question.
+  'suggest.fromAnswers': true,
   'suggest.lastRunAt': 0,
   // DM sent N days BEFORE expiry ({name}, {days}). Empty = off.
   'portal.expiryReminderMessage': '⏰ Heads up {name}: your access expires in {days} day(s). Renewing only takes a few minutes — {admin} or ask in the group and we will sort you out.',

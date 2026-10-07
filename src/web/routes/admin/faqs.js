@@ -36,6 +36,21 @@ faqsRouter.get('/faqs', (req, res) => {
 
 // ---- AI-suggested FAQs ------------------------------------------------------
 
+faqsRouter.post('/faqs/suggested/learn', async (req, res) => {
+  try {
+    const { harvestAdminAnswers } = await import('../../../ai/learn.js');
+    const created = await harvestAdminAnswers();
+    const flagged = created.filter((c) => c.flags.length).length;
+    flash(req, 'ok', created.length
+      ? `${created.length} draft${created.length > 1 ? 's' : ''} written from your answers` +
+        (flagged ? ` — ${flagged} flagged for a careful read.` : '.')
+      : 'Nothing new to learn — no recent answers of yours that the FAQs don\'t already cover. (Answers only count when you use Telegram\'s reply action.)');
+  } catch (err) {
+    flash(req, 'err', `Learning run failed: ${err.message}`);
+  }
+  res.redirect('/admin/faqs');
+});
+
 faqsRouter.post('/faqs/suggested/generate', async (req, res) => {
   try {
     const { generateFaqSuggestions } = await import('../../../bot/scheduled.js');

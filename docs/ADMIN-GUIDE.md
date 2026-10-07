@@ -30,6 +30,22 @@ Endpoint (OpenAI-compatible), model, optional key, max tokens, temperature, **da
 ## FAQ manager
 Add question + answer + **keywords**. With *Understanding questions* on, keywords are context that helps the entry be found by meaning rather than a trigger that fires it — so you can write them without worrying that a stray word will serve the wrong FAQ. They are still the primary signal in the keyword fallback. Priority breaks ties. The **test box** scores any phrasing live against the keyword matcher. Hits are counted so you can see what matters.
 
+## Learning from your own answers
+The bot records every message it can see in your groups, including yours. Once a week (or on demand from **FAQ manager → Learn from my answers now**) it looks for questions **you** answered in the group and drafts FAQ entries from them.
+
+This is the other half of the Unanswered inbox. That one learns from what the bot got *wrong* and leaves `[ADMIN: fill this in]` wherever the real answer needs something only you know. This learns from what you got *right*, so the answer already exists — the AI only generalises the wording.
+
+The risk runs the opposite way, so:
+
+- **Nothing is ever enabled automatically.** Drafts land in the same pending queue and wait for you.
+- **Per-person detail is flagged, not hidden.** A draft mentioning a long number, a date, a @handle, a price or someone's account is marked ⚠️ with the reason. An FAQ is shown to everyone, so read those before approving.
+- **Credentials and email addresses are dropped outright**, and so are one-word acknowledgements, emoji and "sorted mate" — they are not knowledge.
+- **If the AI judges an exchange too specific to generalise, the draft is abandoned** rather than falling back to your raw words.
+
+It relies on you using Telegram's **reply** action — that link is what ties your answer to the question it answered. An answer typed without replying is still logged on the Conversations page, but nothing can tell what it was answering.
+
+Turn it off with `suggest.fromAnswers`.
+
 ## Unanswered inbox
 Everything the bot couldn't answer (no FAQ match + AI declined/off-topic) and every answer a user rated 👎. **Make FAQ** converts an entry into a disabled draft FAQ prefilled with the question — write the answer, enable, done.
 

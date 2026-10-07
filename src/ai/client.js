@@ -616,6 +616,52 @@ export async function composeDigest(statsText) {
   return { body: statsText, ai: false };
 }
 
+// Draft ONE FAQ entry from exchanges the ADMIN actually answered in the group.
+// Unlike composeFaqSuggestion (which drafts for questions the bot FAILED, and
+// leaves [ADMIN: fill this in] gaps), the answer here is real — the job is to
+// generalise it, not to invent it. The danger is the opposite one: the admin
+// was replying to a specific person, so the reply may carry that person's
+// code, date or handle, and an FAQ is shown to everyone.
+export async function composeFaqFromAnswer(pairs) {
+  const body = pairs
+    .map((p, i) => `--- exchange ${i + 1} ---\nCustomer asked: ${p.question}\nThe admin answered: ${p.answer}`)
+    .join('\n\n');
+
+  const { text } = await withAiSlot(() => chatCompletion(
+    [
+      {
+        role: 'system',
+        content:
+          'You turn real support exchanges into reusable FAQ entries for a streaming service. ' +
+          "The admin's answer is the source of truth: keep its facts, its steps and their order, and its meaning. " +
+          'Do NOT add advice, causes or steps the admin did not give, and do NOT soften or hedge what they said.\n' +
+          'Generalise it for a future reader who is not the person being replied to:\n' +
+          '- Write the question in clean, general wording someone else would search for.\n' +
+          "- Drop greetings, names and @handles, and anything that only applies to that one customer (their expiry date, their username, a code issued to them).\n" +
+          '- If the whole answer only makes sense for that one person, reply with exactly: SKIP\n' +
+          'Reply in EXACTLY this format and nothing else:\n' +
+          'QUESTION: <one clean, general phrasing>\n' +
+          'ANSWER: <the answer, plain text, may span lines>\n' +
+          'KEYWORDS: <8-12 lowercase words customers would type, comma separated>',
+      },
+      { role: 'user', content: body },
+    ],
+    { maxTokens: 450, temperature: 0.3 }
+  ));
+
+  // A refusal is NOT the same as a failure. Returning null here would let the
+  // caller fall back to publishing the admin's raw words — which is precisely
+  // the answer the model just said was too personal to reuse.
+  if (/^\s*SKIP\s*$/i.test(String(text))) return { skip: true };
+  const m = String(text).match(/QUESTION:\s*([\s\S]*?)\nANSWER:\s*([\s\S]*?)\nKEYWORDS:\s*([^\n]*)/i);
+  if (!m) return null;
+  const question = m[1].trim().replace(/\s+/g, ' ').slice(0, 300);
+  const answer = m[2].trim().slice(0, 2500);
+  const keywords = m[3].trim().slice(0, 300);
+  if (!question || !answer) return null;
+  return { question, answer, keywords };
+}
+
 // Draft ONE FAQ entry from a cluster of real unanswered customer questions.
 // Returns { question, answer, keywords } or null when the model's output
 // can't be parsed — callers fall back to a template draft, so suggestions

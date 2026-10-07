@@ -414,6 +414,16 @@ const migrations = [
   );
   CREATE INDEX idx_answer_cache_age ON answer_cache(created_at);
   `,
+  // v16 — suggestions can now come from two very different places: questions
+  // the bot FAILED on (it drafts the answer and leaves [ADMIN: fill this in]
+  // gaps), and answers the admin actually gave in the group (the answer is
+  // real, and the risk is the opposite — that it carries one person's codes,
+  // dates or handle into an entry everyone would be shown). `source` says
+  // which, `needs_review` carries why a draft wants a careful read.
+  `
+  ALTER TABLE suggested_faqs ADD COLUMN source TEXT NOT NULL DEFAULT 'unanswered';
+  ALTER TABLE suggested_faqs ADD COLUMN needs_review TEXT;
+  `,
 ];
 
 export function migrate(db) {

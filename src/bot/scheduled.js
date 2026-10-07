@@ -4,6 +4,7 @@ import { hub } from './hub.js';
 import { withAdminContact } from './helpers.js';
 import { tokens, matchFaq } from '../faq/matcher.js';
 import { composeFaqSuggestion } from '../ai/client.js';
+import { harvestAdminAnswers } from '../ai/learn.js';
 
 // ---- Scheduled broadcasts ---------------------------------------------------
 // One-off ("UFC reminder Saturday 9pm") or recurring (daily/weekly). send_at
@@ -215,6 +216,24 @@ export async function suggestFaqsSweep() {
       `💡 ${created.length} suggested FAQ${created.length > 1 ? 's' : ''} drafted from recent unanswered questions:\n` +
       created.map((c) => `• ${c.question}`).join('\n') +
       '\n\nReview and approve them in the panel → FAQs.'
+    ).catch(() => {});
+  }
+
+  // Separately: the questions the admin DID answer in the group. The answer
+  // already exists, so these drafts arrive complete rather than full of
+  // [ADMIN: fill this in] gaps — but they may carry one person's details, so
+  // flagged ones are called out by name in the DM.
+  if (!getSetting('suggest.fromAnswers')) return;
+  const learned = await harvestAdminAnswers().catch(() => []);
+  if (learned.length) {
+    const flagged = learned.filter((l) => l.flags.length);
+    await hub.notifyAdmins(
+      `🧠 ${learned.length} FAQ draft${learned.length > 1 ? 's' : ''} written from answers you gave in the group:\n` +
+      learned.map((l) => `• ${l.question}${l.flags.length ? ' ⚠️' : ''}`).join('\n') +
+      (flagged.length
+        ? `\n\n⚠️ ${flagged.length} need${flagged.length > 1 ? '' : 's'} a careful read before approving — they mention things that may belong to one customer.`
+        : '') +
+      '\n\nNothing is live until you approve it: panel → FAQs.'
     ).catch(() => {});
   }
 }

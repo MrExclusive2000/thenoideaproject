@@ -55,8 +55,13 @@
       <input type="hidden" name="_csrf" value="<%= csrf %>">
       <button class="btn-ghost btn-sm">Generate from unanswered now</button>
     </form>
+    <form method="post" action="/admin/faqs/suggested/learn">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <button class="btn-ghost btn-sm">Learn from my answers now</button>
+    </form>
   </div>
-  <p class="hint">Drafted weekly by the AI from questions the bot couldn't answer. Approve to make it a live FAQ (drafts needing your info go in disabled), or dismiss.</p>
+  <p class="hint">Drafted weekly from two places: questions the bot <strong>couldn't</strong> answer (the AI drafts an answer and leaves <code>[ADMIN: …]</code> gaps for you), and questions <strong>you</strong> answered in the group (the answer is real — it just gets generalised). Approve to make it a live FAQ, or dismiss. Nothing goes live on its own.</p>
+  <p class="hint">Learning from your answers relies on you using Telegram's <em>reply</em> action — that's what ties your answer to the question it answered.</p>
   <% if (suggested.length) { %>
   <table class="list">
     <tr><th>Draft</th><th>Asked</th><th></th></tr>
@@ -64,6 +69,10 @@
     <tr>
       <td style="max-width:480px">
         <strong><%= s.question %></strong>
+        <% if (s.source === 'admin-answer') { %> <span class="badge badge-ok">from your answer</span><% } %>
+        <% if (s.needs_review) { %>
+        <div class="hint" style="color:var(--warn, #b45309)">⚠️ Check before approving — <%= s.needs_review %>. An FAQ is shown to everyone.</div>
+        <% } %>
         <div class="hint" style="white-space:pre-line"><%= s.answer.slice(0, 400) %><%= s.answer.length > 400 ? '…' : '' %></div>
         <% if (s.keywords) { %><div class="hint">keywords: <%= s.keywords %></div><% } %>
         <% if (s.sampleList.length) { %><div class="hint">customers asked: <%= s.sampleList.map((x) => `"${x.slice(0, 60)}"`).join(' · ') %></div><% } %>
