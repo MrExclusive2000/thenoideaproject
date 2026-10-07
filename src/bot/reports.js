@@ -98,7 +98,9 @@ export async function sendDigest(period) {
 function pruneOldData() {
   const days = Number(getSetting('retention.messagesDays')) || 30;
   const t = now();
-  db.prepare('DELETE FROM messages_log WHERE ts < ?').run(t - days * 86400);
+  if (!getSetting('retention.keepConversations')) {
+    db.prepare('DELETE FROM messages_log WHERE ts < ?').run(t - days * 86400);
+  }
   db.prepare('DELETE FROM link_codes WHERE expires_at < ?').run(t - 86400);
   db.prepare('DELETE FROM download_codes WHERE expires_at < ?').run(t - 7 * 86400);
   db.prepare('DELETE FROM audit_log WHERE ts < ?').run(t - 365 * 86400);

@@ -641,10 +641,10 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
 
   if (result.match) {
     db.prepare('UPDATE faqs SET hit_count = hit_count + 1 WHERE id = ?').run(result.match.id);
-    setLogSource(logId, 'faq');
     // A service URL the admin pasted into the FAQ must not go to everyone —
     // the per-user URL flow is the only outlet for those.
     const faqAnswer = redactServiceUrls(result.match.answer);
+    setLogSource(logId, 'faq', faqAnswer);
     // FAQ answers join the DM conversation memory too, so a bare follow-up
     // ("THM4821" after the which-service FAQ) reaches the AI with context.
     if (isDm) {
@@ -709,7 +709,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         }
 
         if (reply) {
-          setLogSource(logId, 'ai');
+          setLogSource(logId, 'ai', reply);
           if (isDm) {
             dmHistory.set(historyKey, [...history, { role: 'user', content: question }, { role: 'assistant', content: reply }].slice(-6));
             if (dmHistory.size > 1000) dmHistory.clear();
@@ -731,7 +731,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         // instead of saying nothing.
         if (result.nearMiss) {
           db.prepare('UPDATE faqs SET hit_count = hit_count + 1 WHERE id = ?').run(result.nearMiss.id);
-          setLogSource(logId, 'faq');
+          setLogSource(logId, 'faq', redactServiceUrls(result.nearMiss.answer));
           recordUnanswered(question, ctx, 'ai-refused', result.nearMiss.id);
           const sent = await sendChunked(ctx.api, ctx.chat.id, withSuffix(redactServiceUrls(result.nearMiss.answer)), {
             ...replyParams,
@@ -839,7 +839,7 @@ export async function handleGroupMessage(ctx) {
   state.bot.lastUpdateAt = Date.now();
 
   if (!chatAllowed(ctx.chat.id)) return;
-  const logId = logMessage(ctx.chat.id, ctx.from, text, null);
+  const logId = logMessage(ctx.chat.id, ctx.from, text, null, ctx.message, ctx.chat.title || null);
   if (!getSetting('bot.enabled')) return;
 
   if (containsBannedWord(text, getBannedWords())) {
@@ -1350,7 +1350,7 @@ export async function handleDirectMessage(ctx) {
   if (!getSetting('bot.dmEnabled')) return;
   if (containsBannedWord(text, getBannedWords())) return;
   // Log BEFORE the cooldown check — a dropped DM used to vanish entirely.
-  const logId = logMessage(ctx.chat.id, ctx.from, text, null);
+  const logId = logMessage(ctx.chat.id, ctx.from, text, null, ctx.message, 'DM');
   if (onCooldown(ctx.from.id)) {
     setLogSource(logId, 'cooldown');
     return;

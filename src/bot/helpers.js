@@ -56,14 +56,41 @@ export function latestFile() {
   return db.prepare('SELECT * FROM files WHERE visible = 1 ORDER BY is_latest DESC, uploaded_at DESC LIMIT 1').get() || null;
 }
 
-export function logMessage(chatId, from, text, replySource) {
-  const info = db.prepare('INSERT INTO messages_log (chat_id, tg_user_id, tg_username, text, reply_source, ts) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(chatId, from?.id || null, from?.username || from?.first_name || null, String(text || '').slice(0, 500), replySource, now());
+// Every message in an allowed chat lands here — members, admins, questions,
+// banter alike. `msg` is the raw Telegram message: its id and reply_to id are
+// what later turn these flat rows back into threads, so an admin's answer can
+// be paired with the question it answered. Text is kept long enough to hold a
+// real answer; only runaway pastes get cut.
+export function logMessage(chatId, from, text, replySource, msg = null, chatTitle = null) {
+  const info = db.prepare(
+    'INSERT INTO messages_log (chat_id, chat_title, tg_user_id, tg_username, text, reply_source, tg_msg_id, reply_to_tg_msg_id, is_admin, ts) ' +
+    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(
+    chatId,
+    chatTitle,
+    from?.id || null,
+    from?.username || from?.first_name || null,
+    String(text || '').slice(0, 4000),
+    replySource,
+    msg?.message_id ?? null,
+    msg?.reply_to_message?.message_id ?? null,
+    from?.id && isAdminUser(from.id) ? 1 : 0,
+    now()
+  );
   return info.lastInsertRowid;
 }
 
-export function setLogSource(logId, source) {
-  if (logId) db.prepare('UPDATE messages_log SET reply_source = ? WHERE id = ?').run(source, logId);
+// `replyText` is what the bot actually sent back. Call sites that answer with
+// real content pass it; the ones that only classify (cooldown, offtopic) do
+// not, and leave the column null.
+export function setLogSource(logId, source, replyText = null) {
+  if (!logId) return;
+  if (replyText == null) {
+    db.prepare('UPDATE messages_log SET reply_source = ? WHERE id = ?').run(source, logId);
+    return;
+  }
+  db.prepare('UPDATE messages_log SET reply_source = ?, bot_reply = ? WHERE id = ?')
+    .run(source, String(replyText).slice(0, 4000), logId);
 }
 
 export function recordUnanswered(text, ctx, source, nearMissFaqId = null) {

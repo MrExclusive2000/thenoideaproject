@@ -177,6 +177,12 @@ const DEFAULTS = {
 
   'portal.expiryReminderDays': 3,
   'retention.messagesDays': 30,
+  // The message log is the only record of how questions actually got answered
+  // in the group — yours, the bot's and other members'. That corpus is what
+  // new FAQ/knowledge entries get written from, so it is kept by default and
+  // retention.messagesDays no longer applies to it. Turn this off to go back
+  // to pruning. (Text only; SQLite carries years of group chat without fuss.)
+  'retention.keepConversations': true,
 
   // New-member vetting: after this many days, joiners without a linked
   // customer account are DM'd to the admin with Keep/Remove buttons. 0 = off.

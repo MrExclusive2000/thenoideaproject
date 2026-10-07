@@ -1,0 +1,91 @@
+<%- include('../partials/admin-top', { title }) %>
+
+<h1>Conversations</h1>
+<p class="sub">Every message the bot can see in your groups — members, admins and the bot's own answers. Replies are threaded using Telegram's reply link, so your answers stay attached to the question they answered. Kept indefinitely unless you turn that off in <a href="/admin/system">Branding &amp; backup</a>.</p>
+
+<div class="cards">
+  <div class="stat"><div class="num"><%= stats.total.toLocaleString() %></div><div class="lbl">messages on record</div></div>
+  <div class="stat"><div class="num"><%= stats.botAnswered.toLocaleString() %></div><div class="lbl">answered by the bot</div></div>
+  <div class="stat"><div class="num"><%= stats.humanReplies.toLocaleString() %></div><div class="lbl">human replies</div></div>
+  <div class="stat"><div class="num"><%= stats.fromAdmins.toLocaleString() %></div><div class="lbl">from admins</div></div>
+</div>
+<% if (stats.oldest) { %>
+<p class="hint">Oldest message on record: <%= formatDate(stats.oldest) %></p>
+<% } %>
+
+<form method="get" action="/admin/conversations" class="toolbar">
+  <label for="days">Last</label>
+  <input id="days" name="days" type="number" min="0" style="width:6rem" value="<%= days %>" placeholder="all">
+  <label for="days">days</label>
+  <select name="chat">
+    <option value="">All chats</option>
+    <% for (const c of stats.chats) { %>
+    <option value="<%= c.chat_id %>" <%= String(chat) === String(c.chat_id) ? 'selected' : '' %>><%= c.chat_title || c.chat_id %> (<%= c.n %>)</option>
+    <% } %>
+  </select>
+  <input type="hidden" name="show" value="<%= show %>">
+  <button class="btn-ghost btn-sm">Filter</button>
+  <span class="spacer"></span>
+  <a class="btn-ghost btn-sm" href="/admin/conversations/export.jsonl?days=<%= days %>&amp;chat=<%= chat %>">Export Q&amp;A (.jsonl)</a>
+  <a class="btn-ghost btn-sm" href="/admin/conversations/export.jsonl?raw=1&amp;days=<%= days %>&amp;chat=<%= chat %>">Export everything</a>
+</form>
+
+<div class="toolbar">
+  <a class="btn-ghost btn-sm" href="/admin/conversations?show=threads&amp;days=<%= days %>&amp;chat=<%= chat %>">Answered</a>
+  <a class="btn-ghost btn-sm" href="/admin/conversations?show=unanswered&amp;days=<%= days %>&amp;chat=<%= chat %>">Nobody answered</a>
+  <a class="btn-ghost btn-sm" href="/admin/conversations?show=all&amp;days=<%= days %>&amp;chat=<%= chat %>">Raw log</a>
+</div>
+
+<% if (show === 'threads') { %>
+  <% if (!threads.length) { %>
+  <div class="card"><p class="hint">No answered questions in this range yet. Threads appear once someone replies to a message (using Telegram's reply) or the bot answers one.</p></div>
+  <% } %>
+  <% for (const t of threads) { %>
+  <div class="card">
+    <p class="hint"><%= formatDate(t.ts) %> · <%= t.chat %> · <%= t.asked_by || 'unknown' %><% if (t.asked_by_admin) { %> <span class="badge badge-dim">admin</span><% } %></p>
+    <p><strong><%= t.question %></strong></p>
+    <% for (const a of t.answers) { %>
+    <p style="margin-left:1rem">
+      <% if (a.from === 'bot') { %><span class="badge badge-dim">bot · <%= a.via || 'reply' %></span>
+      <% } else if (a.from === 'admin') { %><span class="badge badge-warn">you · <%= a.username || '' %></span>
+      <% } else { %><span class="badge badge-dim"><%= a.username || 'member' %></span><% } %>
+      <%= a.text %>
+    </p>
+    <% } %>
+  </div>
+  <% } %>
+<% } else if (show === 'unanswered') { %>
+  <div class="card">
+    <p class="sub">Questions where neither the bot nor a human replied. Each one is a missing FAQ, or a customer who gave up.</p>
+    <table class="list">
+      <tr><th>When</th><th>Chat</th><th>From</th><th>Message</th></tr>
+      <% for (const m of unanswered) { %>
+      <tr>
+        <td class="hint" style="white-space:nowrap"><%= formatDate(m.ts) %></td>
+        <td class="hint"><%= m.chat_title || m.chat_id %></td>
+        <td><%= m.tg_username || ('id ' + m.tg_user_id) %></td>
+        <td><%= m.text %></td>
+      </tr>
+      <% } %>
+      <% if (!unanswered.length) { %><tr><td colspan="4" class="hint">Nothing unanswered in this range.</td></tr><% } %>
+    </table>
+  </div>
+<% } else { %>
+  <div class="card">
+    <table class="list">
+      <tr><th>When</th><th>Chat</th><th>From</th><th>Message</th><th>Bot replied</th></tr>
+      <% for (const m of messages) { %>
+      <tr>
+        <td class="hint" style="white-space:nowrap"><%= formatDate(m.ts) %></td>
+        <td class="hint"><%= m.chat_title || m.chat_id %></td>
+        <td><%= m.tg_username || ('id ' + m.tg_user_id) %><% if (m.is_admin) { %> <span class="badge badge-dim">admin</span><% } %></td>
+        <td><% if (m.reply_to_tg_msg_id) { %><span class="badge badge-dim">reply</span> <% } %><%= m.text %></td>
+        <td class="hint"><%= m.bot_reply ? (m.reply_source || 'yes') : '—' %></td>
+      </tr>
+      <% } %>
+      <% if (!messages.length) { %><tr><td colspan="5" class="hint">No messages logged in this range.</td></tr><% } %>
+    </table>
+  </div>
+<% } %>
+
+<%- include('../partials/admin-bottom') %>

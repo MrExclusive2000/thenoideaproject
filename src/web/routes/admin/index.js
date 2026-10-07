@@ -13,6 +13,7 @@ import { ticketsRouter } from './tickets.js';
 import { problemsRouter } from './problems.js';
 import { requestsRouter } from './requests.js';
 import { reportsRouter } from './reports.js';
+import { conversationsRouter } from './conversations.js';
 import { systemRouter } from './system.js';
 
 export const adminRouter = Router();
@@ -31,4 +32,5 @@ adminRouter.use(ticketsRouter);
 adminRouter.use(problemsRouter);
 adminRouter.use(requestsRouter);
 adminRouter.use(reportsRouter);
+adminRouter.use(conversationsRouter);
 adminRouter.use(systemRouter);

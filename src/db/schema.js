@@ -325,6 +325,22 @@ const migrations = [
   UPDATE settings SET value = '180' WHERE key = 'ai.timeoutSeconds' AND CAST(value AS INTEGER) < 180;
   UPDATE settings SET value = '220' WHERE key = 'ai.maxTokens' AND CAST(value AS INTEGER) > 220;
   `,
+  // v13 — the message log becomes a real conversation record. It already
+  // captured every message in an allowed group (members, admins and all),
+  // but as flat rows: there was no way to tell that an admin's message was
+  // the ANSWER to a member's question three messages earlier, which is the
+  // only part worth harvesting. Telegram hands us reply_to_message on every
+  // update and we were discarding it. bot_reply stores what the bot itself
+  // said — reply_source only ever recorded HOW it answered, never the text.
+  `
+  ALTER TABLE messages_log ADD COLUMN tg_msg_id INTEGER;
+  ALTER TABLE messages_log ADD COLUMN reply_to_tg_msg_id INTEGER;
+  ALTER TABLE messages_log ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE messages_log ADD COLUMN bot_reply TEXT;
+  ALTER TABLE messages_log ADD COLUMN chat_title TEXT;
+  CREATE INDEX idx_messages_reply ON messages_log(chat_id, reply_to_tg_msg_id);
+  CREATE INDEX idx_messages_tg_msg ON messages_log(chat_id, tg_msg_id);
+  `,
 ];
 
 export function migrate(db) {

@@ -96,6 +96,8 @@ test('unauthenticated admin and portal pages redirect to login', async () => {
   for (const [url, target] of [
     [`${base}/admin`, '/admin/login'],
     [`${base}/admin/files`, '/admin/login'],
+    [`${base}/admin/conversations`, '/admin/login'],
+    [`${base}/admin/conversations/export.jsonl`, '/admin/login'],
     [`${base}/portal`, '/login'],
     [`${base}/portal/download/1/x.apk`, '/login'],
   ]) {
