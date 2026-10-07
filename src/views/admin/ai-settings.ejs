@@ -56,6 +56,43 @@
       </div>
     </div>
   </div>
+
+  <div class="card">
+    <h2>Understanding questions</h2>
+    <p class="sub">With this on, the AI writes every answer and your FAQs become the knowledge it answers <em>from</em> — instead of a keyword match firing a canned FAQ at a question it only looked like. If the embedding model isn't available the bot falls back to keyword matching automatically, so nothing breaks.</p>
+    <div class="checkline">
+      <input type="checkbox" id="embedEnabled" name="embedEnabled" value="1" <%= s.embedEnabled ? 'checked' : '' %>>
+      <label for="embedEnabled">Match questions by meaning (recommended)</label>
+    </div>
+    <div class="grid-2">
+      <div>
+        <label for="embedModel">Embedding model</label>
+        <input id="embedModel" name="embedModel" type="text" maxlength="100" value="<%= s.embedModel %>">
+        <p class="hint">Pull it once on your node: <code>ollama pull nomic-embed-text</code>. It's small and fast even on CPU — an embedding is one pass over the question, not a generated answer.</p>
+      </div>
+      <div>
+        <label for="retrieveCount">FAQs given to the model per question</label>
+        <input id="retrieveCount" name="retrieveCount" type="number" min="1" max="20" value="<%= s.retrieveCount %>">
+        <p class="hint">More context costs more reading time before the first word comes back.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Answer reuse</h2>
+    <p class="sub">The same questions get asked forever in a support group. When a new question means essentially the same thing as one already answered, the stored answer is sent instantly instead of the node spending minutes rewriting it. A 👎 removes that answer, and editing any FAQ or guide retires every answer written before the edit.</p>
+    <div class="checkline">
+      <input type="checkbox" id="cacheEnabled" name="cacheEnabled" value="1" <%= s.cacheEnabled ? 'checked' : '' %>>
+      <label for="cacheEnabled">Reuse answers for repeat questions (recommended)</label>
+    </div>
+    <div class="grid-2">
+      <div>
+        <label for="cacheThreshold">How alike two questions must be (0.5–1)</label>
+        <input id="cacheThreshold" name="cacheThreshold" type="number" step="0.01" min="0.5" max="1" value="<%= s.cacheThreshold %>">
+        <p class="hint">0.95 is strict — near-identical wording only. Lower it to reuse more and risk answering a question that was merely similar.</p>
+      </div>
+    </div>
+  </div>
   <p><button type="submit">Save AI settings</button></p>
 </form>
 

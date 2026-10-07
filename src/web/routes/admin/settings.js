@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { db } from '../../../db/db.js';
 import { getSetting, setSettings } from '../../../settings.js';
+import { embed, embedStatus } from '../../../ai/embeddings.js';
 import { testAiConnection } from '../../../ai/client.js';
 import { audit } from '../../../util.js';
 import { flash } from '../../middleware.js';
@@ -160,6 +161,11 @@ settingsRouter.get('/ai', (req, res) => {
       maxTokens: getSetting('ai.maxTokens'),
       temperature: getSetting('ai.temperature'),
       timeoutSeconds: getSetting('ai.timeoutSeconds'),
+      embedEnabled: getSetting('ai.embedEnabled'),
+      embedModel: getSetting('ai.embedModel'),
+      retrieveCount: getSetting('ai.retrieveCount'),
+      cacheEnabled: getSetting('ai.cacheEnabled'),
+      cacheThreshold: getSetting('ai.cacheThreshold'),
       maxConcurrent: getSetting('ai.maxConcurrent'),
       dailyBudget: getSetting('bot.aiDailyBudget'),
     },
@@ -178,6 +184,11 @@ settingsRouter.post('/ai', (req, res) => {
     'ai.maxTokens': Math.max(50, Math.min(4000, Number(b.maxTokens) || 350)),
     'ai.temperature': Math.max(0, Math.min(2, Number(b.temperature) ?? 0.3)),
     'ai.timeoutSeconds': Math.max(10, Math.min(600, Number(b.timeoutSeconds) || 90)),
+    'ai.embedEnabled': b.embedEnabled === '1',
+    'ai.embedModel': String(b.embedModel || '').trim().slice(0, 100),
+    'ai.retrieveCount': Math.max(1, Math.min(20, Number(b.retrieveCount) || 6)),
+    'ai.cacheEnabled': b.cacheEnabled === '1',
+    'ai.cacheThreshold': Math.max(0.5, Math.min(1, Number(b.cacheThreshold) || 0.95)),
     'ai.maxConcurrent': Math.max(1, Math.min(8, Number(b.maxConcurrent) || 1)),
     'bot.aiDailyBudget': Math.max(0, Math.min(100000, Number(b.dailyBudget) || 0)),
   });
@@ -189,7 +200,18 @@ settingsRouter.post('/ai', (req, res) => {
 settingsRouter.post('/ai/test', async (req, res) => {
   try {
     const result = await testAiConnection();
-    req.session.aiTestResult = { ok: true, detail: `Connected — replied in ${result.ms}ms: "${result.sample}"` };
+    let detail = `Connected — replied in ${result.ms}ms: "${result.sample}"`;
+    // The embedding model is pulled separately and is the most common thing to
+    // be missing, so say so here rather than leaving it to fail quietly into
+    // the keyword fallback.
+    if (getSetting('ai.embedEnabled')) {
+      const started = Date.now();
+      const vec = await embed('test');
+      detail += vec
+        ? ` · embeddings OK (${vec.length} dims in ${Date.now() - started}ms)`
+        : ` · ⚠️ embeddings NOT working (${embedStatus().lastError || 'no reason given'}) — the bot will fall back to keyword matching`;
+    }
+    req.session.aiTestResult = { ok: true, detail };
   } catch (err) {
     req.session.aiTestResult = { ok: false, detail: err.message };
   }

@@ -78,14 +78,34 @@ function selectGuides(question, guides) {
   return out;
 }
 
-export function buildSystemPrompt(question = '') {
+// `providedFaqs` is the semantically retrieved set when embeddings are on —
+// the caller has already worked out which FAQs are actually about this
+// question. Without it (embeddings off, or a direct call from a test) this
+// falls back to the keyword selection, so the prompt is never empty.
+// Retrieval decides WHICH FAQs are relevant; this still decides how much of
+// them may reach the prompt. On a CPU node every 4 characters of prompt is
+// another token to read before a single word comes back.
+function capFaqs(faqs) {
+  const out = [];
+  let used = 0;
+  for (const f of faqs) {
+    if (out.length >= KNOWLEDGE_MAX_FAQS) break;
+    const size = f.question.length + f.answer.length + 8;
+    if (used + size > KNOWLEDGE_CHAR_BUDGET && out.length) break;
+    out.push(f);
+    used += size;
+  }
+  return out;
+}
+
+export function buildSystemPrompt(question = '', providedFaqs = null) {
   const instructions = getSetting('bot.instructions');
   const status = getSetting('service.status');
   const note = getSetting('service.note');
 
   const allFaqs = db.prepare('SELECT question, answer, keywords, priority FROM faqs WHERE enabled = 1 ORDER BY priority DESC, id').all();
   const allGuides = db.prepare('SELECT title, body_md FROM guides WHERE visible = 1 ORDER BY sort, id').all();
-  const faqs = selectFaqs(question, allFaqs);
+  const faqs = providedFaqs ? capFaqs(providedFaqs) : selectFaqs(question, allFaqs);
   const guides = selectGuides(question, allGuides);
 
   const knowledge = [];
@@ -398,7 +418,7 @@ export function _aiQueueState() {
 // `smallTalk`: the caller is spending the user's one off-topic free pass —
 // permit ONE brief friendly answer to an off-topic message. Replies that are
 // (or end as) a question are suppressed: banter must never fish for more chat.
-export async function askAi(question, { history = [], assumeOnTopic = false, smallTalk = false, playback = null, grounding = null, secondRound = false } = {}) {
+export async function askAi(question, { history = [], assumeOnTopic = false, smallTalk = false, playback = null, grounding = null, secondRound = false, knowledgeFaqs = null } = {}) {
   if (!getSetting('ai.enabled')) return null;
   if (aiBudgetExceeded()) {
     const err = new Error('Daily AI budget reached');
@@ -406,7 +426,7 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
     throw err;
   }
 
-  const systemPrompt = buildSystemPrompt(question);
+  const systemPrompt = buildSystemPrompt(question, knowledgeFaqs);
   const messages = [
     { role: 'system', content: systemPrompt },
     ...(assumeOnTopic

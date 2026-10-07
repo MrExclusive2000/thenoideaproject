@@ -1,6 +1,7 @@
 import { db, now } from '../db/db.js';
 import { replyContext } from './pipeline.js';
 import { recordUnanswered } from './helpers.js';
+import { forgetAnswerByText } from '../ai/answer-cache.js';
 
 export function registerFeedback(bot) {
   bot.callbackQuery(/^fb:(up|down)$/, async (ctx) => {
@@ -23,6 +24,13 @@ export function registerFeedback(bot) {
     // A thumbs-down puts the original question in the admin's review inbox.
     if (rating === 'down' && context.question) {
       recordUnanswered(context.question, ctx, 'feedback', context.faqId ?? null);
+    }
+    // ...and evicts the answer from the semantic cache. Keeping it would serve
+    // the same wrong answer to the next person who asks the same thing, and a
+    // cached mistake is worse than an uncached one because it never gets
+    // rewritten.
+    if (rating === 'down' && context.answer) {
+      forgetAnswerByText(context.answer);
     }
 
     await ctx.answerCallbackQuery({ text: rating === 'up' ? 'Thanks! 👍' : 'Sorry about that — flagged for the team. 🙏' });

@@ -14,7 +14,7 @@ dashboardRouter.get('/', (req, res) => {
 
   const stats = {
     messages24h: db.prepare('SELECT COUNT(*) n FROM messages_log WHERE ts > ?').get(dayAgo).n,
-    answered24h: db.prepare("SELECT COUNT(*) n FROM messages_log WHERE ts > ? AND reply_source IN ('faq','ai')").get(dayAgo).n,
+    answered24h: db.prepare("SELECT COUNT(*) n FROM messages_log WHERE ts > ? AND reply_source IN ('faq','ai','cache')").get(dayAgo).n,
     faqCount: db.prepare('SELECT COUNT(*) n FROM faqs WHERE enabled = 1').get().n,
     customers: db.prepare('SELECT COUNT(*) n FROM customers WHERE active = 1').get().n,
     expiringSoon: db.prepare('SELECT COUNT(*) n FROM customers WHERE active = 1 AND expires_at IS NOT NULL AND expires_at BETWEEN ? AND ?').get(t, t + 7 * 86400).n,

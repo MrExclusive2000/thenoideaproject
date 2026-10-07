@@ -387,6 +387,33 @@ const migrations = [
 
   DELETE FROM settings WHERE key = 'reports.alertTickets';
   `,
+  // v15 — semantic retrieval. faq_vectors caches one embedding per FAQ, keyed
+  // by a hash of the text embedded so an edited FAQ re-embeds itself on next
+  // use. answer_cache stores answers the model has already written, looked up
+  // by meaning: the same twenty questions get asked forever in a support
+  // group, and re-deriving an answer at a few tokens per second is the single
+  // most wasteful thing the bot does.
+  `
+  CREATE TABLE faq_vectors (
+    faq_id  INTEGER PRIMARY KEY,
+    hash    TEXT NOT NULL,
+    vector  BLOB NOT NULL,
+    model   TEXT,
+    ts      INTEGER NOT NULL
+  );
+
+  CREATE TABLE answer_cache (
+    id          INTEGER PRIMARY KEY,
+    question    TEXT NOT NULL,
+    vector      BLOB NOT NULL,
+    answer      TEXT NOT NULL,
+    source      TEXT NOT NULL DEFAULT 'ai',
+    hits        INTEGER NOT NULL DEFAULT 0,
+    created_at  INTEGER NOT NULL,
+    last_hit_at INTEGER
+  );
+  CREATE INDEX idx_answer_cache_age ON answer_cache(created_at);
+  `,
 ];
 
 export function migrate(db) {

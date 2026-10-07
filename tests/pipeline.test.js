@@ -29,12 +29,44 @@ let aiStream = true;
 // a node still grinding when the client's budget runs out.
 let aiHangAfterChars = 0;
 const openAiSockets = new Set();
+// Embeddings are off by default so the existing suite exercises the
+// keyword-fallback path; the retrieval tests switch them on.
+let aiEmbeddings = false;
+let lastEmbedRequest = null;
+
+// A deterministic bag-of-words vector: the same words give the same direction,
+// so cosine behaves the way a real embedding model would for the purposes of
+// threshold and ranking tests, without needing a model.
+function fakeEmbedding(text) {
+  const vec = new Array(64).fill(0);
+  for (const w of String(text).toLowerCase().match(/[a-z0-9]+/g) || []) {
+    let h = 0;
+    for (let i = 0; i < w.length; i++) h = (h * 31 + w.charCodeAt(i)) >>> 0;
+    vec[h % 64] += 1;
+  }
+  return vec;
+}
 
 before(async () => {
   aiServer = http.createServer((req, res) => {
     let body = '';
     req.on('data', (c) => (body += c));
     req.on('end', () => {
+      // Embeddings are a different endpoint and must never be mistaken for a
+      // generation call — several tests assert "no AI call was spent".
+      if (req.url.endsWith('/embeddings')) {
+        if (!aiEmbeddings) {
+          // The default: model not pulled. The bot must degrade to keyword
+          // matching rather than lose both paths.
+          res.statusCode = 404;
+          res.end('{"error":"model not found"}');
+          return;
+        }
+        lastEmbedRequest = JSON.parse(body);
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ data: [{ embedding: fakeEmbedding(JSON.parse(body).input) }] }));
+        return;
+      }
       lastAiRequest = JSON.parse(body);
       setTimeout(() => {
         if (!aiStream) {
@@ -2163,5 +2195,145 @@ test('an endpoint that ignores stream:true still works', async () => {
     assert.match(reply, /clear the cache/, 'plain-JSON responses fall back cleanly');
   } finally {
     aiStream = true;
+  }
+});
+
+// ---- semantic retrieval + answer cache --------------------------------------
+const { clearAnswerCache, answerCacheStats } = await import('../src/ai/answer-cache.js');
+const { retrieveFaqs } = await import('../src/ai/embeddings.js');
+
+test('with embeddings working, a keyword FAQ no longer pre-empts the AI', async () => {
+  // Same question as the keyword test above, which asserts result === 'faq'.
+  aiEmbeddings = false;
+  const viaKeywords = await answer(fakeCtx('how to install on my firestick??'), 'how to install on my firestick??', { isDm: true, logId: null });
+  assert.equal(viaKeywords, 'faq', 'without embeddings the canned FAQ still answers');
+
+  aiEmbeddings = true;
+  clearAnswerCache();
+  try {
+    const ctx = fakeCtx('how to install on my firestick??');
+    const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+    assert.equal(result, 'ai', 'the model writes the reply instead of firing the canned FAQ');
+  } finally {
+    aiEmbeddings = false;
+  }
+});
+
+test('retrieved FAQs are handed to the model as knowledge', async () => {
+  aiEmbeddings = true;
+  clearAnswerCache();
+  try {
+    const ctx = fakeCtx('firestick install downloader code please');
+    await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+    const system = lastAiRequest.messages[0].content;
+    assert.match(system, /# KNOWLEDGE/);
+    assert.match(system, /Downloader/, 'the install FAQ was retrieved into the prompt');
+  } finally {
+    aiEmbeddings = false;
+  }
+});
+
+test('an embedding failure falls back to keyword matching, never to nothing', async () => {
+  // aiEmbeddings stays false: the endpoint 404s, exactly like an un-pulled
+  // model. The bot must still answer.
+  const ctx = fakeCtx('how to install on my firestick??');
+  const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.equal(result, 'faq', 'no embeddings → the canned FAQ is still there to catch it');
+  assert.match(ctx.sent[0].msg, /Downloader app/);
+});
+
+test('asking the same thing again is served from cache with no second generation', async () => {
+  aiEmbeddings = true;
+  clearAnswerCache();
+  try {
+    // Two DIFFERENT people asking the same thing — the real repeat case. The
+    // same person asking twice carries DM history, which correctly makes the
+    // answer thread-specific and therefore uncacheable.
+    const q = 'does the app work on an ipad';
+    aiResponse = 'Yes — use Smarters Player Lite on iPad with the same login.';
+    const first = await answer(fakeCtx(q, { userId: 93001 }), q, { isDm: true, logId: null });
+    assert.equal(first, 'ai');
+
+    const before = lastAiRequest;
+    const ctx2 = fakeCtx(`${q}?`, { userId: 93002 }); // punctuation only — same meaning
+    const second = await answer(ctx2, ctx2.message.text, { isDm: true, logId: null });
+    assert.equal(second, 'cache', 'the repeat is answered from cache');
+    assert.equal(lastAiRequest, before, 'no generation spent on a question already answered');
+    assert.match(ctx2.sent[0].msg, /Smarters Player Lite/);
+    assert.equal(answerCacheStats().hits, 1);
+  } finally {
+    aiEmbeddings = false;
+    aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+  }
+});
+
+test('an answer that depended on conversation history is never cached', async () => {
+  aiEmbeddings = true;
+  clearAnswerCache();
+  try {
+    const q = 'and what about on android';
+    await answer(fakeCtx(q), q, {
+      isDm: true, logId: null,
+      history: [{ role: 'user', content: 'does it work on ipad' }, { role: 'assistant', content: 'Yes.' }],
+    });
+    assert.equal(answerCacheStats().entries, 0, 'a follow-up answer is only correct in its own thread');
+  } finally {
+    aiEmbeddings = false;
+  }
+});
+
+test('a thumbs-down evicts the cached answer so the mistake is not reserved', async () => {
+  aiEmbeddings = true;
+  clearAnswerCache();
+  try {
+    const q = 'what channels do you have for darts';
+    aiResponse = 'Darts is on the sports channels in Live TV.';
+    await answer(fakeCtx(q, { userId: 93010 }), q, { isDm: true, logId: null });
+    assert.equal(answerCacheStats().entries, 1);
+
+    const { forgetAnswerByText } = await import('../src/ai/answer-cache.js');
+    forgetAnswerByText('Darts is on the sports channels in Live TV.');
+    assert.equal(answerCacheStats().entries, 0, 'the bad answer is gone, not waiting to be served again');
+  } finally {
+    aiEmbeddings = false;
+    aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+  }
+});
+
+test('retrieval ranks the relevant FAQ above an unrelated one', async () => {
+  aiEmbeddings = true;
+  try {
+    const faqs = db.prepare('SELECT * FROM faqs WHERE enabled = 1').all();
+    const hits = await retrieveFaqs('how do i install on firestick', faqs, { k: 3, floor: 0 });
+    assert.ok(hits.length, 'retrieval returned something');
+    assert.match(hits[0].faq.question + hits[0].faq.answer, /install|Downloader/i);
+    assert.ok(hits[0].score >= hits[hits.length - 1].score, 'results come back ranked');
+  } finally {
+    aiEmbeddings = false;
+  }
+});
+
+test('editing an FAQ invalidates answers written from the old knowledge', async () => {
+  aiEmbeddings = true;
+  clearAnswerCache();
+  try {
+    const q = 'which app should i use on firestick';
+    aiResponse = 'Use the Purple App as your main one.';
+    const first = await answer(fakeCtx(q, { userId: 93020 }), q, { isDm: true, logId: null });
+    assert.equal(first, 'ai');
+    assert.equal(answerCacheStats().entries, 1);
+
+    // Same question again → cache, while the knowledge is unchanged.
+    const hit = await answer(fakeCtx(q, { userId: 93021 }), q, { isDm: true, logId: null });
+    assert.equal(hit, 'cache');
+
+    // The admin edits the knowledge. The cached answer predates the edit and
+    // must not be served again.
+    db.prepare('UPDATE faqs SET updated_at = ? WHERE id = (SELECT id FROM faqs LIMIT 1)').run(Math.floor(Date.now() / 1000) + 5);
+    const afterEdit = await answer(fakeCtx(q, { userId: 93022 }), q, { isDm: true, logId: null });
+    assert.equal(afterEdit, 'ai', 'the model re-answers against the new knowledge');
+  } finally {
+    aiEmbeddings = false;
+    aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
   }
 });

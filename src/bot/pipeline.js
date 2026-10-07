@@ -11,6 +11,8 @@ import {
   isContentIssue, looksLikeLiveIssue, wrongCopyIssue, withAdminContact,
 } from './helpers.js';
 import { alertAdmins } from './reports.js';
+import { embed, retrieveFaqs } from '../ai/embeddings.js';
+import { lookupAnswer, rememberAnswer, cacheable } from '../ai/answer-cache.js';
 import { queueProblemAlert, setProblemRearmHook, maybeAutoDegrade } from './problems.js';
 import { parseVodRequest, parseNaturalVodRequest, recordVodRequest, setRequestService, lookupImdb, canonicalizeRequest } from './requests.js';
 import { hub } from './hub.js';
@@ -628,6 +630,23 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
   const replyParams = isDm ? {} : { reply_parameters: { message_id: ctx.message.message_id } };
   const withSuffix = (text) => [prefix, text, suffix].filter(Boolean).join('\n\n');
 
+  // Full-AI mode: the model writes every reply, and the FAQ becomes knowledge
+  // handed to it rather than a canned answer that pre-empts it. Keyword
+  // matching only ever decided WHICH canned answer to fire, and two of an
+  // FAQ's keywords landing in an unrelated sentence was enough to fire it —
+  // so the FAQ regularly answered a question nobody asked. It stays as the
+  // fallback for when the AI is off, over budget, refuses, or the embedding
+  // model is unavailable: a worse answer beats no answer.
+  //
+  // The gate is a REAL vector, not the setting. "Embeddings are switched on"
+  // and "embeddings work" are different things — the model may not be pulled,
+  // or the endpoint may be down — and turning off the canned FAQ on the
+  // strength of a setting alone would leave the bot with neither path.
+  // One embedding per message; the cache lookup and FAQ retrieval share it.
+  const aiReady = Boolean(getSetting('ai.enabled')) && !aiBudgetExceeded();
+  const qVec = aiReady ? await embed(question) : null;
+  const fullAi = aiReady && qVec !== null;
+
   // Before the FAQ matcher: "which service is best" would otherwise fuzzy-hit
   // the which-service FAQ (username classification) or reach the AI.
   if (isBestServiceQuestion(question)) {
@@ -639,7 +658,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
     }
   }
 
-  if (result.match) {
+  if (result.match && !fullAi) {
     db.prepare('UPDATE faqs SET hit_count = hit_count + 1 WHERE id = ?').run(result.match.id);
     // A service URL the admin pasted into the FAQ must not go to everyone —
     // the per-user URL flow is the only outlet for those.
@@ -689,6 +708,8 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
           && !looksLikeProblem(question) && !result.nearMiss;
         const offScript = opinionBait || (!assumeOnTopic && !history.length && !hasScopeSignal(question));
         let reply = null;
+        let cacheVec = null;
+        let servedFromCache = false;
         if (!offScript) {
           await ctx.replyWithChatAction?.('typing')?.catch?.(() => {});
           // Live vs VOD hint for problem reports: pause/rewind advice is
@@ -705,11 +726,39 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
           const grounding = looksLikeProblem(question) && result.nearMiss
             ? String(result.nearMiss.answer).slice(0, 1200)
             : null;
-          reply = await askAi(question, { history, assumeOnTopic, playback, grounding, secondRound: deepen });
+
+          // One embedding per message, shared by the cache lookup and FAQ
+          // retrieval below.
+          const canCache = fullAi && cacheable({ history, grounding, playback, secondRound: deepen });
+          cacheVec = qVec;
+
+          // Someone has asked this before, in whatever words. Reuse the answer
+          // rather than spending minutes re-deriving it — the whole reason
+          // AI-for-everything is affordable on a slow node.
+          const cached = canCache ? await lookupAnswer(question, cacheVec) : null;
+          if (cached) {
+            reply = cached.answer;
+            servedFromCache = true;
+          } else {
+            // Semantic retrieval picks the FAQs actually about this question;
+            // [] means embeddings are unavailable, and askAi falls back to its
+            // own keyword selection.
+            const retrieved = await retrieveFaqs(question, faqs, {
+              k: Number(getSetting('ai.retrieveCount')) || 6,
+              qVec: cacheVec,
+            });
+            reply = await askAi(question, {
+              history, assumeOnTopic, playback, grounding, secondRound: deepen,
+              knowledgeFaqs: retrieved.length ? retrieved.map((r) => r.faq) : null,
+            });
+            if (reply && canCache) {
+              await rememberAnswer(question, reply, { source: 'ai', vector: cacheVec });
+            }
+          }
         }
 
         if (reply) {
-          setLogSource(logId, 'ai', reply);
+          setLogSource(logId, servedFromCache ? 'cache' : 'ai', reply);
           if (isDm) {
             dmHistory.set(historyKey, [...history, { role: 'user', content: question }, { role: 'assistant', content: reply }].slice(-6));
             if (dmHistory.size > 1000) dmHistory.clear();
@@ -723,8 +772,12 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
             ...replyParams,
             reply_markup: feedbackKeyboard(),
           });
-          if (sent) rememberReply(ctx.chat.id, sent.message_id, { question, faqId: null, source: 'ai' });
-          return 'ai';
+          if (sent) {
+            rememberReply(ctx.chat.id, sent.message_id, {
+              question, faqId: null, source: servedFromCache ? 'cache' : 'ai', answer: reply,
+            });
+          }
+          return servedFromCache ? 'cache' : 'ai';
         }
 
         // The model refused, but we have a near-miss FAQ — answer with that

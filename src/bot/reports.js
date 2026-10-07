@@ -39,6 +39,7 @@ export function buildStatsText(days) {
   const total = n('SELECT COUNT(*) n FROM messages_log WHERE ts > ?', since);
   const faq = n("SELECT COUNT(*) n FROM messages_log WHERE ts > ? AND reply_source = 'faq'", since);
   const ai = n("SELECT COUNT(*) n FROM messages_log WHERE ts > ? AND reply_source = 'ai'", since);
+  const cached = n("SELECT COUNT(*) n FROM messages_log WHERE ts > ? AND reply_source = 'cache'", since);
   const unanswered = n('SELECT COUNT(*) n FROM unanswered WHERE ts > ? AND resolved = 0', since);
   const openRequests = n("SELECT COUNT(*) n FROM vod_requests WHERE status = 'open'");
   const newCustomers = n('SELECT COUNT(*) n FROM customers WHERE created_at > ?', since);
@@ -58,7 +59,7 @@ export function buildStatsText(days) {
   const lines = [
     `Period: last ${days} day(s)`,
     `Messages seen: ${total}`,
-    `Answered by FAQ: ${faq} | by AI: ${ai}`,
+    `Answered by AI: ${ai} | reused from cache: ${cached} | by FAQ fallback: ${faq}`,
     `AI usage today: ${aiUsageToday().calls} calls`,
     `Answer ratings: ${up} up / ${down} down`,
     `Unanswered questions waiting: ${unanswered}`,
@@ -101,6 +102,7 @@ function pruneOldData() {
   db.prepare('DELETE FROM link_codes WHERE expires_at < ?').run(t - 86400);
   db.prepare('DELETE FROM download_codes WHERE expires_at < ?').run(t - 7 * 86400);
   db.prepare('DELETE FROM audit_log WHERE ts < ?').run(t - 365 * 86400);
+  db.prepare('DELETE FROM faq_vectors WHERE faq_id NOT IN (SELECT id FROM faqs)').run();
 }
 
 async function digestTick() {

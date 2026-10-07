@@ -55,6 +55,8 @@ Follow this top to bottom and you'll be live in ~15 minutes.
 >
 > The bot already keeps its prompt small by sending only the FAQs relevant to each question (not your whole FAQ list), so a 7B model on CPU won't overflow the context.
 >
+> **Pull the embedding model too:** `ollama pull nomic-embed-text`. It's what lets the bot find the right FAQs by meaning instead of by keyword, and it's cheap — embedding a question is a single pass, not a generated answer. It also powers answer reuse, which is the difference between repeat questions costing minutes and costing nothing. Without it the bot still works, just on the old keyword matching.
+>
 > **If answers time out (Ollama 500s even with a small prompt), the node is generating too slowly, not overflowing.** CPU generation is ~4 tokens/sec for a 7B model, so a full answer needs 60-90s. Two fixes:
 > - **AI settings** → set **timeout** to `180`s and **max answer length** to `220` tokens (these are the defaults now, but confirm them if you saved AI settings on an older build).
 > - **Use a smaller model** — a 3B (`qwen2.5:3b`, `llama3.2:3b`) generates 2-3× faster on CPU and answers support questions fine. This is the single biggest speed win. Also check the node isn't low on RAM (a 7B model that swaps crawls). Avoid `gemma*` on CPU — it re-reads the whole prompt every message.
@@ -69,7 +71,8 @@ Open `http://YOUR-NODE-IP:PORT/admin/login`:
    - **Reports & status** → paste your Telegram user ID(s) into *Admin Telegram IDs* → save. Send the bot a `/start` DM once (Telegram forbids bots to DM first), then use *Send test alert*.
    - Add the bot to your Telegram group, then send **`/adopt`** in the group (from your admin account). The bot only ever answers in adopted chats.
    - **AI settings** → *Test connection* until it's green.
-   - **FAQ manager** → add your top 10 questions (keywords matter — they make matching sharp).
+   - **FAQ manager** → add your top 10 questions (keywords still help — they give the matcher more of the words your users actually type).
+   - **Bot settings** → set your **Telegram handle**, so anything the bot can't answer points at you. There is no ticket system.
    - **Bot settings** → write the bot's instructions (what the app is, tone, rules).
    - **Downloads** → upload your APK, mark it *latest*.
    - **Guides** → write "Install on Firestick" and friends.

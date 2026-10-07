@@ -116,6 +116,19 @@ const DEFAULTS = {
   // How many AI generations may run at once. Keep at 1 for CPU Ollama; raise
   // only if your endpoint genuinely serves parallel requests (GPU, cloud).
   'ai.maxConcurrent': 1,
+  // Semantic retrieval. An embedding is one forward pass, so it stays cheap on
+  // the same CPU node that generates at a few tokens a second. Switch this off
+  // and the bot falls back to the old keyword/trigram matcher.
+  'ai.embedEnabled': true,
+  'ai.embedModel': 'nomic-embed-text',
+  // How many FAQs are handed to the model as knowledge for a question.
+  'ai.retrieveCount': 6,
+  // Reuse an answer the model already wrote when a new question means
+  // essentially the same thing. This is what keeps AI-for-everything viable on
+  // a slow node; it does not speed up a genuine new question.
+  'ai.cacheEnabled': true,
+  'ai.cacheThreshold': 0.95,
+  'ai.cacheMaxAgeDays': 30,
 
   'faq.threshold': 0.5,
 
