@@ -30,6 +30,17 @@ Endpoint (OpenAI-compatible), model, optional key, max tokens, temperature, **da
 ## FAQ manager
 Add question + answer + **keywords**. With *Understanding questions* on, keywords are context that helps the entry be found by meaning rather than a trigger that fires it — so you can write them without worrying that a stray word will serve the wrong FAQ. They are still the primary signal in the keyword fallback. Priority breaks ties. The **test box** scores any phrasing live against the keyword matcher. Hits are counted so you can see what matters.
 
+## Learning from cases
+
+A problem report is a case: it opens when someone reports an issue, follow-up messages attach to it, and it closes when they say it's sorted, when you resolve it in the panel, or on the auto-close timer. The conversation is stored, so a restart no longer loses the thread, and a reply the next morning still lands on the right case (window: `bot.problemWindowMinutes`, default 12h). A problem about something clearly different opens its own case rather than piling onto the open one.
+
+That makes two kinds of knowledge fall out of the cases themselves:
+
+- **Fixes that demonstrably worked.** When a customer comes back and confirms their problem is fixed, whatever the bot last told them worked — on a real device, for a real problem. Once *two or more* people have confirmed the same fix for the same problem, it's drafted as a pending FAQ (badged "confirmed fixed"). One confirmation is an anecdote and is ignored.
+- **Problems nothing fixes.** Topics reported over and over that get escalated, closed by you, or time out appear under **Never actually getting fixed** on the Problem reports page. These are deliberately *not* drafted: the bot already had an answer and it didn't work, so drafting from it would just publish the failure. Write the real fix, or the service needs looking at.
+
+Turn both off with `suggest.fromCases`.
+
 ## Learning from your own answers
 The bot records every message it can see in your groups, including yours. Once a week (or on demand from **FAQ manager → Learn from my answers now**) it looks for questions **you** answered in the group and drafts FAQ entries from them.
 

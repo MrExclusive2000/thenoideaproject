@@ -193,6 +193,9 @@ const DEFAULTS = {
   // auto-enabled. Needs replies to be sent with Telegram's reply action, which
   // is what links an answer to its question.
   'suggest.fromAnswers': true,
+  // Also draft FAQs from cases the customer confirmed were fixed, and report
+  // topics that keep recurring without ever being resolved.
+  'suggest.fromCases': true,
   'suggest.lastRunAt': 0,
   // DM sent N days BEFORE expiry ({name}, {days}). Empty = off.
   'portal.expiryReminderMessage': '⏰ Heads up {name}: your access expires in {days} day(s). Renewing only takes a few minutes — {admin} or ask in the group and we will sort you out.',

@@ -178,3 +178,121 @@ export async function harvestAdminAnswers({ sinceDays = 14, maxDrafts = 5 } = {}
   }
   return created;
 }
+
+// ---- learning from cases ----------------------------------------------------
+// A case closed with resolved_by = 'user' is the strongest evidence in the
+// system: the customer came back and said it was fixed. Whatever the bot told
+// them demonstrably worked, on a real device, for a real problem.
+//
+// The mirror image is just as useful and is NOT an FAQ draft: topics that keep
+// coming back and keep escalating mean nothing the bot says fixes them. Those
+// are gaps, and writing an FAQ from a failed answer would cement the failure.
+
+// The bot's replies around a case. There is no foreign key from messages_log
+// to problem_reports, so this correlates on the same user within the case's
+// own lifetime — tight enough, because triage keeps one live case per user.
+function answersDuringCase(report, windowSeconds) {
+  return db.prepare(`
+    SELECT text, bot_reply, ts FROM messages_log
+    WHERE tg_user_id = ? AND bot_reply IS NOT NULL AND ts >= ? AND ts <= ?
+    ORDER BY ts
+  `).all(report.tg_user_id, report.ts - 60, report.ts + windowSeconds);
+}
+
+export function resolvedCaseAnswers({ sinceDays = 30, windowHours = 24 } = {}) {
+  const reports = db.prepare(`
+    SELECT * FROM problem_reports
+    WHERE resolved = 1 AND resolved_by = 'user' AND ts > ?
+    ORDER BY id DESC LIMIT 300
+  `).all(now() - sinceDays * 86400);
+
+  const out = [];
+  for (const r of reports) {
+    const replies = answersDuringCase(r, windowHours * 3600);
+    if (!replies.length) continue;
+    // The LAST thing said before they confirmed is the fix that landed; the
+    // earlier rounds are the ones that did not work.
+    const fix = replies[replies.length - 1].bot_reply;
+    const problem = String(r.text || '').split('\n')[0];
+    if (!worthLearning(problem, fix)) continue;
+    out.push({ question: problem, answer: fix, topic: r.topic, caseId: r.id });
+  }
+  return out;
+}
+
+export async function harvestResolvedCases({ sinceDays = 30, maxDrafts = 5 } = {}) {
+  const candidates = resolvedCaseAnswers({ sinceDays });
+  if (!candidates.length) return [];
+
+  const faqs = db.prepare('SELECT * FROM faqs WHERE enabled = 1').all();
+  const pending = db.prepare("SELECT question, answer, keywords FROM suggested_faqs WHERE status = 'pending'").all()
+    .map((s) => ({ ...s, enabled: 1 }));
+
+  const created = [];
+  for (const cluster of await clusterCandidates(candidates)) {
+    if (created.length >= maxDrafts) break;
+    // One confirmed fix is an anecdote. Two or more people with the same
+    // problem, all confirming the same answer worked, is knowledge.
+    if (cluster.items.length < 2) continue;
+    const sample = cluster.items[0];
+    if (matchFaq(sample.question, faqs, 0.5).match) continue;
+    if (pending.length && matchFaq(sample.question, pending, 0.45).match) continue;
+
+    const pairs = cluster.items.slice(0, 4).map((i) => ({ question: i.question, answer: i.answer }));
+    let draft = null;
+    if (getSetting('ai.enabled')) {
+      try {
+        draft = await composeFaqFromAnswer(pairs, { answeredBy: 'the bot, and the customer confirmed it fixed their problem' });
+      } catch {
+        // AI down — the fix that worked, in its own words, is still the answer.
+      }
+    }
+    if (draft?.skip) continue;
+    if (!draft) {
+      draft = {
+        question: sample.question.slice(0, 300),
+        answer: sample.answer.slice(0, 2500),
+        keywords: [...new Set(tokens(sample.question))].slice(0, 10).join(', '),
+      };
+    }
+
+    const answer = redactServiceUrls(draft.answer);
+    if (blockedReason(answer)) continue;
+    const flags = [...new Set([...reviewFlags(answer), ...pairs.flatMap((p) => reviewFlags(p.answer))])];
+
+    const info = db.prepare(
+      'INSERT INTO suggested_faqs (question, answer, keywords, ask_count, samples, status, source, needs_review, created_at) ' +
+      "VALUES (?, ?, ?, ?, ?, 'pending', 'resolved-case', ?, ?)"
+    ).run(
+      redactServiceUrls(draft.question).slice(0, 300),
+      answer.slice(0, 2500),
+      String(draft.keywords || '').slice(0, 300),
+      cluster.items.length,
+      JSON.stringify(pairs.map((p) => p.question)).slice(0, 2000),
+      flags.length ? flags.join('; ') : null,
+      now()
+    );
+    pending.push({ question: draft.question, answer, keywords: draft.keywords, enabled: 1 });
+    created.push({ id: info.lastInsertRowid, question: draft.question, flags, confirmedBy: cluster.items.length });
+  }
+  return created;
+}
+
+// Topics that keep coming back and keep NOT getting fixed. Deliberately not
+// turned into FAQ drafts: the bot already had an answer for these and it did
+// not work, so drafting from it would publish the failure. These need the
+// admin to write the fix, or to go and fix the service.
+export function recurringUnresolved({ sinceDays = 30, minCount = 3 } = {}) {
+  return db.prepare(`
+    SELECT topic, COUNT(*) n,
+           SUM(CASE WHEN escalated = 1 THEN 1 ELSE 0 END) escalated,
+           MAX(ts) last_seen
+    FROM problem_reports
+    WHERE topic IS NOT NULL AND ts > ?
+      AND (resolved = 0 OR resolved_by IN ('auto-close', 'admin'))
+    GROUP BY topic
+    HAVING n >= ?
+    ORDER BY n DESC
+    LIMIT 10
+  `).all(now() - sinceDays * 86400, minCount);
+}

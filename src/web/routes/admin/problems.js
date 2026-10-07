@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { db, now } from '../../../db/db.js';
+import { recurringUnresolved } from '../../../ai/learn.js';
 import { audit, formatDate } from '../../../util.js';
 import { flash } from '../../middleware.js';
 import { notifyResolved } from '../../../bot/problems.js';
@@ -19,7 +20,13 @@ problemsRouter.get('/problems', (req, res) => {
     GROUP BY topic HAVING c >= 2 ORDER BY c DESC LIMIT 8
   `).all(now() - 86400);
 
-  res.render('admin/problems', { title: 'Problem reports', reports, hot, show, formatDate });
+  // Different question from `hot` above: not "what is breaking right now"
+  // but "what has the bot never managed to fix". These are the gaps worth an
+  // admin writing an answer for — and deliberately NOT auto-drafted, because
+  // the bot already had an answer here and it did not work.
+  const recurring = recurringUnresolved({ sinceDays: 30, minCount: 3 });
+
+  res.render('admin/problems', { title: 'Problem reports', reports, hot, recurring, show, formatDate });
 });
 
 problemsRouter.post('/problems/:id/resolve', async (req, res) => {

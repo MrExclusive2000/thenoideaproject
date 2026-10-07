@@ -4,7 +4,7 @@ import { hub } from './hub.js';
 import { withAdminContact } from './helpers.js';
 import { tokens, matchFaq } from '../faq/matcher.js';
 import { composeFaqSuggestion } from '../ai/client.js';
-import { harvestAdminAnswers } from '../ai/learn.js';
+import { harvestAdminAnswers, harvestResolvedCases, recurringUnresolved } from '../ai/learn.js';
 
 // ---- Scheduled broadcasts ---------------------------------------------------
 // One-off ("UFC reminder Saturday 9pm") or recurring (daily/weekly). send_at
@@ -234,6 +234,30 @@ export async function suggestFaqsSweep() {
         ? `\n\n⚠️ ${flagged.length} need${flagged.length > 1 ? '' : 's'} a careful read before approving — they mention things that may belong to one customer.`
         : '') +
       '\n\nNothing is live until you approve it: panel → FAQs.'
+    ).catch(() => {});
+  }
+
+  if (!getSetting('suggest.fromCases')) return;
+
+  // Cases the customer came back and confirmed were fixed. The strongest
+  // evidence in the system — whatever the bot said there demonstrably worked.
+  const fromCases = await harvestResolvedCases().catch(() => []);
+  if (fromCases.length) {
+    await hub.notifyAdmins(
+      `✅ ${fromCases.length} FAQ draft${fromCases.length > 1 ? 's' : ''} from fixes customers confirmed worked:\n` +
+      fromCases.map((c) => `• ${c.question} (${c.confirmedBy} people)`).join('\n') +
+      '\n\nReview them in the panel → FAQs.'
+    ).catch(() => {});
+  }
+
+  // The mirror image, and deliberately NOT drafted into FAQs: the bot already
+  // had an answer for these and it did not work.
+  const gaps = recurringUnresolved();
+  if (gaps.length) {
+    await hub.notifyAdmins(
+      '🔁 Problems that keep coming back and are not getting fixed:\n' +
+      gaps.map((g) => `• ${g.topic} — ${g.n} reports${g.escalated ? `, ${g.escalated} escalated` : ''}`).join('\n') +
+      '\n\nNothing the bot says is resolving these. They need an answer writing, or the service looking at.'
     ).catch(() => {});
   }
 }

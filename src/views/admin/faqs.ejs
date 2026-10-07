@@ -71,6 +71,7 @@
       <td style="max-width:480px">
         <strong><%= s.question %></strong>
         <% if (s.source === 'admin-answer') { %> <span class="badge badge-ok">from your answer</span><% } %>
+        <% if (s.source === 'resolved-case') { %> <span class="badge badge-ok">confirmed fixed ×<%= s.ask_count %></span><% } %>
         <% if (s.needs_review) { %>
         <div class="hint" style="color:var(--warn, #b45309)">⚠️ Check before approving — <%= s.needs_review %>. An FAQ is shown to everyone.</div>
         <% } %>

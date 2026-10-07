@@ -16,6 +16,25 @@
 </div>
 <% } %>
 
+<% if (recurring.length) { %>
+<div class="card">
+  <h2>🔁 Never actually getting fixed</h2>
+  <p class="sub">Topics reported again and again over the last 30 days that were escalated, closed by you, or timed out — not ones a customer came back and confirmed were sorted.</p>
+  <table class="list">
+    <tr><th>Topic</th><th>Reports</th><th>Escalated</th><th>Last seen</th></tr>
+    <% for (const g of recurring) { %>
+    <tr>
+      <td><strong><%= g.topic %></strong></td>
+      <td><span class="badge badge-warn">×<%= g.n %></span></td>
+      <td class="hint"><%= g.escalated || '—' %></td>
+      <td class="hint"><%= formatDate(g.last_seen) %></td>
+    </tr>
+    <% } %>
+  </table>
+  <p class="hint">These are knowledge gaps, not drafts. The bot already had something to say about them and it didn't work, so nothing is auto-suggested — writing an FAQ from a failed answer would just publish the failure. Either <a href="/admin/faqs">write the real fix</a>, or the service itself needs looking at.</p>
+</div>
+<% } %>
+
 <div class="toolbar">
   <a class="btn <%= show === 'open' ? '' : 'btn-ghost' %> btn-sm" href="/admin/problems">Open</a>
   <a class="btn <%= show === 'resolved' ? '' : 'btn-ghost' %> btn-sm" href="/admin/problems?show=resolved">Resolved</a>

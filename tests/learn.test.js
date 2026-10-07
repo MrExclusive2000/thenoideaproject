@@ -219,3 +219,87 @@ test('an answer that only made sense for one person is dropped, not published', 
     setSetting('ai.enabled', false);
   }
 });
+
+// ---- learning from cases ----------------------------------------------------
+const { resolvedCaseAnswers, harvestResolvedCases, recurringUnresolved } =
+  await import('../src/ai/learn.js');
+
+// A case the customer came back and confirmed was fixed, with the bot's reply
+// recorded against the question that opened it.
+function resolvedCase(problem, fix, { userId = 80001, topic = 'buffering' } = {}) {
+  const t = now();
+  db.prepare('INSERT INTO problem_reports (chat_id, chat_title, tg_user_id, tg_user, text, topic, answered, resolved, resolved_by, ts) VALUES (?,?,?,?,?,?,1,1,?,?)')
+    .run(GROUP, 'Test Group', userId, 'punter', problem, topic, 'user', t);
+  const logId = logMessage(GROUP, { id: userId, username: 'punter' }, problem, null, msg(nextId++), 'Test Group');
+  db.prepare('UPDATE messages_log SET reply_source = ?, bot_reply = ? WHERE id = ?').run('ai', fix, logId);
+}
+
+const resetCases = () => {
+  db.prepare('DELETE FROM problem_reports').run();
+  db.prepare('DELETE FROM messages_log').run();
+  db.prepare('DELETE FROM suggested_faqs').run();
+  db.prepare('DELETE FROM faqs').run();
+};
+
+test('the fix that resolved a case is recovered from the message log', () => {
+  resetCases();
+  resolvedCase('bbc one keeps buffering every few minutes', 'Try a different link for that channel, then restart the app and power-cycle the box.');
+  const found = resolvedCaseAnswers({ sinceDays: 30 });
+  assert.equal(found.length, 1);
+  assert.match(found[0].answer, /different link/);
+  assert.match(found[0].question, /buffering/);
+});
+
+test('a case nobody confirmed fixed is not treated as a working answer', () => {
+  resetCases();
+  const t = now();
+  db.prepare("INSERT INTO problem_reports (chat_id, tg_user_id, text, topic, answered, resolved, resolved_by, ts) VALUES (?,?,?,?,1,1,'auto-close',?)")
+    .run(GROUP, 80009, 'app keeps crashing on open', 'crashing', t);
+  const logId = logMessage(GROUP, { id: 80009, username: 'x' }, 'app keeps crashing on open', null, msg(nextId++), 'Test Group');
+  db.prepare("UPDATE messages_log SET bot_reply = 'Clear the cache.' WHERE id = ?").run(logId);
+  assert.equal(resolvedCaseAnswers({ sinceDays: 30 }).length, 0, 'auto-close means they went quiet, not that it worked');
+});
+
+test('one confirmed fix is an anecdote — two make a draft', async () => {
+  resetCases();
+  resolvedCase('bbc one keeps buffering every few minutes', 'Try a different link for that channel, then restart the app and power-cycle the box.', { userId: 80002 });
+  assert.equal((await harvestResolvedCases({ sinceDays: 30 })).length, 0, 'a single case proves nothing yet');
+
+  resolvedCase('bbc one buffering constantly for me too', 'Try a different link for that channel, then restart the app and power-cycle the box.', { userId: 80003 });
+  const created = await harvestResolvedCases({ sinceDays: 30 });
+  assert.equal(created.length, 1, 'two people, same problem, same fix confirmed — now it is knowledge');
+
+  const row = db.prepare("SELECT * FROM suggested_faqs WHERE status = 'pending'").get();
+  assert.equal(row.source, 'resolved-case');
+  assert.equal(row.ask_count, 2);
+  assert.match(row.answer, /different link/);
+});
+
+test('recurring problems that never get fixed are reported, not drafted', async () => {
+  resetCases();
+  const t = now();
+  for (const u of [81001, 81002, 81003]) {
+    db.prepare("INSERT INTO problem_reports (chat_id, tg_user_id, text, topic, answered, resolved, escalated, ts) VALUES (?,?,?,?,1,0,1,?)")
+      .run(GROUP, u, 'sky sports keeps freezing mid match', 'freezing', t);
+  }
+  const gaps = recurringUnresolved({ sinceDays: 30, minCount: 3 });
+  assert.equal(gaps.length, 1);
+  assert.equal(gaps[0].topic, 'freezing');
+  assert.equal(gaps[0].n, 3);
+  assert.equal(gaps[0].escalated, 3);
+
+  // And crucially: no FAQ is drafted from them. The bot already answered these
+  // and the answer did not work — drafting from it would publish the failure.
+  assert.equal((await harvestResolvedCases({ sinceDays: 30 })).length, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM suggested_faqs').get().n, 0);
+});
+
+test('a fix carrying one customer-specific detail is flagged like any other draft', async () => {
+  resetCases();
+  resolvedCase('whats the code to reinstall the app', 'Enter code 9804805 in the Downloader app and reinstall from there.', { userId: 80004, topic: 'install' });
+  resolvedCase('need the code to reinstall it again', 'Enter code 9804805 in the Downloader app and reinstall from there.', { userId: 80005, topic: 'install' });
+  await harvestResolvedCases({ sinceDays: 30 });
+  const row = db.prepare("SELECT * FROM suggested_faqs WHERE status = 'pending'").get();
+  assert.ok(row, 'drafted');
+  assert.match(row.needs_review || '', /long number/);
+});
