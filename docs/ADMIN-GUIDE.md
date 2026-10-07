@@ -88,6 +88,22 @@ You don't need the panel for the things that change often:
 
 Everything is written to the audit log with your Telegram ID.
 
+## Channel lookup (Xtream Codes)
+
+"What channel is the F1 on?" asks about **your** lineup, so no public TV API can answer it — only the Xtream Codes panel your service runs on. Give the bot a read-only lookup account in **Bot settings → Channel lookup** and it pulls the channel list and guide, then answers from the real listing.
+
+- `/channels` — what's cached and how old it is
+- `/channels refresh` — pull it now
+- `/channels sky sports` — search the lineup
+
+Use a spare account, not your own. The password is stored in settings and sent to the panel on each lookup; it is never shown to customers, written to logs, or put in the AI's prompt — error messages are written by hand rather than passed through, because the credential travels in the query string.
+
+The cache is replaced wholesale on each refresh, so a channel dropped from the lineup disappears rather than lingering to be recommended. Set how often to re-pull (default 24h); channels get added, renamed and dropped, and a stale list sends someone to a channel that no longer exists.
+
+Only the handful of channels matching a question reach the model, never the whole lineup — a prompt carrying thousands of channel names would cost a minute of reading on a CPU node and bury the answer.
+
+**What this covers and what it doesn't.** A named channel works: *"what channel is the F1 on"*, *"what's on Sky Sports Main Event"*. Searching across every channel's listings — *"who's playing Derby tonight"* — needs the bulk EPG, which is a separate job.
+
 ## Sport questions
 
 "What channel is the F1 on?" is a **service** question — it's asking which channel in your lineup carries it — so it's in scope and answered from your knowledge. If your knowledge doesn't name the channel, the bot points them at the TV guide in the app rather than guessing.

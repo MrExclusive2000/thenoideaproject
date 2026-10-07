@@ -457,6 +457,24 @@ const migrations = [
   `
   UPDATE settings SET value = '500' WHERE key = 'ai.maxTokens' AND CAST(value AS INTEGER) <= 220;
   `,
+  // v19 — the channel lineup, pulled from the service's own Xtream Codes API.
+  // "What channel is the F1 on?" is a question about OUR lineup, so no public
+  // sports API can answer it — only the panel the service actually runs on.
+  // Cached because the list runs to thousands of rows and must never be sent
+  // to the model wholesale; only the handful matching a question are.
+  `
+  CREATE TABLE xc_channels (
+    id           INTEGER PRIMARY KEY,
+    service      INTEGER NOT NULL,
+    stream_id    INTEGER NOT NULL,
+    name         TEXT NOT NULL,
+    category     TEXT,
+    epg_channel_id TEXT,
+    updated_at   INTEGER NOT NULL,
+    UNIQUE(service, stream_id)
+  );
+  CREATE INDEX idx_xc_channels_name ON xc_channels(service, name);
+  `,
 ];
 
 export function migrate(db) {

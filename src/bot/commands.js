@@ -11,6 +11,7 @@ import { caseNumberIn, caseSummary, closeCaseAsAdmin, openCasesList, looksLikeCa
 import { hub } from './hub.js';
 import { state } from '../state.js';
 import { localBuild, updateCheck, describeUpdate, applyUpdate } from '../build.js';
+import { xcConfigured, refreshChannels, channelCount, channelsUpdatedAt, findChannels, xcLastError } from '../xc.js';
 
 const isPrivate = (ctx) => ctx.chat?.type === 'private';
 
@@ -132,6 +133,7 @@ export function registerCommands(bot) {
         '/cases — open cases · /case 12 — read one · /case 12 fixed — close it',
         '/version — what is running · /update — pull the latest code',
         '/set skyglass 123456 — change a code · /note <text> — service note · /teach Q | A',
+        '/channels — the live lineup · /channels refresh — re-pull it',
         'Or just reply "#12 fixed" to an alert.'
       );
     }
@@ -383,6 +385,49 @@ export function registerCommands(bot) {
       `✅ Learned it (entry #${info.lastInsertRowid}, live now):\n\nQ: ${question}\nA: ${withAdminContact(answer).slice(0, 400)}\n\n` +
       'Add keywords in the panel if you want the fallback to find it too — without them it is only matched by meaning.'
     );
+  });
+
+  // Pull the lineup from the service's own panel. Read-only, and the lookup
+  // password never leaves settings.
+  bot.command('channels', async (ctx) => {
+    if (!isAdminUser(ctx.from.id)) return;
+    const arg = String(ctx.match || '').trim();
+
+    if (/^(refresh|update|sync)$/i.test(arg)) {
+      await ctx.reply('⏳ Pulling the channel list…');
+      const lines = [];
+      for (const service of [1, 2]) {
+        if (!xcConfigured(service)) continue;
+        const r = await refreshChannels(service);
+        lines.push(r.ok
+          ? `✅ Service ${service}: ${r.count} channels cached.`
+          : `❌ Service ${service}: ${r.error}`);
+      }
+      return ctx.reply(lines.length ? lines.join('\n') : 'No service has a lookup account set — add one in the panel under Bot settings.');
+    }
+
+    if (arg) {
+      const hits = findChannels(arg, { service: 1, limit: 10 });
+      return ctx.reply(hits.length
+        ? `Matching channels:\n${hits.map((h) => `• ${h.name}${h.category ? ` — ${h.category}` : ''}`).join('\n')}`
+        : `Nothing in the lineup matches "${arg}". Try /channels refresh if it is new.`);
+    }
+
+    const bits = [];
+    for (const service of [1, 2]) {
+      if (!xcConfigured(service)) continue;
+      const n = channelCount(service);
+      const at = channelsUpdatedAt(service);
+      const age = at ? `${Math.round((Date.now() / 1000 - at) / 3600)}h ago` : 'never';
+      bits.push(`Service ${service}: ${n} channels, updated ${age}`);
+    }
+    if (!bits.length) {
+      return ctx.reply(
+        'No lookup account set yet. Add the Xtream Codes username and password for your service in the panel (Bot settings → service lookup), then send /channels refresh.' +
+        (xcLastError() ? `\n\nLast error: ${xcLastError()}` : '')
+      );
+    }
+    await ctx.reply(`${bits.join('\n')}\n\n/channels refresh — pull the latest\n/channels sky sports — search the lineup`);
   });
 
   bot.command('case', async (ctx) => {

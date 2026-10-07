@@ -98,6 +98,35 @@
   </div>
 
   <div class="card">
+    <h2>Channel lookup</h2>
+    <p class="sub">"What channel is the F1 on?" is a question about <em>your</em> lineup, so no public TV API can answer it — only the Xtream Codes panel your service runs on. Give the bot a read-only lookup account and it pulls the channel list and guide, then answers from the real listing instead of guessing a channel that may not exist.</p>
+    <p class="hint">Use a spare account, not your own. The password is stored here and sent to the panel on every lookup — it is never shown to customers, written to logs, or included in the AI's prompt. Leave a password blank to keep the one already saved.</p>
+    <div class="row">
+      <div>
+        <label for="xcUser1">Service 1 lookup username</label>
+        <input id="xcUser1" name="xcUser1" type="text" maxlength="120" value="<%= s.xcUser1 %>" autocomplete="off">
+      </div>
+      <div>
+        <label for="xcPass1">Service 1 lookup password <%= s.xcPass1Set ? '(saved)' : '' %></label>
+        <input id="xcPass1" name="xcPass1" type="password" maxlength="200" placeholder="<%= s.xcPass1Set ? 'leave blank to keep' : '' %>" autocomplete="new-password">
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label for="xcUser2">Service 2 lookup username</label>
+        <input id="xcUser2" name="xcUser2" type="text" maxlength="120" value="<%= s.xcUser2 %>" autocomplete="off">
+      </div>
+      <div>
+        <label for="xcPass2">Service 2 lookup password <%= s.xcPass2Set ? '(saved)' : '' %></label>
+        <input id="xcPass2" name="xcPass2" type="password" maxlength="200" placeholder="<%= s.xcPass2Set ? 'leave blank to keep' : '' %>" autocomplete="new-password">
+      </div>
+    </div>
+    <label for="xcRefreshHours">Re-pull the lineup every (hours, 0 = only when you ask)</label>
+    <input id="xcRefreshHours" name="xcRefreshHours" type="number" min="0" max="168" value="<%= s.xcRefreshHours %>">
+    <p class="hint">Channels get added, renamed and dropped. A stale list has the bot sending someone to a channel that no longer exists, which is worse than not answering. In Telegram: <code>/channels</code> shows what is cached, <code>/channels refresh</code> pulls it now, <code>/channels sky sports</code> searches it.</p>
+  </div>
+
+  <div class="card">
     <h2>Instructions (the bot's persona and rules)</h2>
     <p class="hint">This is the system prompt for the AI. Describe your app, tone, and anything the bot should or shouldn't say. knowledge entries and guides are automatically added as knowledge.</p>
     <textarea name="instructions" rows="8" maxlength="8000"><%= s.instructions %></textarea>

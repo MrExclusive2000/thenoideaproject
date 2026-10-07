@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db } from '../../../db/db.js';
-import { getSetting, setSettings } from '../../../settings.js';
+import { getSetting, setSetting, setSettings } from '../../../settings.js';
 import { embed, embedStatus } from '../../../ai/embeddings.js';
 import { testAiConnection } from '../../../ai/client.js';
 import { audit } from '../../../util.js';
@@ -47,6 +47,12 @@ settingsRouter.get('/bot', (req, res) => {
       serviceName2: getSetting('services.name2'),
       serviceUrl2: getSetting('services.url2'),
       servicePrefix2: getSetting('services.prefix2'),
+      xcUser1: getSetting('services.xcUser1'),
+      xcUser2: getSetting('services.xcUser2'),
+      // Passwords are never sent back to the browser — only whether one is set.
+      xcPass1Set: Boolean(String(getSetting('services.xcPass1') || '').trim()),
+      xcPass2Set: Boolean(String(getSetting('services.xcPass2') || '').trim()),
+      xcRefreshHours: getSetting('services.xcRefreshHours'),
       thanksMessage: getSetting('bot.thanksMessage'),
       photoMessage: getSetting('bot.photoMessage'),
       problemFollowupNote: getSetting('bot.problemFollowupNote'),
@@ -104,6 +110,9 @@ settingsRouter.post('/bot', (req, res) => {
     'services.name2': String(b.serviceName2 || '').trim().slice(0, 60),
     'services.url2': String(b.serviceUrl2 || '').trim().slice(0, 200),
     'services.prefix2': String(b.servicePrefix2 || 'THM').trim().slice(0, 20),
+    'services.xcUser1': String(b.xcUser1 || '').trim().slice(0, 120),
+    'services.xcUser2': String(b.xcUser2 || '').trim().slice(0, 120),
+    'services.xcRefreshHours': Math.max(0, Math.min(168, Number(b.xcRefreshHours) || 0)),
     'bot.thanksMessage': String(b.thanksMessage || '').slice(0, 500),
     'bot.photoMessage': String(b.photoMessage || '').slice(0, 500),
     'bot.problemFollowupNote': String(b.problemFollowupNote || '').slice(0, 500),
@@ -124,6 +133,14 @@ settingsRouter.post('/bot', (req, res) => {
     'bot.cooldownSeconds': Math.max(0, Math.min(600, Number(b.cooldownSeconds) || 0)),
     'faq.threshold': Math.max(0.1, Math.min(0.95, Number(b.faqThreshold) || 0.5)),
   });
+  // Passwords are write-only: the form never renders them back, so an empty
+  // field means "left alone", not "clear it". Saving the page without retyping
+  // one must not silently disconnect the channel lookup.
+  for (const n of [1, 2]) {
+    const typed = String(req.body[`xcPass${n}`] || '').trim();
+    if (typed) setSetting(`services.xcPass${n}`, typed.slice(0, 200));
+  }
+
   audit('admin', res.locals.admin.username, 'settings.bot.update', '', req.ip);
   flash(req, 'ok', 'Bot settings saved. They apply immediately.');
   res.redirect('/admin/bot');

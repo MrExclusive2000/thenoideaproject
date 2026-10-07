@@ -14,6 +14,7 @@ import { alertAdmins } from './reports.js';
 import { embed, retrieveFaqs, embeddingsProven } from '../ai/embeddings.js';
 import { lookupAnswer, rememberAnswer, cacheable } from '../ai/answer-cache.js';
 import { circuitOpen } from '../ai/breaker.js';
+import { looksLikeChannelQuestion, channelGrounding } from '../xc.js';
 import {
   queueProblemAlert, setProblemRearmHook, maybeAutoDegrade,
   looksLikeCaseClose, caseNumbersIn, closeCaseAsAdmin,
@@ -904,9 +905,17 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
               k: Number(getSetting('ai.retrieveCount')) || 6,
               qVec: cacheVec,
             });
+            // "What channel is the F1 on?" is about OUR lineup, so it is
+            // answerable from the panel the service runs on — and only from
+            // there. Fetched per question rather than held in the prompt: the
+            // lineup is thousands of channels and the model needs the few
+            // that answer this one.
+            const channels = looksLikeChannelQuestion(question)
+              ? await channelGrounding(question).catch(() => null)
+              : null;
             try {
               reply = await askAi(question, {
-                history, assumeOnTopic, playback, grounding, secondRound: deepen,
+                history, assumeOnTopic, playback, grounding, secondRound: deepen, channels,
                 // The banner above already said "we know". Walking someone
                 // through restarting their box cannot fix a fault on our side,
                 // and asking them to is a waste of their evening.

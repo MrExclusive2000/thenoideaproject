@@ -205,6 +205,17 @@ const DEFAULTS = {
   'services.name2': '',
   'services.url2': '',
   'services.prefix2': 'THM', // usernames starting with this → service 2
+  // A lookup account on each service's own Xtream Codes panel. Used read-only
+  // to pull the channel lineup and EPG, so the bot can answer "what channel is
+  // the F1 on" from the real listing instead of guessing. Use a spare account,
+  // not your own: the password is stored here and sent to the panel on every
+  // lookup. It is never shown to customers, logged, or put in the AI prompt.
+  'services.xcUser1': '',
+  'services.xcPass1': '',
+  'services.xcUser2': '',
+  'services.xcPass2': '',
+  // Refresh the cached lineup this often (hours). 0 = only on demand.
+  'services.xcRefreshHours': 24,
   // Rotating group promos ("recommend us", renewals) every N days.
   'promo.enabled': false,
   'promo.intervalDays': 3,
