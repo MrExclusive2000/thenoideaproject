@@ -316,3 +316,13 @@ test('changing a code updates every mention at once', () => {
   assert.equal((withAdminContact(text).match(/9999999/g) || []).length, 3, 'one field, every mention');
   setSetting('apps.skyGlassCode', '3793766');
 });
+
+// --- the answer token cap ------------------------------------------------------
+test('the answer cap allows a full install guide', async () => {
+  const { getSetting } = await import('../src/settings.js');
+  const cap = Number(getSetting('ai.maxTokens'));
+  // A real Firestick install guide (7 numbered steps plus an
+  // unknown-sources section) runs past 220 tokens and was being cut
+  // mid-instruction. Roughly 4 characters per token.
+  assert.ok(cap >= 400, `answer cap is ${cap} — too tight for a step-by-step guide`);
+});

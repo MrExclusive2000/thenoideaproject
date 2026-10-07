@@ -131,7 +131,12 @@ const DEFAULTS = {
   'ai.model': config.ai.model,
   // Kept modest on purpose: answers are meant to be 2-4 sentences, and every
   // extra token is real seconds on a CPU node (~4 tokens/sec generation).
-  'ai.maxTokens': 220,
+  // An install guide is legitimately 200+ words, and 220 tokens cut them off
+  // mid-step. The old cap was defence against a failure mode that no longer
+  // exists: answers stream now, and hitting the time budget returns what the
+  // model has written rather than throwing it away, so a long answer is no
+  // longer all-or-nothing.
+  'ai.maxTokens': 500,
   'ai.temperature': 0.3,
   // CPU generation is slow — a full answer can take 60-90s. The old 90s
   // default cut answers off mid-generation (Ollama 500s). 180s gives them

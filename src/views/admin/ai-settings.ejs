@@ -36,6 +36,7 @@
       <div>
         <label for="maxTokens">Max reply tokens</label>
         <input id="maxTokens" name="maxTokens" type="number" min="50" max="4000" value="<%= s.maxTokens %>">
+        <p class="hint">Roughly 4 characters a token, so 500 is about 350 words — enough for a step-by-step install guide. Set it too low and guides get cut off mid-instruction, which the customer notices; set it very high and a slow node spends longer on every answer.</p>
       </div>
       <div>
         <label for="temperature">Temperature (0 = factual, 1 = creative)</label>

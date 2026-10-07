@@ -447,6 +447,16 @@ const migrations = [
   );
   CREATE INDEX idx_problem_state_at ON problem_state(at);
   `,
+  // v18 — lift the 220-token answer cap. v12 set it to protect slow CPU nodes
+  // back when a call was non-streaming and all-or-nothing: a long answer blew
+  // the whole timeout and the customer got nothing. Answers stream now and the
+  // time budget returns partial text, so the cap no longer buys safety — it
+  // just truncates install guides mid-step, which is the bit a customer
+  // actually notices. Only raises values at or below the old default; a lower
+  // number chosen deliberately for a slow node is not forced upwards past it.
+  `
+  UPDATE settings SET value = '500' WHERE key = 'ai.maxTokens' AND CAST(value AS INTEGER) <= 220;
+  `,
 ];
 
 export function migrate(db) {
