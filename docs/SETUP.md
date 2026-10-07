@@ -61,6 +61,31 @@ Follow this top to bottom and you'll be live in ~15 minutes.
 > - **AI settings** → set **timeout** to `180`s and **max answer length** to `220` tokens (these are the defaults now, but confirm them if you saved AI settings on an older build).
 > - **Use a smaller model** — a 3B (`qwen2.5:3b`, `llama3.2:3b`) generates 2-3× faster on CPU and answers support questions fine. This is the single biggest speed win. Also check the node isn't low on RAM (a 7B model that swaps crawls). Avoid `gemma*` on CPU — it re-reads the whole prompt every message.
 > - On a slow node, turn **AI-reworded replies** OFF (Bot settings) — it adds a second generation to every greeting/thanks. The saved text still sends instantly.
+>
+> ### If Ollama runs as its own Pelican egg
+>
+> A Pelican server has no shell you can type `ollama pull` into, and the env vars above are not egg variables — both live in the **startup command**. A typical Ollama egg pulls exactly one model (`$OLLAMA_MODEL`) and exports nothing else, which means `nomic-embed-text` is never fetched and the model unloads after 5 idle minutes, so a quiet group pays a full reload on every question.
+>
+> Edit the egg's **Startup** command (Pelican admin → Nests/Eggs → your Ollama egg) to export the tuning vars and pull both models:
+>
+> ```bash
+> bash -c 'export OLLAMA_HOST=0.0.0.0:{{SERVER_PORT}}; export OLLAMA_MODELS=/home/container/.ollama/models; export LD_LIBRARY_PATH=/home/container/lib/ollama; export OLLAMA_KEEP_ALIVE=-1; export OLLAMA_NUM_PARALLEL=1; export OLLAMA_CONTEXT_LENGTH=8192; export OLLAMA_MAX_LOADED_MODELS=2; /home/container/bin/ollama serve & SRV=$!; until curl -s http://127.0.0.1:{{SERVER_PORT}}/api/tags >/dev/null 2>&1; do sleep 1; done; for M in "$OLLAMA_MODEL" "$OLLAMA_EMBED_MODEL"; do [ -n "$M" ] && { /home/container/bin/ollama list | grep -q "^$M[[:space:]]" || /home/container/bin/ollama pull "$M"; }; done; wait $SRV'
+> ```
+>
+> Then add a second egg **variable** so the embedding model is configurable like the chat one:
+>
+> | Field | Value |
+> |---|---|
+> | Name | `Embedding model` |
+> | Env variable | `OLLAMA_EMBED_MODEL` |
+> | Default value | `nomic-embed-text` |
+> | Rules | `nullable|string` |
+>
+> `OLLAMA_MAX_LOADED_MODELS=2` matters here: with `KEEP_ALIVE=-1` and two models in play, Ollama must be allowed to hold both resident or it will evict the chat model every time it embeds a question. Budget ~300MB for `nomic-embed-text` on top of your chat model.
+>
+> Two things to check in the egg while you're in there:
+> - **Does the install exclude the GPU libraries?** (`--exclude='lib/ollama/cuda*'`) If so the server is CPU-only by construction and no amount of tuning will change that — the model size is your only speed lever.
+> - **The "already pulled?" test.** `ollama list | grep -q "${OLLAMA_MODEL%%:*}"` strips the tag, so switching `llama3.1:8b` → `llama3.1:70b` sees `llama3.1` already present and silently keeps serving the old one. Matching the full `name` column (as above) fixes it.
 
 ## 6. First login & go-live checklist
 
