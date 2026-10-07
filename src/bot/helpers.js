@@ -243,9 +243,15 @@ export function recordProblem(ctx, text, { answered = false } = {}) {
   const t = String(text).slice(0, 500);
   if (userId != null) {
     const open = db.prepare(
-      'SELECT id, text FROM problem_reports WHERE tg_user_id = ? AND resolved = 0 AND ts > ? ORDER BY id DESC LIMIT 1'
+      'SELECT id, text, topic FROM problem_reports WHERE tg_user_id = ? AND resolved = 0 AND ts > ? ORDER BY id DESC LIMIT 1'
     ).get(userId, now() - MERGE_WINDOW_S);
-    if (open) {
+    // Follow-up detail merges into the open report, but only when it is about
+    // the SAME thing. Two different problems reported in the same hour are two
+    // cases — merging them hid the second one completely, and resolving the
+    // first silently closed both.
+    const newTopic = extractProblemTopic(text);
+    const sameProblem = open && (!newTopic || !open.topic || newTopic === open.topic);
+    if (open && sameProblem) {
       const combined = `${open.text}\n↳ ${t}`.slice(0, 1500);
       db.prepare(
         'UPDATE problem_reports SET text = ?, topic = COALESCE(topic, ?), answered = CASE WHEN ? THEN 1 ELSE answered END WHERE id = ?'

@@ -424,6 +424,29 @@ const migrations = [
   ALTER TABLE suggested_faqs ADD COLUMN source TEXT NOT NULL DEFAULT 'unanswered';
   ALTER TABLE suggested_faqs ADD COLUMN needs_review TEXT;
   `,
+  // v17 — the triage conversation ("you reported X, I gave you fixes, you said
+  // it is still broken") lived in a plain Map in the bot process. The case row
+  // in problem_reports survived a restart but the conversation did not, so
+  // after every deploy a customer's "still not working" read as a brand new
+  // problem: fixes they had already tried, round counting back to zero, and no
+  // escalation. Timestamps are milliseconds here, matching Date.now() at the
+  // call sites rather than the seconds used elsewhere.
+  `
+  CREATE TABLE problem_state (
+    tg_user_id       INTEGER PRIMARY KEY,
+    case_id          INTEGER,
+    at               INTEGER NOT NULL,
+    escalated_at     INTEGER,
+    answered_at      INTEGER,
+    nudged_at        INTEGER,
+    awaiting_service INTEGER NOT NULL DEFAULT 0,
+    from_auto_close  INTEGER NOT NULL DEFAULT 0,
+    fix_rounds       INTEGER NOT NULL DEFAULT 0,
+    first_text       TEXT,
+    topic            TEXT
+  );
+  CREATE INDEX idx_problem_state_at ON problem_state(at);
+  `,
 ];
 
 export function migrate(db) {

@@ -2337,3 +2337,104 @@ test('editing an FAQ invalidates answers written from the old knowledge', async 
     aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
   }
 });
+
+// ---- case state survives a restart ------------------------------------------
+
+test('triage state survives a process restart', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  _resetProblemTriage();
+  _resetProblemQueue();
+  db.prepare('DELETE FROM problem_reports').run();
+  db.prepare('INSERT OR REPLACE INTO allowed_chats (chat_id, title, enabled, added_at) VALUES (-100123, ?, 1, 0)').run('Test Group');
+
+  await handleGroupMessage(fakeCtx('bbc one keeps buffering every few seconds', { chatType: 'group', userId: 94001 }));
+  const open = db.prepare('SELECT * FROM problem_reports WHERE tg_user_id = 94001 AND resolved = 0').get();
+  assert.ok(open, 'the case was recorded');
+
+  // A restart loses every in-memory Map but not the database. Re-import the
+  // module fresh and the conversation must still be there.
+  const state = db.prepare('SELECT * FROM problem_state WHERE tg_user_id = 94001').get();
+  assert.ok(state, 'the live conversation is on disk, not only in memory');
+  assert.equal(state.case_id, open.id, 'it points at the case it belongs to');
+  assert.ok(state.topic, 'and remembers what the problem was about');
+});
+
+test('a next-day "all sorted" still closes the case', async () => {
+  _resetProblemTriage();
+  _resetProblemQueue();
+  db.prepare('DELETE FROM problem_reports').run();
+  await handleGroupMessage(fakeCtx('my picture keeps freezing on sky sports', { chatType: 'group', userId: 94002 }));
+
+  const open = db.prepare('SELECT * FROM problem_reports WHERE tg_user_id = 94002 AND resolved = 0').get();
+  assert.ok(open);
+  // Backdate both the report and the conversation well past the old two-hour
+  // resolve window, but inside the configured case window.
+  const tenHoursAgo = Math.floor(Date.now() / 1000) - 10 * 3600;
+  db.prepare('UPDATE problem_reports SET ts = ? WHERE id = ?').run(tenHoursAgo, open.id);
+  db.prepare('UPDATE problem_state SET at = ? WHERE tg_user_id = 94002').run(Date.now() - 10 * 3600 * 1000);
+
+  await handleGroupMessage(fakeCtx('all sorted now mate, cheers', { chatType: 'group', userId: 94002 }));
+  const after = db.prepare('SELECT * FROM problem_reports WHERE id = ?').get(open.id);
+  assert.equal(after.resolved, 1, 'closed even though it is far older than two hours');
+  assert.equal(after.resolved_by, 'user');
+});
+
+test('a case outside the window no longer counts as the live conversation', async () => {
+  _resetProblemTriage();
+  db.prepare('DELETE FROM problem_reports').run();
+  await handleGroupMessage(fakeCtx('the app wont open at all on my firestick', { chatType: 'group', userId: 94003 }));
+  // Older than bot.problemWindowMinutes (720) — the thread has lapsed.
+  db.prepare('UPDATE problem_state SET at = ? WHERE tg_user_id = 94003').run(Date.now() - 800 * 60 * 1000);
+  assert.equal(
+    db.prepare('SELECT COUNT(*) n FROM problem_state WHERE tg_user_id = 94003').get().n, 1,
+    'still on disk until something reads it'
+  );
+  await handleGroupMessage(fakeCtx('any news on that', { chatType: 'group', userId: 94003 }));
+  assert.equal(
+    db.prepare('SELECT COUNT(*) n FROM problem_state WHERE tg_user_id = 94003').get().n, 0,
+    'the lapsed thread is swept on read rather than lingering forever'
+  );
+});
+
+test('a different problem opens its own case instead of landing on the open one', async () => {
+  _resetProblemTriage();
+  _resetProblemQueue();
+  db.prepare('DELETE FROM problem_reports').run();
+
+  await handleGroupMessage(fakeCtx('bbc one is buffering badly tonight', { chatType: 'group', userId: 94004 }));
+  const first = db.prepare('SELECT * FROM problem_reports WHERE tg_user_id = 94004').all();
+  assert.equal(first.length, 1);
+
+  // Same person, same hour, completely different complaint.
+  await handleGroupMessage(fakeCtx('my login is not working on smarters now either', { chatType: 'group', userId: 94004 }));
+  const all = db.prepare('SELECT * FROM problem_reports WHERE tg_user_id = 94004 ORDER BY id').all();
+  assert.equal(all.length, 2, 'two problems, two cases — the second is not swallowed by the first');
+  assert.notEqual(all[0].topic, all[1].topic);
+});
+
+test('resolving one case leaves the other open', async () => {
+  _resetProblemTriage();
+  _resetProblemQueue();
+  db.prepare('DELETE FROM problem_reports').run();
+  await handleGroupMessage(fakeCtx('sky sports is freezing constantly for me', { chatType: 'group', userId: 94005 }));
+  await handleGroupMessage(fakeCtx('my login is not working on smarters as well', { chatType: 'group', userId: 94005 }));
+  const all = db.prepare('SELECT * FROM problem_reports WHERE tg_user_id = 94005 ORDER BY id').all();
+  assert.equal(all.length, 2);
+
+  await handleGroupMessage(fakeCtx('thats sorted now thanks', { chatType: 'group', userId: 94005 }));
+  const after = db.prepare('SELECT resolved FROM problem_reports WHERE tg_user_id = 94005 ORDER BY id').all();
+  assert.equal(after.filter((r) => r.resolved).length, 1, 'only the live case closes');
+  assert.equal(after.filter((r) => !r.resolved).length, 1, 'the other stays open on the panel');
+});
+
+test('a second problem with no recognisable topic still merges, rather than guessing', async () => {
+  _resetProblemTriage();
+  _resetProblemQueue();
+  db.prepare('DELETE FROM problem_reports').run();
+  await handleGroupMessage(fakeCtx('sky sports is freezing constantly for me', { chatType: 'group', userId: 94006 }));
+  // No extractable topic: splitting on a guess would scatter one person's
+  // follow-up detail across several half-empty cases, so it merges as before.
+  await handleGroupMessage(fakeCtx('its doing it on the other box as well', { chatType: 'group', userId: 94006 }));
+  const all = db.prepare('SELECT * FROM problem_reports WHERE tg_user_id = 94006').all();
+  assert.equal(all.length, 1, 'detail without a topic stays with the open case');
+});

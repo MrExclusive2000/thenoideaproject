@@ -430,19 +430,99 @@ function bumpCooldown(userId) {
 // message within the window, a reply to the bot, or "still ...") escalates to
 // the admins. Separately, several DIFFERENT users reporting within 15 minutes
 // triggers one outage alert even without confirmations.
-const PROBLEM_WINDOW_MS = 30 * 60 * 1000;
-const problemState = new Map(); // userId -> { at, escalatedAt }
+// The live triage conversation. Backed by SQLite rather than a Map: the case
+// row always survived a restart but this did not, so after every deploy a
+// customer's "still not working" read as a brand new problem — the same fixes
+// again, round count back to zero, no escalation.
+//
+// The window is how long a reply still counts as being about the open case.
+// Thirty seconds of "try these fixes" takes minutes to actually carry out (a
+// router restart alone is two), so a short window closed the thread while the
+// customer was still off doing what the bot asked.
+const problemWindowMs = () =>
+  Math.max(1, Number(getSetting('bot.problemWindowMinutes')) || 720) * 60 * 1000;
+
+const STATE_COLUMNS = {
+  caseId: 'case_id',
+  at: 'at',
+  escalatedAt: 'escalated_at',
+  answeredAt: 'answered_at',
+  nudgedAt: 'nudged_at',
+  awaitingService: 'awaiting_service',
+  fromAutoClose: 'from_auto_close',
+  fixRounds: 'fix_rounds',
+  firstText: 'first_text',
+  topic: 'topic',
+};
+
+const rowToState = (r) => r && {
+  caseId: r.case_id,
+  at: r.at,
+  escalatedAt: r.escalated_at,
+  answeredAt: r.answered_at,
+  nudgedAt: r.nudged_at,
+  awaitingService: Boolean(r.awaiting_service),
+  fromAutoClose: Boolean(r.from_auto_close),
+  fixRounds: r.fix_rounds,
+  firstText: r.first_text,
+  topic: r.topic,
+};
 
 function getProblemState(userId) {
-  const st = problemState.get(userId);
-  if (!st || Date.now() - st.at > PROBLEM_WINDOW_MS) return null;
-  return st;
+  const row = db.prepare('SELECT * FROM problem_state WHERE tg_user_id = ?').get(userId);
+  if (!row) return null;
+  if (Date.now() - row.at > problemWindowMs()) {
+    db.prepare('DELETE FROM problem_state WHERE tg_user_id = ?').run(userId);
+    return null;
+  }
+  return rowToState(row);
 }
 
 function setProblemState(userId, patch) {
-  const st = problemState.get(userId) || {};
-  problemState.set(userId, { ...st, ...patch });
-  if (problemState.size > 5000) problemState.clear();
+  const current = db.prepare('SELECT * FROM problem_state WHERE tg_user_id = ?').get(userId);
+  const merged = { ...(rowToState(current) || {}), ...patch };
+  const toDb = (k) => {
+    const v = merged[k];
+    if (typeof v === 'boolean') return v ? 1 : 0;
+    return v ?? null;
+  };
+  db.prepare(`
+    INSERT INTO problem_state (tg_user_id, case_id, at, escalated_at, answered_at, nudged_at, awaiting_service, from_auto_close, fix_rounds, first_text, topic)
+    VALUES (@tg_user_id, @case_id, @at, @escalated_at, @answered_at, @nudged_at, @awaiting_service, @from_auto_close, @fix_rounds, @first_text, @topic)
+    ON CONFLICT(tg_user_id) DO UPDATE SET
+      case_id = excluded.case_id, at = excluded.at, escalated_at = excluded.escalated_at,
+      answered_at = excluded.answered_at, nudged_at = excluded.nudged_at,
+      awaiting_service = excluded.awaiting_service, from_auto_close = excluded.from_auto_close,
+      fix_rounds = excluded.fix_rounds, first_text = excluded.first_text, topic = excluded.topic
+  `).run({
+    tg_user_id: userId,
+    case_id: toDb('caseId'),
+    at: merged.at ?? Date.now(),
+    escalated_at: toDb('escalatedAt'),
+    answered_at: toDb('answeredAt'),
+    nudged_at: toDb('nudgedAt'),
+    awaiting_service: merged.awaitingService ? 1 : 0,
+    from_auto_close: merged.fromAutoClose ? 1 : 0,
+    fix_rounds: Number(merged.fixRounds) || 0,
+    first_text: merged.firstText ?? null,
+    topic: merged.topic ?? null,
+  });
+}
+
+function clearProblemState(userId) {
+  db.prepare('DELETE FROM problem_state WHERE tg_user_id = ?').run(userId);
+}
+
+// Closing by case id rather than "any open report from the last two hours":
+// a customer who comes back the next morning to say it is fixed used to close
+// nothing at all, leaving the report open on the panel for good.
+function resolveOpenCase(userId, by, caseId = null) {
+  if (caseId) {
+    const r = db.prepare("UPDATE problem_reports SET resolved = 1, resolved_by = ? WHERE id = ? AND resolved = 0").run(by, caseId);
+    if (r.changes) return r.changes;
+  }
+  return db.prepare("UPDATE problem_reports SET resolved = 1, resolved_by = ? WHERE tg_user_id = ? AND resolved = 0 AND ts > ?")
+    .run(by, userId, now() - Math.ceil(problemWindowMs() / 1000)).changes;
 }
 
 function saysStillBroken(text) {
@@ -493,7 +573,7 @@ function looksLikeAutoCloseMsg(text) {
 
 // Test helper: clear triage memory between scenarios.
 export function _resetProblemTriage() {
-  problemState.clear();
+  db.prepare('DELETE FROM problem_state').run();
   lastOutageAlertAt = 0;
 }
 
@@ -502,7 +582,7 @@ export function _resetProblemTriage() {
 // fromAutoClose flips the default for their reply: neutral updates close
 // softly, only clear still-broken phrasing escalates.
 setProblemRearmHook((userId) => {
-  problemState.set(userId, { at: Date.now(), escalatedAt: null, answeredAt: null, nudgedAt: Date.now(), fromAutoClose: true });
+  setProblemState(userId, { at: Date.now(), escalatedAt: null, answeredAt: null, nudgedAt: Date.now(), fromAutoClose: true });
 });
 
 let lastOutageAlertAt = 0;
@@ -1008,14 +1088,27 @@ export async function handleGroupMessage(ctx) {
   let st = getProblemState(ctx.from.id);
   // A reply to the AUTO-CLOSE message re-enters triage no matter how much
   // later it arrives: the message promised "reply here and I'll flag it
-  // straight to the team", but the triage state lives in memory and dies on
-  // restart or timeout (live bug: a next-morning reply got a generic AI
-  // interrogation instead). Rebuild the state from the replied-to text.
+  // straight to the team". Triage state now survives restarts, but it is
+  // still bounded by the window and auto-close deliberately ends the thread,
+  // so a reply arriving days later needs rebuilding from the replied-to text.
   if (!st && isFollowUp && looksLikeAutoCloseMsg(repliedTo.text)) {
     setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: null, answeredAt: null, nudgedAt: Date.now(), fromAutoClose: true });
     st = getProblemState(ctx.from.id);
   }
-  const alreadyEscalated = Boolean(st?.escalatedAt && Date.now() - st.escalatedAt < PROBLEM_WINDOW_MS);
+  // A problem-shaped message about something ELSE is a NEW problem, not more
+  // detail on the open one. Without this, "my login stopped working" lands on
+  // the buffering case: it counts as a still-broken confirmation, escalates
+  // the wrong report, and the login issue is never recorded at all. Dropping
+  // the state here lets it fall through to the first-report path, which opens
+  // its own case; the previous one stays open on the panel.
+  if (st?.topic && looksLikeProblem(text)) {
+    const newTopic = extractProblemTopic(text);
+    if (newTopic && newTopic !== st.topic) {
+      clearProblemState(ctx.from.id);
+      st = null;
+    }
+  }
+  const alreadyEscalated = Boolean(st?.escalatedAt && Date.now() - st.escalatedAt < problemWindowMs());
 
   // "That fixed it" closes the report — never escalate a resolution. A bare
   // "cheers mate" after the FIXES means the same thing, NOT a still-broken
@@ -1029,9 +1122,8 @@ export async function handleGroupMessage(ctx) {
     return;
   }
   if (st && (saysResolved(text) || looksLikeThanks(text)) && !saysStillBroken(text)) {
-    problemState.delete(ctx.from.id);
-    db.prepare("UPDATE problem_reports SET resolved = 1, resolved_by = 'user' WHERE tg_user_id = ? AND resolved = 0 AND ts > ?")
-      .run(ctx.from.id, now() - 2 * 3600);
+    clearProblemState(ctx.from.id);
+    resolveOpenCase(ctx.from.id, 'user', st?.caseId);
     setLogSource(logId, 'resolved');
     if (alreadyEscalated) {
       // The admin was pinged earlier — close that loop too.
@@ -1181,6 +1273,7 @@ export async function handleGroupMessage(ctx) {
     // an old auto-close flag is still merged into this user's state.
     setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: null, firstText: text.slice(0, 200), fromAutoClose: false });
     problemId = recordProblem(ctx, text, { answered: false });
+    setProblemState(ctx.from.id, { caseId: problemId, topic: extractProblemTopic(text) });
     problemSuffix = followupNoteForRound(1);
     // Outage/degradation check BEFORE building the banner: the report that
     // tips the threshold gets the known-issue banner on its own answer.
@@ -1224,7 +1317,7 @@ export async function handleGroupMessage(ctx) {
 }
 
 // Problem triage for DMs — the group flow's sibling. Everything in a DM is
-// aimed at the bot, so no reply-chain logic is needed: the in-memory state
+// aimed at the bot, so no reply-chain logic is needed: the stored case state
 // carries the conversation, and a bare short "Yes" after the fixes stands in
 // for the group's reply-to-bot confirmation. Returns true when the message
 // was consumed. (Live bug this fixes: DM "buffering on bbc 1" → deflecting
@@ -1233,8 +1326,17 @@ export async function handleGroupMessage(ctx) {
 async function handleDmProblemReply(ctx, text, logId) {
   const st = getProblemState(ctx.from.id);
   if (!st) return false;
+  // A different problem is a new case, not more detail on this one — see the
+  // group path. Returning false hands it to the first-report flow.
+  if (st.topic && looksLikeProblem(text)) {
+    const newTopic = extractProblemTopic(text);
+    if (newTopic && newTopic !== st.topic) {
+      clearProblemState(ctx.from.id);
+      return false;
+    }
+  }
   const send = (msg) => ctx.api.sendMessage(ctx.chat.id, msg).catch(() => {});
-  const alreadyEscalated = Boolean(st.escalatedAt && Date.now() - st.escalatedAt < PROBLEM_WINDOW_MS);
+  const alreadyEscalated = Boolean(st.escalatedAt && Date.now() - st.escalatedAt < problemWindowMs());
   const isProblem = looksLikeProblem(text);
 
   // Thanks after escalation = "thanks for passing it along" — keep it open.
@@ -1245,9 +1347,8 @@ async function handleDmProblemReply(ctx, text, logId) {
     return true;
   }
   if ((saysResolved(text) || looksLikeThanks(text)) && !saysStillBroken(text)) {
-    problemState.delete(ctx.from.id);
-    db.prepare("UPDATE problem_reports SET resolved = 1, resolved_by = 'user' WHERE tg_user_id = ? AND resolved = 0 AND ts > ?")
-      .run(ctx.from.id, now() - 2 * 3600);
+    clearProblemState(ctx.from.id);
+    resolveOpenCase(ctx.from.id, 'user', st?.caseId);
     setLogSource(logId, 'resolved');
     if (alreadyEscalated) {
       hub.notifyAdmins(`✅ @${ctx.from?.username || ctx.from?.first_name} says their issue is now fixed: "${text.slice(0, 120)}"`).catch(() => {});
@@ -1424,6 +1525,7 @@ export async function handleDirectMessage(ctx) {
   if (looksLikeProblem(text) && !getProblemState(ctx.from.id)) {
     setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: null, firstText: text.slice(0, 200), fromAutoClose: false });
     problemId = recordProblem(ctx, text, { answered: false });
+    setProblemState(ctx.from.id, { caseId: problemId, topic: extractProblemTopic(text) });
     problemSuffix = followupNoteForRound(1);
     checkOutage();
     problemPrefix = serviceStatusLine();

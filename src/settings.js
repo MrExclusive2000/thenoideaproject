@@ -59,6 +59,10 @@ const DEFAULTS = {
   // A confirmation that arrives faster than this many minutes after the fixes
   // gets one friendly "actually try it first" pushback instead of escalating.
   // 0 = off. Exceptions: detailed confirmations, fix-negations, known outages.
+  // How long a reply still counts as being about the open problem. The fixes
+  // the bot hands out take real minutes to carry out, so a short window closes
+  // the thread while the customer is still off doing what it asked.
+  'bot.problemWindowMinutes': 720,
   'bot.problemNudgeMinutes': 3,
   'bot.problemNudgeMessage': "That was quick! 😄 Some of those steps take a few minutes to do properly — a router restart alone takes two. Give them a real go, and if it's still playing up afterwards, reply here and I'll flag it straight to the team.",
   // Sent when the user says the problem is fixed. Empty = off.
