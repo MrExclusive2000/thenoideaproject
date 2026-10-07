@@ -35,12 +35,58 @@ test('first boot seeds starter FAQs and guides', () => {
   assert.match(guides.find((g) => g.slug === 'install-ios').body_md, /YOUR-SERVICE-URL/);
 });
 
-test('which-service FAQ ships disabled until the admin fills in the names', () => {
+test('which-service FAQ ships disabled, reading the names from settings', async () => {
+  const { withAdminContact } = await import('../src/settings.js');
   const row = db.prepare('SELECT * FROM faqs WHERE question = ?').get('Which service am I on?');
   assert.ok(row, 'seeded');
   assert.equal(row.enabled, 0, 'disabled out of the box');
-  assert.match(row.answer, /SERVICE-NAME-1/);
   assert.match(row.answer, /THM/);
+  // No hand-editable placeholder: the brand names come from Bot settings, so
+  // they cannot drift out of step with the rest of the system.
+  assert.doesNotMatch(row.answer, /SERVICE-NAME-/);
+  assert.match(row.answer, /\{service1\}/);
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+  const rendered = withAdminContact(row.answer);
+  assert.match(rendered, /you're on Exclusive/);
+  assert.match(rendered, /you're on Flix/);
+});
+
+test('no starter entry ships with an unfilled placeholder in it', () => {
+  // A placeholder that reaches a customer reads as a bug in the service. The
+  // DEFAULT-PIN entry shipped exactly like that for several versions.
+  for (const f of STARTER_FAQS) {
+    assert.doesNotMatch(f.answer, /DEFAULT-PIN|SERVICE-NAME-|SERVICE-URL-|YOUR-[A-Z-]+/,
+      `placeholder left in: ${f.question}`);
+  }
+});
+
+test('starter entries name Sky Glass as the main app, not Purple', () => {
+  // Purple was the recommended app for most of this pack's life, so a stale
+  // "use the Purple App as your main app" is the easiest thing to leave behind.
+  for (const f of STARTER_FAQS) {
+    assert.doesNotMatch(f.answer, /Purple App as your main|Use the Purple App as your main/i,
+      `still recommends Purple as the main app: ${f.question}`);
+  }
+  const which = STARTER_FAQS.find((f) => /Which app should I use/.test(f.question));
+  assert.match(which.answer, /Sky Glass/);
+});
+
+test('starter content never points a customer at the customer panel', () => {
+  // The bot was unlinked from the portal, so "check the customer panel" is an
+  // instruction a customer cannot follow — and the bot won't hand out a link.
+  for (const f of STARTER_FAQS) {
+    assert.doesNotMatch(f.answer, /customer panel/i, `panel reference left in: ${f.question}`);
+  }
+});
+
+test('no starter entry hard-codes a download code', () => {
+  // A code written out by hand is a second place it has to be kept up to
+  // date — including in keyword lists, which fail silently when it changes.
+  for (const f of STARTER_FAQS) {
+    assert.doesNotMatch(f.answer, /\b\d{7,}\b/, `code baked into the answer: ${f.question}`);
+    assert.doesNotMatch(f.keywords || '', /\b\d{6,}\b/, `code baked into the keywords: ${f.question}`);
+  }
 });
 
 test('seeding is idempotent — second boot adds nothing', () => {
@@ -170,7 +216,9 @@ test('starter FAQs actually match how people ask', () => {
 });
 
 test('which-service FAQ matches how people ask once the admin enables it', () => {
-  db.prepare("UPDATE faqs SET enabled = 1, answer = replace(replace(answer, 'SERVICE-NAME-1', 'Flix'), 'SERVICE-NAME-2', 'Exclusive') WHERE question = 'Which service am I on?'").run();
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+  db.prepare("UPDATE faqs SET enabled = 1 WHERE question = 'Which service am I on?'").run();
   const faqs = db.prepare('SELECT * FROM faqs').all();
   for (const q of [
     'what service am i on',
@@ -205,6 +253,65 @@ test('the v22 URL FAQ is retired: never seeded, unedited leftovers deleted', () 
   // The iOS FAQ points at the code-side URL flow instead of the circular ask-here.
   const ios = db.prepare('SELECT answer FROM faqs WHERE question = ?').get('How do I install the app on an iPhone or iPad (iOS)?');
   assert.match(ios.answer, /what's the service URL/, 'iOS FAQ points at the URL flow');
+});
+
+test('the customer-panel entry is retired: never seeded, unedited leftovers deleted', () => {
+  assert.ok(!STARTER_FAQS.some((f) => /customer panel/i.test(f.question)), 'not seeded');
+  const v25 = 'The customer panel has everything in one place: service maintenance updates, app download links, URLs and setup info, VOD recommendations, the sports guide, your account details, FAQs and payment information. Log in with your account details and everything assigned to you appears automatically. Ask here if you need the panel link.';
+  db.prepare('INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at) VALUES (?, ?, ?, 1, 0, 0, 0)')
+    .run("What's in the customer panel?", v25, 'panel');
+  db.prepare('INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at) VALUES (?, ?, ?, 1, 0, 0, 0)')
+    .run("What's in the customer panel? (mine)", 'MY OWN PANEL ANSWER', 'panel');
+  setSetting('seed.version', 0);
+  seedStarterContent();
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM faqs WHERE answer = ?').get(v25).n, 0, 'untouched leftover deleted');
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM faqs WHERE answer = 'MY OWN PANEL ANSWER'").get().n, 1, 'edited row untouched');
+  db.prepare("DELETE FROM faqs WHERE answer = 'MY OWN PANEL ANSWER'").run();
+});
+
+test('the PIN entry loses its placeholder and is switched on for untouched installs', () => {
+  const v25Pin = "Some categories are PIN-locked (parental controls). The default PIN in our apps is DEFAULT-PIN — you can change it in the app's settings under Parental Controls. If that PIN doesn't work in your app, ask here and we'll sort it.";
+  const q = 'What is the PIN for locked categories (parental controls)?';
+  // An install that never touched it: still disabled, still quoting DEFAULT-PIN.
+  db.prepare('UPDATE faqs SET answer = ?, enabled = 0 WHERE question = ?').run(v25Pin, q);
+  setSetting('seed.version', 0);
+  seedStarterContent();
+  const row = db.prepare('SELECT * FROM faqs WHERE question = ?').get(q);
+  assert.doesNotMatch(row.answer, /DEFAULT-PIN/, 'the placeholder is gone');
+  assert.equal(row.enabled, 1, 'and it is usable now that there is nothing to fill in');
+
+  // An entry the admin disabled AFTER writing their own answer stays off.
+  db.prepare('UPDATE faqs SET answer = ?, enabled = 0 WHERE question = ?').run('OUR PIN IS SECRET', q);
+  setSetting('seed.version', 0);
+  seedStarterContent();
+  const mine = db.prepare('SELECT * FROM faqs WHERE question = ?').get(q);
+  assert.equal(mine.answer, 'OUR PIN IS SECRET', 'edited answer left alone');
+  assert.equal(mine.enabled, 0, 'and left switched off');
+});
+
+test('the 9804805 generation is recognised as untouched and refreshed', () => {
+  // These defaults shipped with the code written out in full. They were
+  // recorded as previous versions but never wired into the comparison, so an
+  // install carrying them looked hand-edited and would never have been
+  // refreshed — it would still be quoting a dead code today.
+  const q = 'How do I install the app on my Firestick?';
+  const v21 = 'Install the Downloader app from the Amazon app store, open it and enter code 9804805, then click Go. That page has all our apps — install the Purple App as your main one, plus XC or Smarters as backups (the same login works in all of them).\nIf the Firestick blocks the install: Settings > My Fire TV > About > click the device name 7–10 times to unlock Developer Options, then enable both options in there and go back to Downloader.\nOnce installed, open the app and log in with your service details. Full walkthrough is in the Firestick guide.';
+  db.prepare('UPDATE faqs SET answer = ? WHERE question = ?').run(v21, q);
+  setSetting('seed.version', 0);
+  seedStarterContent();
+  const row = db.prepare('SELECT answer FROM faqs WHERE question = ?').get(q);
+  assert.doesNotMatch(row.answer, /9804805/, 'the dead code is gone');
+  assert.match(row.answer, /\{skyglass\}/, 'refreshed to the current generation');
+});
+
+test('a fresh install renders a real download code, not a missing-code marker', async () => {
+  const { withAdminContact } = await import('../src/settings.js');
+  // On a brand-new install nobody has been into Bot settings yet, and the very
+  // first question asked is "what's the code".
+  for (const f of STARTER_FAQS) {
+    assert.doesNotMatch(withAdminContact(f.answer), /\[(purple|skyglass) code not set\]/,
+      `no code configured for: ${f.question}`);
+  }
 });
 
 test('the Sky Glass entry ships ready to use and owns sky-glass questions', () => {

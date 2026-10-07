@@ -68,6 +68,7 @@
   <div class="card">
     <h2>Services &amp; login URLs</h2>
     <p class="hint">Fill these in and the bot hands out login URLs <strong>per user</strong>: a linked customer gets the URL matching their username automatically; anyone else is asked for their username first. A user on service 1 never sees service 2's URL. The URLs are kept out of the AI entirely, so it can't leak them. Empty = the flow stays off.</p>
+    <p class="hint">The two <strong>names</strong> can be written into any knowledge entry, guide or message as <code>{service1}</code> and <code>{service2}</code> — the starter "which service am I on?" entry already does, so set the names here and switch that entry on in Knowledge rather than editing its text. URLs are never substituted this way: those only ever go out through the per-user flow.</p>
     <div class="row">
       <div>
         <label for="serviceName1">Service 1 name (random usernames)</label>

@@ -317,6 +317,31 @@ test('changing a code updates every mention at once', () => {
   setSetting('apps.skyGlassCode', '3793766');
 });
 
+// --- the two brand names come from settings too ------------------------------
+test('{service1} and {service2} are filled in from the configured names', () => {
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+  const out = withAdminContact("Random username: {service1}. Starts with THM: {service2}.");
+  assert.equal(out, 'Random username: Exclusive. Starts with THM: Flix.');
+});
+
+test('an unset service name is visible, never a silent blank', () => {
+  setSetting('services.name2', '');
+  // "you're on ." is worse than useless — the admin has to be able to see
+  // that the name was never filled in.
+  assert.match(withAdminContact("you're on {service2}"), /\[service 2 name not set\]/);
+  setSetting('services.name2', 'Flix');
+});
+
+test('a service URL is never substituted — names only', () => {
+  // The per-user login URL has its own flow precisely so it cannot ride along
+  // in shared text. Nothing here may open a second route to it.
+  setSetting('services.url1', 'http://real-login.example:8080');
+  const out = withAdminContact('{service1} {serviceurl1} {url1}');
+  assert.doesNotMatch(out, /real-login\.example/);
+  assert.match(out, /\{serviceurl1\} \{url1\}/, 'unknown placeholders are left as written');
+});
+
 // --- the answer token cap ------------------------------------------------------
 test('the answer cap allows a full install guide', async () => {
   const { getSetting } = await import('../src/settings.js');

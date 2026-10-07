@@ -4,12 +4,12 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 25;
+const SEED_VERSION = 26;
 
 export const STARTER_FAQS = [
   {
     question: 'What is this service and what do you get?',
-    answer: "Live TV channels, sports, and a full VOD library of movies and series on demand — streamed through our apps on Firestick, Android phones/tablets and iPhone/iPad (the Purple App as your main one, XC and Smarters as backups, Smarters Player Lite on iOS). One login works across all your apps, and you can request VOD titles we don't have yet.\nInterested, or want pricing? Ask the admin here in the group, or {admin} and the team will get you set up.",
+    answer: "Live TV channels, sports, and a full VOD library of movies and series on demand — streamed through our apps on Firestick, Android phones/tablets and iPhone/iPad (Sky Glass is the app we recommend now, with Purple, XC or Smarters as backups, and Smarters Player Lite on iOS). One login works across all your apps, and you can request VOD titles we don't have yet.\nInterested, or want pricing? Ask the admin here in the group, or {admin} and the team will get you set up.",
     keywords: 'service, offer, offers, about, channels, movies, series, sports, vod, demand, package, works, includes, included, get',
   },
   {
@@ -33,7 +33,11 @@ export const STARTER_FAQS = [
   {
     question: 'How do I install the app on my Firestick?',
     answer: 'Install the Downloader app from the Amazon app store, open it, enter code {skyglass} and click Go — that installs Sky Glass, the app we recommend now. The Purple App has its own code, {purple}, and XC or Smarters work as backups (the same login works in all of them).\nIf the Firestick blocks the install: Settings > My Fire TV > About > click the device name 7–10 times to unlock Developer Options, then enable both options in there and go back to Downloader.\nOnce installed, open the app and log in with your service details. Full walkthrough is in the Firestick guide.',
-    keywords: 'firestick, fire, stick, downloader, tv, code, 9804805, 3775005, sideload, app, apps, purple, sky glass, skyglass, download code',
+    // No literal code numbers in here: a keyword list is a second place a code
+    // has to be kept up to date, and it silently stops matching the day the
+    // code changes. The codes live in Bot settings and reach the text as
+    // {purple} / {skyglass}.
+    keywords: 'firestick, fire, stick, downloader, tv, code, codes, sideload, app, apps, purple, download code, downloader code',
     priority: 2,
   },
   {
@@ -42,9 +46,10 @@ export const STARTER_FAQS = [
     keywords: 'android, phone, tablet, mobile, apk, installer, link, aftv, samsung, pixel, app, apps',
   },
   {
-    // Ships DISABLED — replace SMARTERS-SKY-CODE with the real Downloader
-    // code for these apps, then enable. Apps can have different codes; the
-    // Firestick FAQ's code belongs to the Purple App page.
+    // Ships ENABLED: Sky Glass is the recommended app and its code comes from
+    // Bot settings, so there is nothing to fill in first. Keywords are kept
+    // deliberately narrow — see the general install entry above, which owns
+    // every device-less and generic "what's the code" phrasing.
     question: 'How do I install the Sky Glass app?',
     answer: 'Sky Glass is the main app we recommend now. It has its own Downloader code, separate from the Purple App:\n📺 Firestick: open the Downloader app, enter code {skyglass} and click Go.\n📱 Android or any browser: open https://aftv.news/{skyglass}\nInstall it, open it and log in with your usual service details.\nIf the install gets blocked, the device needs permission first — ask me about Developer Options and I\'ll walk you through it.',
     keywords: 'sky, glass, skyglass, sky glass, main app, recommended app',
@@ -72,7 +77,7 @@ export const STARTER_FAQS = [
   },
   {
     question: 'Which app should I use — Purple, XC or Smarters?',
-    answer: 'Use the Purple App as your main app. XC and Smarters are backups — install at least one of them too. The same login works in every app, so if one ever plays up, just switch to a backup and carry on. On iPhone/iPad, use Smarters Player Lite from the App Store instead.',
+    answer: 'Sky Glass is the app we recommend now — install that as your main one. Purple, XC and Smarters all work as backups, and it is worth having at least one of them installed. The same login works in every app, so if one ever plays up you just switch to another and carry on. On iPhone/iPad, use Smarters Player Lite from the App Store instead.\nIf one of the apps is misbehaving for everyone we post about it — send me /status to see the latest.',
     keywords: 'purple, xc, smarters, app, which, best, backup, main, recommend',
   },
   {
@@ -92,12 +97,12 @@ export const STARTER_FAQS = [
   },
   {
     question: 'Where can I watch live sports and events (UFC, boxing, PPV, football)?',
-    answer: "Big live events are shown on the sports and PPV channels in Live TV — they usually go live shortly before the event starts, so check around fight or kickoff time. The sports guide in the customer panel shows what's on and where.\nMissed it? Big events usually land in VOD shortly after — check the VOD section, and if it's not there send a request: post \"Request: <event name>\" here or {admin}.",
+    answer: "Big live events are shown on the sports and PPV channels in Live TV — they usually go live shortly before the event starts, so check around fight or kickoff time.\nNot sure which channel? Just ask me — \"what channel is the boxing on?\", \"what's on Sky Sports Main Event?\" — and I'll look it up in our own channel list and TV guide and tell you the exact channel.\nMissed it? Big events usually land in VOD shortly after — check the VOD section, and if it's not there send a request: post \"Request: <event name>\" here or {admin}.",
     keywords: 'ufc, boxing, fight, ppv, sports, sport, football, match, event, events, live, tonight, watch, channel, vod',
   },
   {
     question: 'How do I request a movie, series or VOD?',
-    answer: 'Send the exact title and year (for series: which season), e.g. "Request: Inception (2010)". Post it in the group or {admin}. Requests are added in batches — give it a little time and check the VOD section again.\nWondering if something WILL be on VOD (a new film, last night\'s event)? Check the VOD section first — new titles and event replays are added regularly — and if it\'s not there, request it the same way. There are also VOD recommendations in the customer panel.',
+    answer: 'Send the exact title and year (for series: which season), e.g. "Request: Inception (2010)". Post it in the group or {admin}. Requests are added in batches — give it a little time and check the VOD section again.\nWondering if something WILL be on VOD (a new film, last night\'s event)? Check the VOD section first — new titles and event replays are added regularly — and if it\'s not there, request it the same way.',
     keywords: 'vod, request, movie, movies, film, series, show, season, episode, add, missing, available, replay, replays',
   },
   {
@@ -141,11 +146,13 @@ export const STARTER_FAQS = [
     keywords: 'card, paypal, bank, transfer, methods, method, revolut, cash, debit, credit, pay, paying',
   },
   {
-    // Ships DISABLED — set your apps' real default PIN first, then enable.
+    // Used to ship DISABLED carrying a literal DEFAULT-PIN placeholder, which
+    // is worse than no entry: unfilled, the bot quotes "the default PIN is
+    // DEFAULT-PIN" at a customer. It now names the PINs the apps themselves
+    // ship with and falls back to a human, so there is nothing to fill in.
     question: 'What is the PIN for locked categories (parental controls)?',
-    answer: "Some categories are PIN-locked (parental controls). The default PIN in our apps is DEFAULT-PIN — you can change it in the app's settings under Parental Controls. If that PIN doesn't work in your app, ask here and we'll sort it.",
+    answer: "Some categories are PIN-locked (parental controls). Out of the box our apps use one of the usual defaults — try 0000 first, then 1234. Once you're in you can set your own in the app's settings under Parental Controls, so write it down somewhere.\nIf neither works, ask here and we'll sort it out — don't keep guessing, some apps lock you out for a while after a few wrong tries.",
     keywords: 'pin, locked, lock, parental, control, controls, categories, category, restricted',
-    enabled: 0,
   },
   {
     question: 'How do I update the app to the latest version?',
@@ -164,14 +171,16 @@ export const STARTER_FAQS = [
   },
   {
     question: "The app says my login is wrong or my account doesn't work",
-    answer: 'If it says "invalid user" or your login is rejected:\n1. Double-check the username and password — watch for extra spaces and capital letters.\n2. Make sure you\'re in the right app — the same login works in Purple, XC and Smarters.\n3. If we\'ve posted about service issues (check /status or the group), it\'s likely on our side — hang tight and try again shortly.\n4. Still no luck? Your access may have expired — {admin} and we\'ll sort it.',
+    answer: 'If it says "invalid user" or your login is rejected:\n1. Double-check the username and password — watch for extra spaces and capital letters.\n2. Make sure you\'re in the right app — the same login works in Sky Glass, Purple, XC and Smarters.\n3. If we\'ve posted about service issues (check /status or the group), it\'s likely on our side — hang tight and try again shortly.\n4. Still no luck? Your access may have expired — {admin} and we\'ll sort it.',
     keywords: 'login, log, password, credentials, invalid, wrong, cant, sign, denied, auth, user, username, details, incorrect, unauthorised, rejected',
   },
   {
-    // Ships DISABLED — the admin must replace the two service names first,
-    // then enable it in the panel.
+    // Ships DISABLED — but there is no longer any text to hand-edit: the two
+    // brand names come from Bot settings via {service1}/{service2}, so a name
+    // can't drift out of step with the rest of the system. Set both names,
+    // then enable this entry.
     question: 'Which service am I on?',
-    answer: "Easy way to tell — look at the username you log in with:\n- If it's randomly generated (a mix of letters and numbers), you're on SERVICE-NAME-1.\n- If it starts with THM, or it's a proper name rather than random characters, you're on SERVICE-NAME-2.\nNot sure? Reply to this message with just your username (never your password!) and I'll tell you.",
+    answer: "Easy way to tell — look at the username you log in with:\n- If it's randomly generated (a mix of letters and numbers), you're on {service1}.\n- If it starts with THM, or it's a proper name rather than random characters, you're on {service2}.\nNot sure? Reply to this message with just your username (never your password!) and I'll tell you.",
     keywords: 'service, services, which, provider, thm, username, generated, subscribed',
     enabled: 0,
   },
@@ -184,11 +193,6 @@ export const STARTER_FAQS = [
     question: 'Do you offer refunds?',
     answer: "All services are used at your own discretion, and refunds may not be available once a service has been activated. If something isn't working, talk to us first — we're always happy to help fix it. {admin} and the team will look after you.",
     keywords: 'refund, refunds, money, back, cancel, guarantee, chargeback',
-  },
-  {
-    question: "What's in the customer panel?",
-    answer: 'The customer panel has everything in one place: service maintenance updates, app download links, URLs and setup info, VOD recommendations, the sports guide, your account details, FAQs and payment information. Log in with your account details and everything assigned to you appears automatically. Ask here if you need the panel link.',
-    keywords: 'panel, customer, portal, account, links, sports, maintenance, info, url',
   },
 ];
 
@@ -208,11 +212,13 @@ const STARTER_GUIDES = [
 ## 2. Get the apps
 
 1. Open **Downloader** — you'll see a search/address bar.
-2. Enter this code: **{purple}**
-3. Click **Go** — a page opens where you can install all our available apps.
-4. We recommend installing more than one app for the best experience:
-   - **Purple App** — use this as your main app
-   - **XC** or **Smarters** — keep as backups (the same login works in all of them)
+2. Enter this code: **{skyglass}**
+3. Click **Go** and install **Sky Glass** — this is the app we recommend now.
+4. We recommend installing more than one app for the best experience. Go back
+   into Downloader and enter a second code:
+   - **{purple}** — the **Purple App**
+   - **XC** or **Smarters** also work — keep one as a backup (the same login
+     works in all of them)
 5. Open your chosen app and log in with your service details.
 
 ## If the install is blocked ("unknown sources")
@@ -234,13 +240,14 @@ Ask in the group — the bot answers install questions instantly. For a human, {
     visible: 1,
     body_md: `## Install the app
 
-1. Open this link in the browser on your Android device: **https://aftv.news/{purple}**
+1. Open this link in the browser on your Android device: **https://aftv.news/{skyglass}**
    (every Firestick Downloader code also works as a link — just put it after aftv.news/)
-2. Select the app you would like to install — we recommend the **Purple App**.
+2. That installs **Sky Glass**, the app we recommend now. The **Purple App** is
+   at **https://aftv.news/{purple}** if you want it as well.
 3. If prompted, allow installation from unknown sources (this varies a little depending on your phone model).
 4. Once installed, open the app and log in with your service details.
 
-*Tip: install XC or Smarters as a backup too — the same login works in all our apps.*`,
+*Tip: install a second app — Purple, XC or Smarters — as a backup too. The same login works in all our apps.*`,
   },
   {
     title: 'Install on iPhone / iPad (iOS)',
@@ -388,22 +395,50 @@ const V21_ANDROID =
 const V21_UPDATE =
   'On a Firestick: open the Downloader app, enter code 9804805 again and install the newest version straight over the old one — your settings are kept. On Android: open https://aftv.news/9804805 in your browser again. On iPhone/iPad: update Smarters Player Lite through the App Store. You can also message me /version to see the latest version.';
 
+// v25: the generation that still named the Purple App as the main app, left a
+// DEFAULT-PIN placeholder in the parental-controls entry, and pointed people at
+// the customer panel the bot no longer links to. Recorded so an install still
+// carrying this exact text is recognised as untouched and refreshed.
+const V25_WHAT_IS =
+  "Live TV channels, sports, and a full VOD library of movies and series on demand — streamed through our apps on Firestick, Android phones/tablets and iPhone/iPad (the Purple App as your main one, XC and Smarters as backups, Smarters Player Lite on iOS). One login works across all your apps, and you can request VOD titles we don't have yet.\nInterested, or want pricing? Ask the admin here in the group, or {admin} and the team will get you set up.";
+const V25_WHICH_APP =
+  'Use the Purple App as your main app. XC and Smarters are backups — install at least one of them too. The same login works in every app, so if one ever plays up, just switch to a backup and carry on. On iPhone/iPad, use Smarters Player Lite from the App Store instead.';
+const V25_SPORTS =
+  "Big live events are shown on the sports and PPV channels in Live TV — they usually go live shortly before the event starts, so check around fight or kickoff time. The sports guide in the customer panel shows what's on and where.\nMissed it? Big events usually land in VOD shortly after — check the VOD section, and if it's not there send a request: post \"Request: <event name>\" here or {admin}.";
+const V25_VOD_REQUEST =
+  'Send the exact title and year (for series: which season), e.g. "Request: Inception (2010)". Post it in the group or {admin}. Requests are added in batches — give it a little time and check the VOD section again.\nWondering if something WILL be on VOD (a new film, last night\'s event)? Check the VOD section first — new titles and event replays are added regularly — and if it\'s not there, request it the same way. There are also VOD recommendations in the customer panel.';
+const V25_PIN =
+  "Some categories are PIN-locked (parental controls). The default PIN in our apps is DEFAULT-PIN — you can change it in the app's settings under Parental Controls. If that PIN doesn't work in your app, ask here and we'll sort it.";
+const V25_LOGIN_WRONG =
+  'If it says "invalid user" or your login is rejected:\n1. Double-check the username and password — watch for extra spaces and capital letters.\n2. Make sure you\'re in the right app — the same login works in Purple, XC and Smarters.\n3. If we\'ve posted about service issues (check /status or the group), it\'s likely on our side — hang tight and try again shortly.\n4. Still no luck? Your access may have expired — {admin} and we\'ll sort it.';
+const V25_WHICH_SERVICE =
+  "Easy way to tell — look at the username you log in with:\n- If it's randomly generated (a mix of letters and numbers), you're on SERVICE-NAME-1.\n- If it starts with THM, or it's a proper name rather than random characters, you're on SERVICE-NAME-2.\nNot sure? Reply to this message with just your username (never your password!) and I'll tell you.";
+// Retired in v26: the bot no longer links to the customer panel, so an entry
+// whose whole job was to advertise it only ever ends in "ask here for the
+// link". Kept so untouched leftovers can be deleted.
+const V25_PANEL_FAQ =
+  'The customer panel has everything in one place: service maintenance updates, app download links, URLs and setup info, VOD recommendations, the sports guide, your account details, FAQs and payment information. Log in with your account details and everything assigned to you appears automatically. Ask here if you need the panel link.';
+
 function previousDefaults(question) {
   const out = [];
   if (V1_ANSWERS[question]) out.push(V1_ANSWERS[question]);
   if (question === 'The app keeps buffering, freezing or stuttering — how do I fix it?') out.push(V3_BUFFERING);
   if (question === "A channel or stream isn't working — what do I do?") out.push(V3_CHANNEL);
   if (question === "The app says my login is wrong or my account doesn't work") out.push(V2_LOGIN);
-  if (question === 'How do I install the apps?') out.push(V10_INSTALL_ANY, V11_INSTALL_ANY);
-  if (question === 'How do I install the app on an Android phone or tablet?') out.push(V10_ANDROID);
-  if (question === 'How do I update the app to the latest version?') out.push(V10_UPDATE, V11_UPDATE);
-  if (question === 'Which app should I use — Purple, XC or Smarters?') out.push(V11_WHICH_APP);
-  if (question === 'Which service am I on?') out.push(V13_WHICH_SERVICE, V14_WHICH_SERVICE);
-  if (question === 'What is this service and what do you get?') out.push(V16_WHAT_IS);
+  if (question === 'How do I install the apps?') out.push(V10_INSTALL_ANY, V11_INSTALL_ANY, V21_INSTALL_ANY);
+  if (question === 'How do I install the app on my Firestick?') out.push(V21_FIRESTICK);
+  if (question === 'How do I install the app on an Android phone or tablet?') out.push(V10_ANDROID, V21_ANDROID);
+  if (question === 'How do I update the app to the latest version?') out.push(V10_UPDATE, V11_UPDATE, V21_UPDATE);
+  if (question === 'Which app should I use — Purple, XC or Smarters?') out.push(V11_WHICH_APP, V25_WHICH_APP);
+  if (question === 'Which service am I on?') out.push(V13_WHICH_SERVICE, V14_WHICH_SERVICE, V25_WHICH_SERVICE);
+  if (question === 'What is this service and what do you get?') out.push(V16_WHAT_IS, V25_WHAT_IS);
   if (question === 'Which Firestick is best / which one should I buy?') out.push(V18_FIRESTICK_BUY);
-  if (question === 'How do I request a movie, series or VOD?') out.push(V19_VOD_REQUEST);
+  if (question === 'How do I request a movie, series or VOD?') out.push(V19_VOD_REQUEST, V25_VOD_REQUEST);
   if (question === 'The audio is in the wrong language — how do I change it?') out.push(V20_LANGUAGE);
   if (question === 'How do I install the app on an iPhone or iPad (iOS)?') out.push(V12_IOS);
+  if (question === 'Where can I watch live sports and events (UFC, boxing, PPV, football)?') out.push(V25_SPORTS);
+  if (question === 'What is the PIN for locked categories (parental controls)?') out.push(V25_PIN);
+  if (question === "The app says my login is wrong or my account doesn't work") out.push(V25_LOGIN_WRONG);
   return out;
 }
 
@@ -434,6 +469,15 @@ function upgradeStarterContent() {
   let faqsAdded = 0;
   let faqsUpgraded = 0;
   const tx = db.transaction(() => {
+    // The parental-controls entry shipped DISABLED only because it carried an
+    // unfilled DEFAULT-PIN placeholder. The replacement has nothing to fill
+    // in, so an install still holding that exact placeholder text — i.e. one
+    // the admin never touched — gets it switched on as part of the refresh.
+    // Gated on the OLD text so it fires once and never second-guesses an entry
+    // the admin turned off deliberately.
+    db.prepare('UPDATE faqs SET enabled = 1 WHERE question = ? AND answer = ?')
+      .run('What is the PIN for locked categories (parental controls)?', V25_PIN);
+
     const getFaq = db.prepare('SELECT * FROM faqs WHERE question = ? COLLATE NOCASE');
     for (const faq of STARTER_FAQS) {
       const row = getFaq.get(faq.question);
@@ -453,6 +497,8 @@ function upgradeStarterContent() {
     // Retired starter content: remove only when still the untouched default.
     db.prepare('DELETE FROM faqs WHERE question = ? AND answer = ?')
       .run('What is the service URL to log in with?', V22_URL_FAQ);
+    db.prepare('DELETE FROM faqs WHERE question = ? AND answer = ?')
+      .run("What's in the customer panel?", V25_PANEL_FAQ);
 
     const getGuide = db.prepare('SELECT * FROM guides WHERE slug = ?');
     STARTER_GUIDES.forEach((g, i) => {

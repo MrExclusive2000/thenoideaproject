@@ -53,12 +53,14 @@ const DEFAULTS = {
   // The Downloader / aftv.news code for the current app build. The bot sends
   // the file itself when it fits in Telegram's 50MB bot limit and quotes this
   // code when it doesn't.
-  'bot.downloadCode': '',
+  'bot.downloadCode': '3793766',
   // Downloader / aftv.news codes per app. Referenced from knowledge entries,
   // guides and canned messages as {purple} and {skyglass}, so changing a code
   // is one edit here rather than a hunt through every entry that quotes it.
-  'apps.purpleCode': '',
-  'apps.skyGlassCode': '',
+  // Shipped with the current live codes so a fresh install answers install
+  // questions correctly on day one instead of printing "[code not set]".
+  'apps.purpleCode': '3775005',
+  'apps.skyGlassCode': '3793766',
   // Appended to the LAST round of fixes — the next "still broken" reply
   // really does get flagged, so this note may promise it. Empty = off.
   'bot.problemFollowupNote': "Still happening after trying these? Reply here and I'll flag it straight to the team.",
@@ -306,6 +308,16 @@ export function withAdminContact(text) {
     skyglass: String(getSetting('apps.skyGlassCode') || '').trim(),
   };
 
+  // Same reasoning for the two brand names: the "which service am I on?"
+  // entry used to carry SERVICE-NAME-1/2 placeholders the admin had to edit by
+  // hand, so the names could disagree with Bot settings. These read from the
+  // one place they are configured. Names only — never a service URL, which is
+  // per-user and goes out through its own flow (see redactServiceUrls).
+  const names = {
+    service1: String(getSetting('services.name1') || '').trim(),
+    service2: String(getSetting('services.name2') || '').trim(),
+  };
+
   return String(text ?? '')
     .replace(/\{admin\}/gi, phrase)
     .replace(/\{(purple|skyglass)\}/gi, (whole, name) => {
@@ -313,6 +325,10 @@ export function withAdminContact(text) {
       // An unset code must never render as an empty string in the middle of
       // "enter code  and click Go" — say it is missing so it gets noticed.
       return code || `[${name} code not set]`;
+    })
+    .replace(/\{(service1|service2)\}/gi, (whole, name) => {
+      const key = name.toLowerCase();
+      return names[key] || `[${key === 'service1' ? 'service 1' : 'service 2'} name not set]`;
     });
 }
 
