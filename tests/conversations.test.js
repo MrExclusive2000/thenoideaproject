@@ -209,3 +209,30 @@ test('applying an update reports no-op when already current', async () => {
   if (r.ok && !r.changed) assert.match(r.message, /Already on the latest/);
   if (!r.ok) assert.ok(r.message.length, 'a failure always explains itself');
 });
+
+// --- AI base URL correction ---------------------------------------------------
+const { correctedBaseUrl } = await import('../src/ai/client.js');
+
+test('an SSL failure on a plain-HTTP endpoint names BOTH problems at once', () => {
+  // The exact shape of a pasted Pelican Ollama address.
+  const fix = correctedBaseUrl('https://node-2.example.co.uk:25569', { sslFailed: true });
+  assert.equal(fix.url, 'http://node-2.example.co.uk:25569/v1');
+  assert.equal(fix.notes.length, 2, 'scheme and path are reported together, not one failure apart');
+});
+
+test('a real HTTPS API is never told to downgrade just because /v1 is missing', () => {
+  const fix = correctedBaseUrl('https://api.vendor.com');
+  assert.equal(fix.url, 'https://api.vendor.com/v1', 'adds the path, keeps the scheme');
+  assert.doesNotMatch(fix.notes.join(' '), /http:\/\//);
+});
+
+test('a correct URL needs no correction', () => {
+  assert.equal(correctedBaseUrl('http://host:11434/v1'), null);
+  assert.equal(correctedBaseUrl('https://api.openai.com/v1'), null);
+  assert.equal(correctedBaseUrl('http://host:11434/v1/'), null, 'a trailing slash is not a problem');
+});
+
+test('an empty base URL suggests nothing rather than inventing one', () => {
+  assert.equal(correctedBaseUrl(''), null);
+  assert.equal(correctedBaseUrl(null), null);
+});

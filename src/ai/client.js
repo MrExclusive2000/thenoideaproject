@@ -204,6 +204,30 @@ const approxPromptTokens = (messages) =>
 // RETURNS that text marked truncated — askAi trims the ragged tail, so the
 // customer gets a real, slightly shorter answer. Aborting also frees the
 // node's single slot immediately instead of leaving the queue stuck behind it.
+// Two things are wrong with a pasted Ollama address more often than not: it
+// is https (the egg serves plain HTTP) and it is missing the /v1 path the
+// OpenAI-compatible API lives under. They surface as DIFFERENT errors one
+// after the other — fix the scheme, get a 404 — so every hint names the whole
+// correction rather than the half that happened to fail first.
+// `sslFailed` gates the scheme downgrade. A hosted API on real HTTPS must
+// never be told to drop to http just because its URL is missing /v1 — only an
+// actual TLS failure is evidence the server is speaking plain HTTP.
+export function correctedBaseUrl(baseUrl, { sslFailed = false } = {}) {
+  const raw = String(baseUrl || '').trim().replace(/\/+$/, '');
+  if (!raw) return null;
+  let out = raw;
+  const notes = [];
+  if (sslFailed && out.startsWith('https://')) {
+    out = `http://${out.slice('https://'.length)}`;
+    notes.push('plain http://, not https://');
+  }
+  if (!/\/v\d+$/.test(out)) {
+    out = `${out}/v1`;
+    notes.push('a /v1 path on the end');
+  }
+  return notes.length ? { url: out, notes } : null;
+}
+
 async function chatCompletion(messages, { maxTokens, temperature, timeoutMs, idleMs } = {}) {
   timeoutMs = timeoutMs ?? (Number(getSetting('ai.timeoutSeconds')) || 180) * 1000;
   idleMs = idleMs ?? Math.min(STALL_MS, timeoutMs);
@@ -253,7 +277,9 @@ async function chatCompletion(messages, { maxTokens, temperature, timeoutMs, idl
     if (isTimeout) {
       hint = ` — no response headers in ${elapsed()}s, with a ~${approxPromptTokens(messages)}-token prompt still unanswered. ${SPEED_HINT}`;
     } else if (/WRONG_VERSION_NUMBER|SSL|TLS/i.test(String(cause)) && baseUrl.startsWith('https://')) {
-      hint = ' — the endpoint answered with plain HTTP, not SSL: change https:// to http:// in the AI base URL.';
+      const fix = correctedBaseUrl(baseUrl, { sslFailed: true });
+      hint = ` — the endpoint answered with plain HTTP, not SSL. It needs ${fix.notes.join(' and ')}.` +
+        `\n\nSet the AI base URL to: ${fix.url}`;
     } else if (/127\.0\.0\.1|localhost/.test(baseUrl)) {
       hint = " — note: inside the server's container, 127.0.0.1 is the container itself, NOT your node. Use your node's LAN IP or Docker gateway (often 172.17.0.1), and start Ollama with OLLAMA_HOST=0.0.0.0 so it accepts outside connections.";
     }
@@ -265,9 +291,8 @@ async function chatCompletion(messages, { maxTokens, temperature, timeoutMs, idl
   if (!res.ok) {
     clearTimers();
     const body = (await res.text().catch(() => '')).slice(0, 300);
-    const v1Hint = res.status === 404 && !baseUrl.endsWith('/v1')
-      ? ' — the base URL probably needs to end with /v1 (e.g. http://host:11434/v1)'
-      : '';
+    const fix = res.status === 404 ? correctedBaseUrl(baseUrl) : null;
+    const v1Hint = fix ? ` — try setting the AI base URL to: ${fix.url}` : '';
     throw new Error(`AI endpoint returned ${res.status}${v1Hint}: ${body}`);
   }
 
@@ -594,13 +619,45 @@ export async function rephraseCanned(message) {
   }
 }
 
+// Does this base URL actually serve the OpenAI-compatible API? /models is the
+// cheapest way to ask — no generation, so it answers instantly even on a node
+// that needs minutes to write a sentence.
+async function baseUrlResponds(url) {
+  try {
+    const res = await fetch(`${url}/models`, {
+      signal: AbortSignal.timeout(8000),
+      headers: getSetting('ai.apiKey') ? { Authorization: `Bearer ${getSetting('ai.apiKey')}` } : {},
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function testAiConnection() {
   const started = Date.now();
-  const { text } = await chatCompletion(
-    [{ role: 'user', content: 'Reply with exactly: OK' }],
-    { maxTokens: 10, temperature: 0, timeoutMs: 20000 }
-  );
-  return { ok: true, ms: Date.now() - started, sample: String(text).slice(0, 100) };
+  try {
+    const { text } = await chatCompletion(
+      [{ role: 'user', content: 'Reply with exactly: OK' }],
+      { maxTokens: 10, temperature: 0, timeoutMs: 20000 }
+    );
+    return { ok: true, ms: Date.now() - started, sample: String(text).slice(0, 100) };
+  } catch (err) {
+    // Before reporting a failure, check whether the obvious correction works.
+    // Guessing at a fix is cheap to offer and annoying to be wrong about, so
+    // it is only suggested once the corrected URL has actually answered.
+    const baseUrl = String(getSetting('ai.baseUrl') || '').replace(/\/+$/, '');
+    const sslFailed = /WRONG_VERSION_NUMBER|SSL|TLS/i.test(String(err.message));
+    const fix = correctedBaseUrl(baseUrl, { sslFailed });
+    if (fix && await baseUrlResponds(fix.url)) {
+      const better = new Error(
+        `${err.message}\n\n✅ But ${fix.url} DOES answer — set that as the AI base URL and test again.`
+      );
+      better.suggestedBaseUrl = fix.url;
+      throw better;
+    }
+    throw err;
+  }
 }
 
 // AI-composed admin digest; falls back to the plain stats block if the AI is

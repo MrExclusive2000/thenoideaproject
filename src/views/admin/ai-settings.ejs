@@ -17,7 +17,8 @@
 
     <label for="baseUrl">Endpoint base URL (OpenAI-compatible)</label>
     <input id="baseUrl" name="baseUrl" type="url" value="<%= s.baseUrl %>" placeholder="http://127.0.0.1:11434/v1" required>
-    <p class="hint">⚠ On Pelican, <code>127.0.0.1</code> is the container itself — for Ollama on the node use the Docker gateway <code>http://172.17.0.1:11434/v1</code> or the node's LAN IP <code>http://NODE-IP:11434/v1</code>, and run Ollama with <code>OLLAMA_HOST=0.0.0.0</code>. Groq cloud: <code>https://api.groq.com/openai/v1</code>.</p>
+    <p class="hint">Two things catch people out, and they fail one after the other rather than together: a self-hosted Ollama serves <strong>plain <code>http://</code></strong> (an <code>https://</code> address gives <code>ERR_SSL_WRONG_VERSION_NUMBER</code>), and the URL must <strong>end in <code>/v1</code></strong> or every request 404s. An Ollama server on its own Pelican egg looks like <code>http://your-node.example.com:25569/v1</code>.</p>
+    <p class="hint">⚠ On Pelican, <code>127.0.0.1</code> is the container itself — for Ollama on the same node use the Docker gateway <code>http://172.17.0.1:11434/v1</code> or the node's LAN IP, and run Ollama with <code>OLLAMA_HOST=0.0.0.0</code>. Groq cloud: <code>https://api.groq.com/openai/v1</code>.</p>
 
     <div class="row">
       <div>
