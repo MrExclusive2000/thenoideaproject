@@ -1,7 +1,7 @@
 <%- include('../partials/admin-top', { title }) %>
 
 <h1>Unanswered questions</h1>
-<p class="sub">Questions the bot couldn't confidently answer, and answers customers rated 👎. Turn the common ones into FAQs.</p>
+<p class="sub">Questions the bot couldn't confidently answer, and answers customers rated 👎. Turn the common ones into knowledge entries.</p>
 
 <div class="toolbar">
   <span class="spacer"></span>
@@ -24,7 +24,7 @@
       <td class="actions">
         <form method="post" action="/admin/unanswered/<%= u.id %>/convert">
           <input type="hidden" name="_csrf" value="<%= csrf %>">
-          <button class="btn-sm">Make FAQ</button>
+          <button class="btn-sm">Add to knowledge</button>
         </form>
         <form method="post" action="/admin/unanswered/<%= u.id %>/resolve">
           <input type="hidden" name="_csrf" value="<%= csrf %>">

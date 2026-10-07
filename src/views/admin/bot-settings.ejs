@@ -99,12 +99,12 @@
 
   <div class="card">
     <h2>Instructions (the bot's persona and rules)</h2>
-    <p class="hint">This is the system prompt for the AI. Describe your app, tone, and anything the bot should or shouldn't say. FAQ entries and guides are automatically added as knowledge.</p>
+    <p class="hint">This is the system prompt for the AI. Describe your app, tone, and anything the bot should or shouldn't say. knowledge entries and guides are automatically added as knowledge.</p>
     <textarea name="instructions" rows="8" maxlength="8000"><%= s.instructions %></textarea>
 
-    <label for="faqThreshold">FAQ match strictness (0.1 loose – 0.95 strict)</label>
+    <label for="faqThreshold">Keyword fallback strictness (0.1 loose – 0.95 strict)</label>
     <input id="faqThreshold" name="faqThreshold" type="number" step="0.05" min="0.1" max="0.95" value="<%= s.faqThreshold %>">
-    <p class="hint">Above this score a FAQ answers instantly without the AI. Test scores in the <a href="/admin/faqs">FAQ manager</a>.</p>
+    <p class="hint">Above this score a knowledge answers instantly without the AI. Test scores in the <a href="/admin/faqs">Knowledge</a>.</p>
   </div>
 
   <div class="card">
@@ -137,7 +137,7 @@
   <div class="field">
     <label for="aiDownMessage">When the AI endpoint is unreachable</label>
     <input id="aiDownMessage" name="aiDownMessage" type="text" maxlength="600" value="<%= s.aiDownMessage %>">
-    <p class="hint">Sent instead of the "can't help" and off-topic lines while the endpoint is down. Both of those tell the customer their question was out of scope — but scope is the AI's verdict, so without it the bot is guessing, and calling an in-scope question off-topic is simply wrong. FAQ answers still work normally.</p>
+    <p class="hint">Sent instead of the "can't help" and off-topic lines while the endpoint is down. Both of those tell the customer their question was out of scope — but scope is the AI's verdict, so without it the bot is guessing, and calling an in-scope question off-topic is simply wrong. knowledge answers still work normally.</p>
   </div>
 
   <div class="field">

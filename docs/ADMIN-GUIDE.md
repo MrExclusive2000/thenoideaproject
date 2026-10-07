@@ -27,7 +27,13 @@ Endpoint (OpenAI-compatible), model, optional key, max tokens, temperature, **da
 
 **Answer reuse.** The same questions get asked forever in a support group. When a new question means essentially the same thing as one already answered, the stored answer is sent instantly instead of the node spending minutes rewriting it. This is what makes AI-for-everything affordable on a CPU node — it doesn't make a genuinely new question any faster. A 👎 drops that answer, and editing any FAQ or guide retires every answer written before the edit. Default similarity is 0.95 (near-identical wording); lower it to reuse more and risk answering a question that was merely similar.
 
-## FAQ manager
+## Knowledge (was "FAQ manager")
+
+What the bot knows about your service. These entries are **not canned replies** any more: the AI reads the ones relevant to each question and writes its own answer, so write them for accuracy rather than keyword coverage.
+
+They go out verbatim in exactly one case — when the AI endpoint is unreachable. The bot then falls back to keyword matching so it still answers something rather than nothing, and the strictness setting and the tester decide which entry is sent. The Dashboard shows when the endpoint is down, and the Conversations log records `ai`, `cache` or `faq` against every reply, so you can always tell which path answered.
+
+The database tables, settings keys and URLs still say `faq` — only the wording changed.
 Add question + answer + **keywords**. With *Understanding questions* on, keywords are context that helps the entry be found by meaning rather than a trigger that fires it — so you can write them without worrying that a stray word will serve the wrong FAQ. They are still the primary signal in the keyword fallback. Priority breaks ties. The **test box** scores any phrasing live against the keyword matcher. Hits are counted so you can see what matters.
 
 ## Is the server up to date?

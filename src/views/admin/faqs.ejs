@@ -1,11 +1,12 @@
 <%- include('../partials/admin-top', { title }) %>
 
-<h1>FAQ manager</h1>
-<p class="sub">Your knowledge base. With <em>Understanding questions</em> on (AI settings), the AI writes every reply and these are the facts it answers <strong>from</strong>, picked by meaning — so write them for accuracy, not for keyword coverage. If the embedding model is unavailable the bot falls back to keyword matching, and then the threshold and the tester below decide which entry gets sent verbatim.</p>
+<h1>Knowledge</h1>
+<p class="sub">What the bot knows about your service. These entries are not canned replies any more — the AI reads the ones relevant to each question and writes its own answer, so write them for <strong>accuracy</strong>, not for keyword coverage.</p>
+<p class="hint">They are sent verbatim in one case only: when the AI endpoint is unreachable. The bot then falls back to keyword matching so it still answers something, and the threshold and the tester below decide which entry goes out. Check the Dashboard to see which mode you are in — the Conversations log records <code>ai</code>, <code>cache</code> or <code>faq</code> against every reply.</p>
 
 <div class="row">
   <div class="card">
-    <h2><%= editing ? 'Edit FAQ' : 'Add a FAQ' %></h2>
+    <h2><%= editing ? 'Edit entry' : 'Add an entry' %></h2>
     <form method="post" action="/admin/faqs">
       <input type="hidden" name="_csrf" value="<%= csrf %>">
       <% if (editing) { %><input type="hidden" name="id" value="<%= editing.id %>"><% } %>
@@ -15,10 +16,10 @@
       <textarea id="answer" name="answer" rows="4" maxlength="3000" required><%= editing ? editing.answer : '' %></textarea>
       <label for="keywords">Keywords (comma or space separated — strong match boost)</label>
       <input id="keywords" name="keywords" type="text" maxlength="300" value="<%= editing ? editing.keywords : '' %>" placeholder="buffering, freeze, stuck, loading">
-      <label for="priority">Priority (0–10, tie-breaker between similar FAQs)</label>
+      <label for="priority">Priority (0–10, tie-breaker between similar entries)</label>
       <input id="priority" name="priority" type="number" min="0" max="10" value="<%= editing ? editing.priority : 0 %>">
       <p>
-        <button type="submit"><%= editing ? 'Save changes' : 'Add FAQ' %></button>
+        <button type="submit"><%= editing ? 'Save changes' : 'Add entry' %></button>
         <% if (editing) { %><a class="btn btn-ghost" href="/admin/faqs">Cancel</a><% } %>
       </p>
     </form>
@@ -27,7 +28,7 @@
   <div class="card">
     <h2>Test a question</h2>
     <p class="hint">Scores the <strong>keyword fallback</strong> — the path used when the embedding model is unavailable. In normal operation the AI answers everything, so a low score here is not a problem.</p>
-    <p class="hint">Type a question the way a customer would and see which FAQ (if any) would answer it.</p>
+    <p class="hint">Type a question the way a customer would and see which entry (if any) the keyword fallback would send.</p>
     <form method="get" action="/admin/faqs">
       <input type="text" name="q" maxlength="300" placeholder="my firestick keeps buffering??" value="<%= test ? test.q : '' %>">
       <p style="margin-top:10px"><button type="submit" class="btn-ghost">Score it</button></p>
@@ -36,10 +37,10 @@
       <% if (test.matched) { %>
         <div class="flash flash-ok">Would answer with: “<%= test.matched.question %>”</div>
       <% } else { %>
-        <div class="flash flash-err">No FAQ clears the threshold (<%= test.threshold %>) — this would go to the AI.</div>
+        <div class="flash flash-err">No entry clears the threshold (<%= test.threshold %>) — this would go to the AI.</div>
       <% } %>
       <table class="list">
-        <tr><th>FAQ</th><th>Score</th><th>Keyword hits</th></tr>
+        <tr><th>Entry</th><th>Score</th><th>Keyword hits</th></tr>
         <% for (const r of test.rows) { %>
         <tr><td><%= r.question %></td><td><%= r.score %></td><td><%= r.keywordHits %></td></tr>
         <% } %>
@@ -50,7 +51,7 @@
 
 <div class="card">
   <div class="toolbar">
-    <h2 style="margin:0">💡 Suggested FAQs<% if (suggested.length) { %> (<%= suggested.length %>)<% } %></h2>
+    <h2 style="margin:0">💡 Suggested entries<% if (suggested.length) { %> (<%= suggested.length %>)<% } %></h2>
     <span class="spacer"></span>
     <form method="post" action="/admin/faqs/suggested/generate">
       <input type="hidden" name="_csrf" value="<%= csrf %>">
@@ -61,7 +62,7 @@
       <button class="btn-ghost btn-sm">Learn from my answers now</button>
     </form>
   </div>
-  <p class="hint">Drafted weekly from two places: questions the bot <strong>couldn't</strong> answer (the AI drafts an answer and leaves <code>[ADMIN: …]</code> gaps for you), and questions <strong>you</strong> answered in the group (the answer is real — it just gets generalised). Approve to make it a live FAQ, or dismiss. Nothing goes live on its own.</p>
+  <p class="hint">Drafted weekly from two places: questions the bot <strong>couldn't</strong> answer (the AI drafts an answer and leaves <code>[ADMIN: …]</code> gaps for you), and questions <strong>you</strong> answered in the group (the answer is real — it just gets generalised). Approve to add it to your knowledge, or dismiss. Nothing goes live on its own.</p>
   <p class="hint">Learning from your answers relies on you using Telegram's <em>reply</em> action — that's what ties your answer to the question it answered.</p>
   <% if (suggested.length) { %>
   <table class="list">
@@ -73,7 +74,7 @@
         <% if (s.source === 'admin-answer') { %> <span class="badge badge-ok">from your answer</span><% } %>
         <% if (s.source === 'resolved-case') { %> <span class="badge badge-ok">confirmed fixed ×<%= s.ask_count %></span><% } %>
         <% if (s.needs_review) { %>
-        <div class="hint" style="color:var(--warn, #b45309)">⚠️ Check before approving — <%= s.needs_review %>. An FAQ is shown to everyone.</div>
+        <div class="hint" style="color:var(--warn, #b45309)">⚠️ Check before approving — <%= s.needs_review %>. Knowledge is used to answer everyone.</div>
         <% } %>
         <div class="hint" style="white-space:pre-line"><%= s.answer.slice(0, 400) %><%= s.answer.length > 400 ? '…' : '' %></div>
         <% if (s.keywords) { %><div class="hint">keywords: <%= s.keywords %></div><% } %>
@@ -100,11 +101,11 @@
 
 <div class="card">
   <div class="toolbar">
-    <h2 style="margin:0">All FAQs (<%= faqs.length %>)</h2>
+    <h2 style="margin:0">All entries (<%= faqs.length %>)</h2>
     <span class="spacer"></span>
     <form method="post" action="/admin/faqs/starter-pack">
       <input type="hidden" name="_csrf" value="<%= csrf %>">
-      <button class="btn-ghost btn-sm">Load starter FAQs (install / buffering / VOD…)</button>
+      <button class="btn-ghost btn-sm">Load starter knowledge (install / buffering / VOD…)</button>
     </form>
   </div>
   <table class="list">
@@ -128,7 +129,7 @@
       </td>
     </tr>
     <% } %>
-    <% if (!faqs.length) { %><tr><td colspan="5" class="hint">No FAQs yet — add your first one above.</td></tr><% } %>
+    <% if (!faqs.length) { %><tr><td colspan="5" class="hint">Nothing here yet — add your first entry above.</td></tr><% } %>
   </table>
 </div>
 

@@ -31,10 +31,10 @@ faqsRouter.get('/faqs', (req, res) => {
 
   const suggested = db.prepare("SELECT * FROM suggested_faqs WHERE status = 'pending' ORDER BY ask_count DESC, id DESC").all()
     .map((s) => ({ ...s, sampleList: JSON.parse(s.samples || '[]') }));
-  res.render('admin/faqs', { title: 'FAQ manager', faqs, editing, test, suggested });
+  res.render('admin/faqs', { title: 'Knowledge', faqs, editing, test, suggested });
 });
 
-// ---- AI-suggested FAQs ------------------------------------------------------
+// ---- AI-suggested entries ------------------------------------------------------
 
 faqsRouter.post('/faqs/suggested/learn', async (req, res) => {
   try {
@@ -44,7 +44,7 @@ faqsRouter.post('/faqs/suggested/learn', async (req, res) => {
     flash(req, 'ok', created.length
       ? `${created.length} draft${created.length > 1 ? 's' : ''} written from your answers` +
         (flagged ? ` — ${flagged} flagged for a careful read.` : '.')
-      : 'Nothing new to learn — no recent answers of yours that the FAQs don\'t already cover. (Answers only count when you use Telegram\'s reply action.)');
+      : 'Nothing new to learn — no recent answers of yours that your knowledge doesn\'t already cover. (Answers only count when you use Telegram\'s reply action.)');
   } catch (err) {
     flash(req, 'err', `Learning run failed: ${err.message}`);
   }
@@ -57,7 +57,7 @@ faqsRouter.post('/faqs/suggested/generate', async (req, res) => {
     const created = await generateFaqSuggestions();
     flash(req, 'ok', created.length
       ? `${created.length} suggestion${created.length > 1 ? 's' : ''} drafted from unanswered questions.`
-      : 'Nothing to suggest — no recent unanswered questions that the FAQs don\'t already cover.');
+      : 'Nothing to suggest — no recent unanswered questions that your knowledge doesn\'t already cover.');
   } catch (err) {
     flash(req, 'err', `Suggestion run failed: ${err.message}`);
   }
@@ -75,8 +75,8 @@ faqsRouter.post('/faqs/suggested/:id/approve', (req, res) => {
   db.prepare("UPDATE suggested_faqs SET status = 'approved' WHERE id = ?").run(s.id);
   audit('admin', res.locals.admin.username, 'faq.suggestion.approve', s.question.slice(0, 80), req.ip);
   flash(req, 'ok', needsEdit
-    ? 'Added as a DISABLED FAQ — it needs your info where it says [ADMIN: …]. Edit and enable it.'
-    : 'Suggestion approved and live as an FAQ.');
+    ? 'Added as a DISABLED entry — it needs your info where it says [ADMIN: …]. Edit and enable it.'
+    : 'Suggestion approved — the bot knows it now.');
   res.redirect(needsEdit ? `/admin/faqs?edit=${info.lastInsertRowid}` : '/admin/faqs');
 });
 
@@ -102,24 +102,24 @@ faqsRouter.post('/faqs', (req, res) => {
     db.prepare('UPDATE faqs SET question = ?, answer = ?, keywords = ?, priority = ?, updated_at = ? WHERE id = ?')
       .run(q, a, kw, prio, t, id);
     audit('admin', res.locals.admin.username, 'faq.update', q.slice(0, 80), req.ip);
-    flash(req, 'ok', 'FAQ updated.');
+    flash(req, 'ok', 'Entry updated.');
   } else {
     db.prepare('INSERT INTO faqs (question, answer, keywords, priority, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
       .run(q, a, kw, prio, t, t);
     audit('admin', res.locals.admin.username, 'faq.create', q.slice(0, 80), req.ip);
-    flash(req, 'ok', 'FAQ added. The bot can use it immediately.');
+    flash(req, 'ok', 'Entry added. The bot can use it immediately.');
   }
   res.redirect('/admin/faqs');
 });
 
-// Add the built-in starter pack (install / buffering / VOD / account FAQs),
+// Add the built-in starter pack (install / buffering / VOD / account entries),
 // skipping any question that already exists.
 faqsRouter.post('/faqs/starter-pack', (req, res) => {
   const added = addStarterFaqs();
   audit('admin', res.locals.admin.username, 'faq.starterPack', `${added} added`, req.ip);
   flash(req, added ? 'ok' : 'err', added
-    ? `Added ${added} starter FAQ${added > 1 ? 's' : ''} — review the answers and tweak the wording to fit your app.`
-    : 'All starter FAQs are already in your list.');
+    ? `Added ${added} starter entr${added > 1 ? 'ies' : 'y'} — review the answers and tweak the wording to fit your app.`
+    : 'All starter entries are already in your knowledge.');
   res.redirect('/admin/faqs');
 });
 
@@ -131,7 +131,7 @@ faqsRouter.post('/faqs/:id/toggle', (req, res) => {
 faqsRouter.post('/faqs/:id/delete', (req, res) => {
   db.prepare('DELETE FROM faqs WHERE id = ?').run(req.params.id);
   audit('admin', res.locals.admin.username, 'faq.delete', String(req.params.id), req.ip);
-  flash(req, 'ok', 'FAQ deleted.');
+  flash(req, 'ok', 'Entry deleted.');
   res.redirect('/admin/faqs');
 });
 
@@ -157,7 +157,7 @@ faqsRouter.post('/unanswered/resolve-all', (req, res) => {
   res.redirect('/admin/unanswered');
 });
 
-// One click: turn an unanswered question into a prefilled FAQ form.
+// One click: turn an unanswered question into a prefilled knowledge form.
 faqsRouter.post('/unanswered/:id/convert', (req, res) => {
   const item = db.prepare('SELECT * FROM unanswered WHERE id = ?').get(req.params.id);
   if (!item) return res.redirect('/admin/unanswered');
@@ -166,6 +166,6 @@ faqsRouter.post('/unanswered/:id/convert', (req, res) => {
     .run(item.text.slice(0, 500), '(write the answer, then enable)', '', t, t);
   db.prepare('UPDATE unanswered SET resolved = 1 WHERE id = ?').run(item.id);
   audit('admin', res.locals.admin.username, 'faq.fromUnanswered', item.text.slice(0, 80), req.ip);
-  flash(req, 'ok', 'Draft FAQ created (disabled) — write the answer and enable it.');
+  flash(req, 'ok', 'Draft entry created (disabled) — write the answer and enable it.');
   res.redirect(`/admin/faqs?edit=${info.lastInsertRowid}`);
 });
