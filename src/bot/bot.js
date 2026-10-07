@@ -8,6 +8,7 @@ import { state } from '../state.js';
 import { hub } from './hub.js';
 import { registerCommands } from './commands.js';
 import { registerFeedback } from './feedback.js';
+import { registerOutageAnnounce } from './problems.js';
 import { handleGroupMessage, handleDirectMessage } from './pipeline.js';
 import { alertAdmins } from './reports.js';
 import { recordJoin, markLeft, registerVetActions } from './joiners.js';
@@ -27,6 +28,7 @@ export async function startBot() {
   bot.api.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 30 }));
 
   registerFeedback(bot);
+  registerOutageAnnounce(bot);
   registerVetActions(bot);
   registerCommands(bot);
 

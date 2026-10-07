@@ -30,6 +30,20 @@ Endpoint (OpenAI-compatible), model, optional key, max tokens, temperature, **da
 ## FAQ manager
 Add question + answer + **keywords**. With *Understanding questions* on, keywords are context that helps the entry be found by meaning rather than a trigger that fires it — so you can write them without worrying that a stray word will serve the wrong FAQ. They are still the primary signal in the keyword fallback. Priority breaks ties. The **test box** scores any phrasing live against the keyword matcher. Hits are counted so you can see what matters.
 
+## When several people report the same thing
+
+Once `problems.degradeThreshold` different people report service-wide problems inside the window (default 3 in 15 minutes — complaints about one episode or film never count), the bot decides it's a general problem rather than three unlucky customers:
+
+- Service status flips to **degraded** with a note naming what's being reported. `/status`, the portal and the AI's own prompt all pick it up.
+- **Anyone reporting after that is told it's known** instead of being walked through fixes. Restarting an app can't fix a fault on your side, and asking someone to do it during an outage wastes their evening and makes the bot look deaf. They still get a sentence or two in case theirs is genuinely unrelated.
+- Extra troubleshooting rounds and the "that was quick" nudge are both skipped.
+- Escalations to you are batched rather than one DM per person.
+- It clears itself after a quiet period. A status you set by hand is never touched.
+
+**Nothing is posted to your group automatically.** The threshold is a heuristic, and a false positive would put "we have an outage" in front of paying customers with nobody checking — so the DM you get carries an **Announce to the group** button. One tap posts it; the buttons disappear once used so a second tap can't double-post. The all-clear works the same way when the status clears, so the group hears it's fixed rather than being left wondering.
+
+Both messages are editable in **Reports & status**; `{note}` is replaced with the bot's own summary of what people are reporting. Empty announcement text means the bot never offers to post.
+
 ## Learning from cases
 
 A problem report is a case: it opens when someone reports an issue, follow-up messages attach to it, and it closes when they say it's sorted, when you resolve it in the panel, or on the auto-close timer. The conversation is stored, so a restart no longer loses the thread, and a reply the next morning still lands on the right case (window: `bot.problemWindowMinutes`, default 12h). A problem about something clearly different opens its own case rather than piling onto the open one.

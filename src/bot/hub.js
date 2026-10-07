@@ -17,13 +17,13 @@ export const hub = {
   },
 
   // DM every configured admin Telegram ID. Silently skips when unset/offline.
-  async notifyAdmins(text) {
+  async notifyAdmins(text, extra = {}) {
     const ids = getSetting('reports.adminTelegramIds') || [];
     if (!this.api || !ids.length) return false;
     let sent = false;
     for (const id of ids) {
       try {
-        await this.api.sendMessage(id, text);
+        await this.api.sendMessage(id, text, extra);
         sent = true;
       } catch (err) {
         console.error(`notifyAdmins: failed for ${id}:`, err.message);

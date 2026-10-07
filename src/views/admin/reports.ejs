@@ -45,7 +45,8 @@
     <div class="checkline"><input type="checkbox" id="alertVod" name="alertVod" value="1" <%= s.alertVod ? 'checked' : '' %>><label for="alertVod">VOD requests ("Request: Title") — also listed in <a href="/admin/requests">VOD requests</a></label></div>
 
     <h2>Automatic degradation</h2>
-    <p class="hint">When this many <strong>different people</strong> report service-wide problems (buffering, streams not loading, login failures) within the window, the service status flips to <em>degraded</em> automatically — reporters see the known-issue banner, and you get a DM. Complaints about a single episode or movie never count. The status clears itself once reports stop; a status you set by hand is never touched.</p>
+    <p class="hint">When this many <strong>different people</strong> report service-wide problems (buffering, streams not loading, login failures) within the window, the service status flips to <em>degraded</em> automatically. Reporters then get told it's a known issue rather than being walked through fixes that can't help, and you get a DM. Complaints about a single episode or movie never count. The status clears itself once reports stop; a status you set by hand is never touched.</p>
+    <p class="hint"><strong>Nothing is posted to your group automatically.</strong> The threshold is a heuristic, and a false positive would put "we have an outage" in front of paying customers with nobody checking — so the DM carries an <strong>Announce to the group</strong> button instead, and the all-clear works the same way.</p>
     <div class="row">
       <div>
         <label for="degradeThreshold">People reporting (0 = off)</label>
@@ -60,6 +61,14 @@
         <input id="degradeRecoverMinutes" name="degradeRecoverMinutes" type="number" min="5" max="720" value="<%= s.degradeRecoverMinutes %>">
       </div>
     </div>
+
+    <label for="announceMessage">Announcement text (empty = never offer to announce)</label>
+    <input id="announceMessage" name="announceMessage" type="text" maxlength="1000" value="<%= s.announceMessage %>">
+    <p class="hint"><code>{note}</code> becomes the bot's own summary of what people are reporting, e.g. "We're seeing several reports of buffering problems and are looking into it."</p>
+
+    <label for="recoveredMessage">All-clear text</label>
+    <input id="recoveredMessage" name="recoveredMessage" type="text" maxlength="1000" value="<%= s.recoveredMessage %>">
+    <p class="hint">Offered when the status clears itself, so the group hears it's fixed rather than being left wondering.</p>
 
     <h2>AI digest</h2>
     <div class="row">

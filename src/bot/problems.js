@@ -1,7 +1,7 @@
 import { db, now } from '../db/db.js';
 import { getSetting, setSettings } from '../settings.js';
 import { hub } from './hub.js';
-import { isContentIssue } from './helpers.js';
+import { isContentIssue, isAdminUser } from './helpers.js';
 
 // Problem reports are batched into one admin DM per short window: a burst of
 // "buffering on bbc1" from several people becomes a single alert, and 3+ in
@@ -132,12 +132,59 @@ export function maybeAutoDegrade() {
     'service.note': `We're seeing several reports of ${label} and are looking into it.`,
     'service.autoDegradedAt': now(),
   });
+  const note = `We're seeing several reports of ${label} and are looking into it.`;
   hub.notifyAdmins(
     `🔴 Service marked DEGRADED automatically: ${users.size} different people reported ${label} in the last ${windowMin} minutes.\n` +
     'Reporters now see the known-issue banner, and /status + the portal show it.\n' +
-    `It clears itself after ${recoverMin} quiet minutes — or set the status yourself in the panel → Reports.`
+    `It clears itself after ${recoverMin} quiet minutes — or set the status yourself in the panel → Reports.\n\n` +
+    'Nobody else has been told. Tap below to post it to the group:',
+    { reply_markup: announceKeyboard('outage') }
   ).catch(() => {});
   return true;
+}
+
+// The threshold is a heuristic — several people, short window — so the bot
+// offers the announcement instead of making it. A false positive would put
+// "we have an outage" in front of paying customers with nobody checking.
+function announceKeyboard(kind) {
+  return {
+    inline_keyboard: [[
+      { text: '📢 Announce to the group', callback_data: `announce:${kind}` },
+      { text: 'No thanks', callback_data: 'announce:dismiss' },
+    ]],
+  };
+}
+
+// Fills {note} with whatever the bot wrote about what people are reporting.
+export function announcementText(kind) {
+  const key = kind === 'recovered' ? 'problems.recoveredMessage' : 'problems.announceMessage';
+  const template = String(getSetting(key) || '').trim();
+  if (!template) return null;
+  return template.replace(/\{note\}/g, String(getSetting('service.note') || 'there is a service issue').trim());
+}
+
+export function registerOutageAnnounce(bot) {
+  bot.callbackQuery(/^announce:(outage|recovered|dismiss)$/, async (ctx) => {
+    const kind = ctx.match[1];
+    if (!isAdminUser(ctx.from.id)) return ctx.answerCallbackQuery({ text: 'Admins only.' });
+    if (kind === 'dismiss') {
+      await ctx.answerCallbackQuery({ text: 'Left it — nothing posted.' });
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+      return;
+    }
+    const text = announcementText(kind);
+    if (!text) return ctx.answerCallbackQuery({ text: 'That message is empty in Bot settings.' });
+    await ctx.answerCallbackQuery({ text: 'Posting…' });
+    try {
+      const results = await hub.sendToAllowedChats(text);
+      const ok = results.filter((r) => r.ok).length;
+      // The buttons go once used, so a second tap cannot double-post.
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+      await ctx.reply(`📢 Posted to ${ok}/${results.length} chat(s).`).catch(() => {});
+    } catch (err) {
+      await ctx.reply(`Could not post: ${err.message}`).catch(() => {});
+    }
+  });
 }
 
 // Runs on the scheduler: once reports stop, put the status back — but only
@@ -157,7 +204,11 @@ export async function degradeRecoverySweep() {
 
   setSettings({ 'service.status': 'operational', 'service.note': '', 'service.autoDegradedAt': 0 });
   try {
-    await hub.notifyAdmins(`🟢 Service status back to operational — no service-wide problem reports for ${recoverMin} minutes (auto-degradation cleared).`);
+    await hub.notifyAdmins(
+      `🟢 Service status back to operational — no service-wide problem reports for ${recoverMin} minutes (auto-degradation cleared).\n\n` +
+      'If you announced the problem, the group is still waiting to hear it is fixed:',
+      { reply_markup: announceKeyboard('recovered') }
+    );
   } catch {
     // bot offline — status is reset either way
   }

@@ -418,7 +418,7 @@ export function _aiQueueState() {
 // `smallTalk`: the caller is spending the user's one off-topic free pass —
 // permit ONE brief friendly answer to an off-topic message. Replies that are
 // (or end as) a question are suppressed: banter must never fish for more chat.
-export async function askAi(question, { history = [], assumeOnTopic = false, smallTalk = false, playback = null, grounding = null, secondRound = false, knowledgeFaqs = null } = {}) {
+export async function askAi(question, { history = [], assumeOnTopic = false, smallTalk = false, playback = null, grounding = null, secondRound = false, knowledgeFaqs = null, knownOutage = false } = {}) {
   if (!getSetting('ai.enabled')) return null;
   if (aiBudgetExceeded()) {
     const err = new Error('Daily AI budget reached');
@@ -433,6 +433,16 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
       ? [{
           role: 'system',
           content: `The next user message is a support request about the service (a problem report or support question). It IS in scope — do not reply ${OFFTOPIC_SENTINEL}. Answer it using the knowledge, and ask for missing details if needed. Keep it short (2-4 sentences). Never ask more than ONE question, and never send a numbered list of questions or checks. Never ask whether they tried earlier fixes — give the fixes (or the single next step) directly; the system handles the follow-up. For playback or app problems, restarting the DEVICE (full power-cycle — e.g. unplug a Firestick for 30 seconds) always belongs among the first fixes.`,
+        }]
+      : []),
+    ...(knownOutage
+      ? [{
+          role: 'system',
+          content:
+            'A service-wide problem is ALREADY KNOWN and is being worked on — the system has told the user so on the line above yours. ' +
+            'Almost certainly this user is seeing that, not a fault of their own. Keep it to one or two sentences: acknowledge it briefly, ' +
+            'and give at most ONE quick thing worth checking in case theirs is unrelated. Do NOT walk them through the full fix list — ' +
+            'restarting apps and power-cycling boxes cannot fix a problem on our side, and asking them to is a waste of their evening.',
         }]
       : []),
     ...(secondRound
@@ -475,7 +485,10 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
     { role: 'user', content: String(question).slice(0, 2000) },
   ];
 
-  const { text, truncated } = await withAiSlot(() => chatCompletion(messages, smallTalk ? { maxTokens: 150 } : {}));
+  const { text, truncated } = await withAiSlot(() => chatCompletion(
+    messages,
+    smallTalk ? { maxTokens: 150 } : knownOutage ? { maxTokens: 120 } : {}
+  ));
   let reply = cleanReply(text);
   if (!reply) return null;
   // Ran out of tokens mid-sentence → cut back to the last complete one.

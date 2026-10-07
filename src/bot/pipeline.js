@@ -829,6 +829,10 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
             });
             reply = await askAi(question, {
               history, assumeOnTopic, playback, grounding, secondRound: deepen,
+              // The banner above already said "we know". Walking someone
+              // through restarting their box cannot fix a fault on our side,
+              // and asking them to is a waste of their evening.
+              knownOutage: Boolean(prefix) && getSetting('service.status') !== 'operational' && looksLikeProblem(question),
               knowledgeFaqs: retrieved.length ? retrieved.map((r) => r.faq) : null,
             });
             if (reply && canCache) {

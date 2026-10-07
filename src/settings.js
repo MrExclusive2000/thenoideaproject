@@ -147,6 +147,13 @@ const DEFAULTS = {
   'problems.degradeThreshold': 3,
   'problems.degradeWindowMinutes': 15,
   'problems.degradeRecoverMinutes': 30,
+  // When the bot decides there is a service-wide problem it offers to tell the
+  // group, rather than telling them. The threshold is a heuristic (several
+  // people, short window) and a false positive would put "we have an outage"
+  // in front of paying customers with nobody checking, so the admin taps a
+  // button. {note} is the auto-written summary of what people are reporting.
+  'problems.announceMessage': "⚠️ Heads up everyone — {note} We're on it and will update you here. No need to reinstall anything or message in individually.",
+  'problems.recoveredMessage': '✅ All clear — the problem reported earlier is sorted. Give it a go and shout if you still have trouble.',
   'service.announceChanges': false,
 
   'files.autoAnnounce': false,

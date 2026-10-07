@@ -2438,3 +2438,64 @@ test('a second problem with no recognisable topic still merges, rather than gues
   const all = db.prepare('SELECT * FROM problem_reports WHERE tg_user_id = 94006').all();
   assert.equal(all.length, 1, 'detail without a topic stays with the open case');
 });
+
+// ---- known outages -----------------------------------------------------------
+const { announcementText } = await import('../src/bot/problems.js');
+
+test('a report during a known outage is acknowledged, not troubleshooted', async () => {
+  _resetProblemTriage();
+  _resetProblemQueue();
+  db.prepare('DELETE FROM problem_reports').run();
+  setSetting('service.status', 'degraded');
+  setSetting('service.note', "We're seeing several reports of buffering problems and are looking into it.");
+  try {
+    const ctx = fakeCtx('everything is buffering for me too', { chatType: 'group', userId: 95001 });
+    await handleGroupMessage(ctx);
+    assert.ok(ctx.sent.length, 'they still get a reply');
+    assert.match(ctx.sent[0].msg, /aware of a service issue/, 'led with the known-issue banner');
+
+    const system = lastAiRequest.messages.map((m) => m.content).join('\n');
+    assert.match(system, /service-wide problem is ALREADY KNOWN/, 'the model is told not to run the playbook');
+    assert.ok(lastAiRequest.max_tokens <= 120, 'and to keep it short');
+  } finally {
+    setSetting('service.status', 'operational');
+    setSetting('service.note', '');
+  }
+});
+
+test('with the service operational the full fixes still come out', async () => {
+  _resetProblemTriage();
+  _resetProblemQueue();
+  db.prepare('DELETE FROM problem_reports').run();
+  lastAiRequest = null;
+  // Deliberately the SAME message as the outage test above — only the service
+  // status differs, so nothing but the status can explain a difference.
+  const ctx = fakeCtx('everything is buffering for me too', { chatType: 'group', userId: 95002 });
+  await handleGroupMessage(ctx);
+  assert.ok(lastAiRequest, 'this message really did reach the model');
+  const system = lastAiRequest.messages.map((m) => m.content).join('\n');
+  assert.doesNotMatch(system, /ALREADY KNOWN/, 'no outage, no acknowledgement shortcut');
+  assert.doesNotMatch(ctx.sent[0].msg, /aware of a service issue/);
+});
+
+test('the announcement fills in what people are actually reporting', () => {
+  setSetting('service.note', "We're seeing several reports of freezing problems and are looking into it.");
+  try {
+    const text = announcementText('outage');
+    assert.match(text, /freezing problems/, '{note} is replaced with the live summary');
+    assert.doesNotMatch(text, /\{note\}/);
+    assert.match(announcementText('recovered'), /All clear/);
+  } finally {
+    setSetting('service.note', '');
+  }
+});
+
+test('an empty announcement template means nothing is posted', () => {
+  const prev = getSetting('problems.announceMessage');
+  setSetting('problems.announceMessage', '');
+  try {
+    assert.equal(announcementText('outage'), null, 'an empty template switches the announcement off');
+  } finally {
+    setSetting('problems.announceMessage', prev);
+  }
+});
