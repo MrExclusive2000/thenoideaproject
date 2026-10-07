@@ -14,17 +14,9 @@
 <div class="dl-item">
   <div class="name">Connect Telegram</div>
   <% if (c.telegram_user_id) { %>
-    <div class="desc">✅ Your Telegram is connected. Message the bot privately for /myaccount, /download, /guides and support — and you'll get a reminder before your access expires.</div>
+    <div class="desc">✅ Your Telegram is connected. Message the bot privately for downloads, guides and support — and you'll get a reminder before your access expires.</div>
   <% } else { %>
-    <div class="desc">Connect your Telegram to get your files, guides and expiry reminders straight from the bot.</div>
-    <% if (linkCode) { %>
-      <div class="desc">Send this to the bot in a <strong>private message</strong> (valid 48h):<br>
-        <code style="font-size:18px">/link <%= linkCode.code %></code></div>
-    <% } %>
-    <form method="post" action="/portal/account/link-code">
-      <input type="hidden" name="_csrf" value="<%= csrf %>">
-      <button type="submit" class="dl-btn" style="border:0;cursor:pointer"><%= linkCode ? 'Get a new code' : 'Get my link code' %></button>
-    </form>
+    <div class="desc">Connect your Telegram to get expiry reminders straight from the bot. Send the bot <code>/id</code> in a private message and give the admin the number it replies with.</div>
   <% } %>
 </div>
 

@@ -1,7 +1,7 @@
 <%- include('../partials/admin-top', { title }) %>
 
 <h1>FAQ manager</h1>
-<p class="sub">Questions the bot answers instantly (and for free). Anything below the match threshold falls back to the AI.</p>
+<p class="sub">Your knowledge base. With <em>Understanding questions</em> on (AI settings), the AI writes every reply and these are the facts it answers <strong>from</strong>, picked by meaning — so write them for accuracy, not for keyword coverage. If the embedding model is unavailable the bot falls back to keyword matching, and then the threshold and the tester below decide which entry gets sent verbatim.</p>
 
 <div class="row">
   <div class="card">
@@ -26,6 +26,7 @@
 
   <div class="card">
     <h2>Test a question</h2>
+    <p class="hint">Scores the <strong>keyword fallback</strong> — the path used when the embedding model is unavailable. In normal operation the AI answers everything, so a low score here is not a problem.</p>
     <p class="hint">Type a question the way a customer would and see which FAQ (if any) would answer it.</p>
     <form method="get" action="/admin/faqs">
       <input type="text" name="q" maxlength="300" placeholder="my firestick keeps buffering??" value="<%= test ? test.q : '' %>">

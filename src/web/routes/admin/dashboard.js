@@ -38,6 +38,14 @@ dashboardRouter.get('/', (req, res) => {
     hasFaqs: stats.faqCount > 0,
     hasFile: db.prepare('SELECT COUNT(*) n FROM files WHERE visible = 1').get().n > 0,
     adminIds: (getSetting('reports.adminTelegramIds') || []).length > 0,
+    // The escalation path. With no handle set, every "ask a human" line in the
+    // bot reads "message an admin directly" and names nobody.
+    adminContact: Boolean(String(getSetting('bot.adminContact') || '').trim()),
+    // Proof embeddings have actually RUN, not just that they are switched on:
+    // a cached FAQ vector only exists if the endpoint answered. Without it the
+    // bot is quietly on keyword matching.
+    embedWanted: Boolean(getSetting('ai.embedEnabled')),
+    embedWorking: db.prepare('SELECT COUNT(*) n FROM faq_vectors').get().n > 0,
   };
   const setupDone = checklist.botToken && checklist.botOnline && checklist.groupAdded && !checklist.privacyHint && checklist.hasFaqs;
 

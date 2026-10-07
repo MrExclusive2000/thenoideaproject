@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db, now } from '../../../db/db.js';
 import { hashPassword } from '../../accounts.js';
-import { audit, randomCode, randomPassword, formatDate } from '../../../util.js';
+import { audit, randomPassword, formatDate } from '../../../util.js';
 import { flash } from '../../middleware.js';
 
 export const customersRouter = Router();
@@ -82,13 +82,10 @@ customersRouter.get('/customers/:id', (req, res) => {
     SELECT d.*, f.display_name FROM downloads d JOIN files f ON f.id = d.file_id
     WHERE d.customer_id = ? ORDER BY d.ts DESC LIMIT 50
   `).all(customer.id);
-  const linkCode = db.prepare('SELECT * FROM link_codes WHERE customer_id = ? AND used = 0 AND expires_at > ? ORDER BY expires_at DESC')
-    .get(customer.id, now());
   res.render('admin/customer-edit', {
     title: `Customer: ${customer.username}`,
     customer,
     downloadHistory,
-    linkCode,
     formatDate,
     nowTs: now(),
     newPassword: req.session.newCustomerPassword || null,
@@ -158,17 +155,35 @@ customersRouter.post('/customers/:id/delete', (req, res) => {
   res.redirect('/admin/customers');
 });
 
-// One-time code the customer sends to the bot as /link CODE to connect their
-// Telegram account (enables /myaccount, /download, expiry reminder DMs).
-customersRouter.post('/customers/:id/link-code', (req, res) => {
+// Connecting a customer to their Telegram account is what drives expiry
+// reminder DMs, new-member vetting and download attribution. It used to be
+// self-service: the panel minted a code and the customer sent the bot
+// /link CODE. /link is gone with the rest of the bot's account commands, so
+// the admin sets the id directly — the member sends the bot /id, which still
+// exists and answers with their user id, and passes it on.
+customersRouter.post('/customers/:id/link', (req, res) => {
   const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
   if (!customer) return res.redirect('/admin/customers');
-  db.prepare('DELETE FROM link_codes WHERE customer_id = ?').run(customer.id);
-  const code = randomCode(8);
-  db.prepare('INSERT INTO link_codes (code, customer_id, expires_at) VALUES (?, ?, ?)')
-    .run(code, customer.id, now() + 48 * 3600);
-  audit('admin', res.locals.admin.username, 'customer.linkCode', customer.username, req.ip);
-  flash(req, 'ok', `Link code created. Tell the customer to DM the bot: /link ${code} (valid 48h).`);
+
+  const raw = String(req.body.telegramUserId || '').trim().replace(/^@/, '');
+  const id = Number(raw);
+  if (!/^\d+$/.test(raw) || !Number.isSafeInteger(id) || id <= 0) {
+    flash(req, 'err', 'That is not a Telegram user ID. It is a number — ask them to send the bot /id and read back "Your user ID".');
+    return res.redirect(`/admin/customers/${customer.id}`);
+  }
+
+  // telegram_user_id is UNIQUE: the same person cannot hold two accounts, and
+  // silently stealing the id from another customer would break their expiry
+  // DMs without anyone noticing.
+  const clash = db.prepare('SELECT id, username FROM customers WHERE telegram_user_id = ? AND id != ?').get(id, customer.id);
+  if (clash) {
+    flash(req, 'err', `That Telegram ID is already linked to ${clash.username}. Unlink it there first.`);
+    return res.redirect(`/admin/customers/${customer.id}`);
+  }
+
+  db.prepare('UPDATE customers SET telegram_user_id = ? WHERE id = ?').run(id, customer.id);
+  audit('admin', res.locals.admin.username, 'customer.link', `${customer.username} -> tg:${id}`, req.ip);
+  flash(req, 'ok', 'Linked. They will get expiry reminders from the bot.');
   res.redirect(`/admin/customers/${customer.id}`);
 });
 

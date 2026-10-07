@@ -6,7 +6,7 @@ import { db, now } from '../../db/db.js';
 import { config } from '../../config.js';
 import { getSetting } from '../../settings.js';
 import { requireCustomer } from '../middleware.js';
-import { audit, randomCode, renderMarkdown, formatBytes, formatDate } from '../../util.js';
+import { audit, renderMarkdown, formatBytes, formatDate } from '../../util.js';
 
 export const portalRouter = Router();
 
@@ -78,20 +78,7 @@ portalRouter.get('/portal/guides/:slug', requireCustomer, (req, res) => {
 
 portalRouter.get('/portal/account', requireCustomer, (req, res) => {
   const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(res.locals.customer.id);
-  const linkCode = db.prepare('SELECT * FROM link_codes WHERE customer_id = ? AND used = 0 AND expires_at > ?')
-    .get(customer.id, now());
-  res.render('portal/account', { title: 'Account', subtitle: 'Your account', c: customer, linkCode, formatDate, nowTs: now() });
-});
-
-// Customers can mint their own Telegram link code from the portal.
-portalRouter.post('/portal/account/link-code', requireCustomer, (req, res) => {
-  const customerId = res.locals.customer.id;
-  db.prepare('DELETE FROM link_codes WHERE customer_id = ?').run(customerId);
-  const code = randomCode(8);
-  db.prepare('INSERT INTO link_codes (code, customer_id, expires_at) VALUES (?, ?, ?)')
-    .run(code, customerId, now() + 48 * 3600);
-  audit('customer', res.locals.customer.username, 'customer.linkCode.self', '', req.ip);
-  res.redirect('/portal/account');
+  res.render('portal/account', { title: 'Account', subtitle: 'Your account', c: customer, formatDate, nowTs: now() });
 });
 
 // ---- Short download codes (no login — typed into the Downloader app) ------------

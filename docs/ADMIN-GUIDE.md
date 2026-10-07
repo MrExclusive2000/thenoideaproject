@@ -56,7 +56,7 @@ Upload APKs (and zip/ipa/exe/pdf/txt/mp4). Files are checked by real content (an
 Markdown editor with preview. Visible guides appear in the portal and are folded into the bot's AI knowledge, and the bot serves them in chat via `/guides`.
 
 ## Customers
-Create one shared login or bulk accounts (`name01`, `name02`, …) — passwords are generated and **shown exactly once**. Set access length in days, extend with one click (+30/+90/+1y/exact date/never), disable, reset password, delete. Filters for *expiring ≤7d*, *expired*, *disabled*. Each customer page shows download history and the **Telegram link** state. Linked customers get expiry-reminder DMs automatically, and their `/download` use is recorded against the account.
+Create one shared login or bulk accounts (`name01`, `name02`, …) — passwords are generated and **shown exactly once**. Set access length in days, extend with one click (+30/+90/+1y/exact date/never), disable, reset password, delete. Filters for *expiring ≤7d*, *expired*, *disabled*. Each customer page shows download history and the **Telegram link**. Linking drives expiry-reminder DMs, new-member vetting and download attribution, so it is worth doing. There is no self-service code any more (that was `/link`): ask the customer to send the bot `/id` in a private message and paste the number it gives them into the customer page.
 
 ## Conversations
 Every message the bot can see in your groups is recorded — members, admins, and the bot's own answers. Replies are threaded using Telegram's reply link, so an answer you type in the group stays attached to the question it answered.

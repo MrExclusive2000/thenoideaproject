@@ -68,15 +68,13 @@
         <button class="btn-ghost btn-sm">Unlink</button>
       </form>
     <% } else { %>
-      <% if (linkCode) { %>
-        <p>Pending code (48h): tell them to DM the bot:</p>
-        <p><code style="font-size:16px">/link <%= linkCode.code %></code></p>
-      <% } else { %>
-        <p class="hint">Not linked. Generate a one-time code and the customer sends it to the bot in a private message to connect their Telegram account.</p>
-      <% } %>
-      <form method="post" action="/admin/customers/<%= customer.id %>/link-code">
+      <p class="hint">Not linked, so they get no expiry reminders and new-member vetting counts them as a stranger.</p>
+      <form method="post" action="/admin/customers/<%= customer.id %>/link">
         <input type="hidden" name="_csrf" value="<%= csrf %>">
-        <button class="btn-sm"><%= linkCode ? 'Regenerate code' : 'Generate link code' %></button>
+        <label for="telegramUserId">Their Telegram user ID</label>
+        <input id="telegramUserId" name="telegramUserId" type="text" inputmode="numeric" placeholder="123456789">
+        <p class="hint">Ask them to send the bot <code>/id</code> in a private message and read back the number it gives them.</p>
+        <button class="btn-sm">Link</button>
       </form>
     <% } %>
   </div>
