@@ -13,7 +13,10 @@ import {
 import { alertAdmins } from './reports.js';
 import { embed, retrieveFaqs } from '../ai/embeddings.js';
 import { lookupAnswer, rememberAnswer, cacheable } from '../ai/answer-cache.js';
-import { queueProblemAlert, setProblemRearmHook, maybeAutoDegrade } from './problems.js';
+import {
+  queueProblemAlert, setProblemRearmHook, maybeAutoDegrade,
+  looksLikeCaseClose, caseNumbersIn, closeCaseAsAdmin,
+} from './problems.js';
 import { parseVodRequest, parseNaturalVodRequest, recordVodRequest, setRequestService, lookupImdb, canonicalizeRequest } from './requests.js';
 import { hub } from './hub.js';
 
@@ -525,6 +528,38 @@ function resolveOpenCase(userId, by, caseId = null) {
     .run(by, userId, now() - Math.ceil(problemWindowMs() / 1000)).changes;
 }
 
+// An admin saying a case is fixed, wherever they happen to say it: "#12 fixed"
+// in the group, or just "fixed" as a reply to the alert DM that named it.
+// Closing a case is the step that gets skipped when it means opening a web
+// panel — the work is done, so the row quietly goes stale instead.
+async function handleAdminCaseClose(ctx, text, logId) {
+  if (!isAdminUser(ctx.from?.id)) return false;
+  if (!looksLikeCaseClose(text)) return false;
+
+  const own = caseNumbersIn(text);
+  const replied = caseNumbersIn(ctx.message?.reply_to_message?.text || '');
+  const ids = own.length ? own : replied;
+  if (!ids.length) return false;
+
+  const reply = (msg) => ctx.api.sendMessage(ctx.chat.id, msg, {
+    ...(ctx.chat?.type === 'private' ? {} : { reply_parameters: { message_id: ctx.message.message_id } }),
+  }).catch(() => {});
+
+  // Replying "fixed" to an alert that listed several cases says nothing about
+  // which one — guessing would close someone else's open problem.
+  if (!own.length && replied.length > 1) {
+    setLogSource(logId, 'case-ambiguous');
+    await reply(`That alert covered ${replied.map((n) => `#${n}`).join(', ')} — which one? Say "#${replied[0]} fixed".`);
+    return true;
+  }
+
+  setLogSource(logId, 'case-closed');
+  const lines = [];
+  for (const id of ids.slice(0, 10)) lines.push(await closeCaseAsAdmin(id, `tg:${ctx.from.id}`));
+  await reply(lines.join('\n'));
+  return true;
+}
+
 function saysStillBroken(text) {
   return /\b(still|again|didnt (work|help)|didn't (work|help)|no luck|not fixed|same (issue|problem)|tried (all|everything|them|those|that))\b/i.test(text);
 }
@@ -984,6 +1019,9 @@ export async function handleGroupMessage(ctx) {
     return;
   }
 
+  // Before anything else: an admin closing a case.
+  if (await handleAdminCaseClose(ctx, text, logId)) return;
+
   const mode = getSetting('bot.responseMode');
   const mentioned = mentionsBot(ctx, text);
   const question = stripMention(text);
@@ -1234,6 +1272,7 @@ export async function handleGroupMessage(ctx) {
     // Give the admin the original report alongside the confirmation.
     const alertText = st?.firstText && st.firstText !== text ? `${st.firstText} — ${text}` : text;
     queueProblemAlert({
+      id: st?.caseId ?? db.prepare('SELECT id FROM problem_reports WHERE tg_user_id = ? AND resolved = 0 ORDER BY id DESC LIMIT 1').get(ctx.from.id)?.id,
       tg_user: ctx.from?.username || ctx.from?.first_name,
       tg_user_id: ctx.from?.id,
       text: alertText,
@@ -1430,6 +1469,7 @@ async function handleDmProblemReply(ctx, text, logId) {
     db.prepare('UPDATE problem_reports SET escalated = 1 WHERE tg_user_id = ? AND resolved = 0').run(ctx.from.id);
     const alertText = st.firstText && st.firstText !== text ? `${st.firstText} — ${text}` : text;
     queueProblemAlert({
+      id: st.caseId ?? db.prepare('SELECT id FROM problem_reports WHERE tg_user_id = ? AND resolved = 0 ORDER BY id DESC LIMIT 1').get(ctx.from.id)?.id,
       tg_user: ctx.from?.username || ctx.from?.first_name,
       tg_user_id: ctx.from?.id,
       text: alertText,
@@ -1483,6 +1523,8 @@ export async function handleDirectMessage(ctx) {
     return;
   }
   bumpCooldown(ctx.from.id);
+
+  if (await handleAdminCaseClose(ctx, text, logId)) return;
 
   // Per-user service URL flow: answer a pending username reply, or start the
   // flow when they ask for a URL — only ever THEIR service's URL.

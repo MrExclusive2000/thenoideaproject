@@ -7,6 +7,7 @@ import { getSetting, redactServiceUrls } from '../settings.js';
 import { audit } from '../util.js';
 import { sendChunked, isAdminUser, chatAllowed, linkedCustomer, latestFile, withAdminContact } from './helpers.js';
 import { sendDigest, buildStatsText } from './reports.js';
+import { caseNumberIn, caseSummary, closeCaseAsAdmin, openCasesList, looksLikeCaseClose } from './problems.js';
 import { hub } from './hub.js';
 
 const isPrivate = (ctx) => ctx.chat?.type === 'private';
@@ -123,7 +124,12 @@ export function registerCommands(bot) {
       `Need a human? ${withAdminContact('{admin}')} — I'll hand you over rather than guess.`,
     ];
     if (isAdminUser(ctx.from.id)) {
-      lines.push('', 'Admin: /adopt /mute /unmute /report /broadcast <text> /id');
+      lines.push(
+        '',
+        'Admin: /adopt /mute /unmute /report /broadcast <text> /id',
+        '/cases — open cases · /case 12 — read one · /case 12 fixed — close it',
+        'Or just reply "#12 fixed" to an alert.'
+      );
     }
     await ctx.reply(lines.join('\n'));
   });
@@ -212,6 +218,25 @@ export function registerCommands(bot) {
     } catch (err) {
       await ctx.reply(`Broadcast failed: ${err.message}`);
     }
+  });
+
+  // /cases — what is still open. /case 12 — read one. /case 12 fixed — close it.
+  bot.command('cases', async (ctx) => {
+    if (!isAdminUser(ctx.from.id)) return;
+    await ctx.reply(openCasesList());
+  });
+
+  bot.command('case', async (ctx) => {
+    if (!isAdminUser(ctx.from.id)) return;
+    const arg = String(ctx.match || '').trim();
+    const id = caseNumberIn(arg) ?? Number(arg.match(/^\d+/)?.[0]);
+    if (!id) return ctx.reply('Usage: /case 12 — show case 12. /case 12 fixed — close it. /cases lists the open ones.');
+    if (looksLikeCaseClose(arg)) {
+      return ctx.reply(await closeCaseAsAdmin(id, `tg:${ctx.from.id}`));
+    }
+    const r = db.prepare('SELECT * FROM problem_reports WHERE id = ?').get(id);
+    if (!r) return ctx.reply(`No case #${id}.`);
+    await ctx.reply(`${caseSummary(r)}\n\nClose it with: /case ${id} fixed`);
   });
 
   bot.command('id', async (ctx) => {

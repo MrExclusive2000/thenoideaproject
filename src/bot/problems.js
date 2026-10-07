@@ -2,6 +2,7 @@ import { db, now } from '../db/db.js';
 import { getSetting, setSettings } from '../settings.js';
 import { hub } from './hub.js';
 import { isContentIssue, isAdminUser } from './helpers.js';
+import { audit } from '../util.js';
 
 // Problem reports are batched into one admin DM per short window: a burst of
 // "buffering on bbc1" from several people becomes a single alert, and 3+ in
@@ -29,8 +30,10 @@ export async function flushProblemAlerts() {
   const header = n >= 3
     ? `⚠️ Possible outage — ${n} problem reports in the last few minutes:`
     : `🛠 ${n} new problem report${n > 1 ? 's' : ''}:`;
+  // The case number is what makes these actionable from Telegram: reply with
+  // "#12 fixed", or /case 12, without opening the panel.
   const lines = batch.slice(0, 15).map(
-    (r) => `• ${r.tg_user ? '@' + r.tg_user : 'user ' + r.tg_user_id}: "${String(r.text).slice(0, 120)}"`
+    (r) => `• #${r.id} ${r.tg_user ? '@' + r.tg_user : 'user ' + r.tg_user_id}: "${String(r.text).slice(0, 120)}"`
   );
 
   // Highlight a shared symptom/channel so an outage jumps out.
@@ -41,7 +44,7 @@ export async function flushProblemAlerts() {
   const body =
     `${header}\n${lines.join('\n')}` +
     (hot.length ? `\nMost reported: ${hot.join(', ')}` : '') +
-    '\n\nReview them in the panel → Problem reports.';
+    '\n\nReply "#<number> fixed" to close one, or /case <number> to see it. Full list in the panel → Problem reports.';
 
   try {
     await hub.notifyAdmins(body);
@@ -260,4 +263,63 @@ export async function autoCloseSweep() {
       console.error('auto-close message failed:', err.message);
     }
   }
+}
+
+// ---- admin case control from Telegram ---------------------------------------
+// The panel could already close a case, but the admin is usually in Telegram
+// when they learn it is fixed — they have just restarted something, or the
+// customer told them directly. Making them open a web panel to record that is
+// how cases end up stale: the work is done, the row stays open.
+
+const RESOLVE_WORDS = /\b(fixed|sorted|resolved|done|closed?|working( now)?|all good|back up)\b/i;
+
+export const looksLikeCaseClose = (text) => RESOLVE_WORDS.test(String(text || ''));
+
+// "#12", "case 12", "case #12" — the # form is what the alert DMs print.
+export function caseNumberIn(text) {
+  const m = String(text || '').match(/(?:case\s*#?|#)(\d{1,9})\b/i);
+  return m ? Number(m[1]) : null;
+}
+
+// An alert DM can name several cases at once, so a bare "fixed" replying to
+// it is ambiguous — better to ask than to close the wrong one.
+export function caseNumbersIn(text) {
+  return [...new Set(
+    [...String(text || '').matchAll(/(?:case\s*#?|#)(\d{1,9})\b/gi)].map((m) => Number(m[1]))
+  )];
+}
+
+export function caseSummary(r) {
+  const age = Math.round((now() - r.ts) / 60);
+  const when = age < 60 ? `${age}m ago` : `${Math.round(age / 60)}h ago`;
+  const who = r.tg_user ? `@${r.tg_user}` : `user ${r.tg_user_id}`;
+  return [
+    `#${r.id} — ${r.resolved ? `closed (${r.resolved_by || 'unknown'})` : 'OPEN'}${r.escalated ? ' · escalated' : ''}`,
+    `${who}${r.topic ? ` · ${r.topic}` : ''} · ${when}`,
+    `"${String(r.text).slice(0, 400)}"`,
+  ].join('\n');
+}
+
+// Closes the case and tells the person who reported it. Returns a line to send
+// back to the admin, so every path answers rather than going quiet.
+export async function closeCaseAsAdmin(id, by) {
+  const r = db.prepare('SELECT * FROM problem_reports WHERE id = ?').get(id);
+  if (!r) return `No case #${id}.`;
+  if (r.resolved) return `#${id} was already closed (${r.resolved_by || 'unknown'}).`;
+  db.prepare("UPDATE problem_reports SET resolved = 1, resolved_by = 'admin' WHERE id = ?").run(id);
+  audit('admin', by, 'problems.resolve', `#${id} via telegram`);
+  const notified = await notifyResolved(r).catch(() => false);
+  return notified
+    ? `✅ #${id} closed — ${r.tg_user ? '@' + r.tg_user : 'the reporter'} has been told it's fixed.`
+    : `✅ #${id} closed. (Reporter not told — the resolved message is empty in Bot settings.)`;
+}
+
+export function openCasesList(limit = 15) {
+  const rows = db.prepare(
+    'SELECT * FROM problem_reports WHERE resolved = 0 ORDER BY escalated DESC, id DESC LIMIT ?'
+  ).all(limit);
+  if (!rows.length) return 'No open cases. 🎉';
+  return `Open cases (${rows.length}):\n` + rows.map((r) =>
+    `#${r.id} ${r.escalated ? '🔴' : '·'} ${r.tg_user ? '@' + r.tg_user : r.tg_user_id}${r.topic ? ` — ${r.topic}` : ''}: "${String(r.text).slice(0, 70)}"`
+  ).join('\n') + '\n\nClose one with "#<number> fixed", or /case <number> for the detail.';
 }

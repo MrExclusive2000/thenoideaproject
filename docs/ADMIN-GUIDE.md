@@ -30,6 +30,16 @@ Endpoint (OpenAI-compatible), model, optional key, max tokens, temperature, **da
 ## FAQ manager
 Add question + answer + **keywords**. With *Understanding questions* on, keywords are context that helps the entry be found by meaning rather than a trigger that fires it — so you can write them without worrying that a stray word will serve the wrong FAQ. They are still the primary signal in the keyword fallback. Priority breaks ties. The **test box** scores any phrasing live against the keyword matcher. Hits are counted so you can see what matters.
 
+## Closing cases from Telegram
+
+Every problem report has a case number, and the alert DMs now print it (`• #12 @punter: "bbc one keeps buffering"`). You are usually in Telegram when you find out something is fixed — you have just restarted something, or the customer told you directly — so you can close it there:
+
+- **`#12 fixed`** — anywhere, group or DM. Also accepts sorted / resolved / done / working / back up.
+- **Reply "fixed"** to an alert and it takes the case number from the alert itself. If that alert named several cases it asks which one rather than guessing.
+- **`/case 12`** shows a case, **`/case 12 fixed`** closes it, **`/cases`** lists what's open.
+
+Closing this way is identical to clicking Resolve in the panel: the reporter gets told it's fixed, and it's recorded in the audit log. Only admin Telegram IDs can do it — a member naming someone else's case number is ignored. An admin saying "that should be fixed now" with no case number closes nothing.
+
 ## When several people report the same thing
 
 Once `problems.degradeThreshold` different people report service-wide problems inside the window (default 3 in 15 minutes — complaints about one episode or film never count), the bot decides it's a general problem rather than three unlucky customers:

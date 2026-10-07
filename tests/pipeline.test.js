@@ -2499,3 +2499,112 @@ test('an empty announcement template means nothing is posted', () => {
     setSetting('problems.announceMessage', prev);
   }
 });
+
+// ---- closing a case from Telegram --------------------------------------------
+const ADMIN_TG = 77777;
+
+function openCase(text, { userId = 96001, topic = 'buffering' } = {}) {
+  const info = db.prepare('INSERT INTO problem_reports (chat_id, chat_title, tg_user_id, tg_user, text, topic, answered, resolved, escalated, ts) VALUES (?,?,?,?,?,?,1,0,1,?)')
+    .run(-100123, 'Test Group', userId, 'punter', text, topic, Math.floor(Date.now() / 1000));
+  return info.lastInsertRowid;
+}
+
+test('an admin closes a case by number from the group', async () => {
+  const prevAdmins = getSetting('reports.adminTelegramIds');
+  setSetting('reports.adminTelegramIds', [ADMIN_TG]);
+  db.prepare('DELETE FROM problem_reports').run();
+  try {
+    const id = openCase('bbc one buffering all evening');
+    const ctx = fakeCtx(`#${id} fixed`, { chatType: 'group', userId: ADMIN_TG });
+    await handleGroupMessage(ctx);
+    const after = db.prepare('SELECT * FROM problem_reports WHERE id = ?').get(id);
+    assert.equal(after.resolved, 1);
+    assert.equal(after.resolved_by, 'admin');
+    assert.match(ctx.sent[0].msg, new RegExp(`#${id} closed`));
+  } finally {
+    setSetting('reports.adminTelegramIds', prevAdmins);
+  }
+});
+
+test('"fixed" replying to the alert picks the case out of the alert text', async () => {
+  const prevAdmins = getSetting('reports.adminTelegramIds');
+  setSetting('reports.adminTelegramIds', [ADMIN_TG]);
+  db.prepare('DELETE FROM problem_reports').run();
+  try {
+    const id = openCase('sky sports keeps dropping out');
+    const ctx = fakeCtx('fixed', { chatType: 'private', userId: ADMIN_TG });
+    ctx.message.reply_to_message = { text: `🛠 1 new problem report:\n• #${id} @punter: "sky sports keeps dropping out"` };
+    await handleDirectMessage(ctx);
+    assert.equal(db.prepare('SELECT resolved FROM problem_reports WHERE id = ?').get(id).resolved, 1);
+  } finally {
+    setSetting('reports.adminTelegramIds', prevAdmins);
+  }
+});
+
+test('a bare "fixed" on an alert naming several cases asks which, rather than guessing', async () => {
+  const prevAdmins = getSetting('reports.adminTelegramIds');
+  setSetting('reports.adminTelegramIds', [ADMIN_TG]);
+  db.prepare('DELETE FROM problem_reports').run();
+  try {
+    const a = openCase('buffering on bbc', { userId: 96010 });
+    const b = openCase('cant log in at all', { userId: 96011, topic: 'not working' });
+    const ctx = fakeCtx('all sorted', { chatType: 'private', userId: ADMIN_TG });
+    ctx.message.reply_to_message = { text: `• #${a} @one: "x"\n• #${b} @two: "y"` };
+    await handleDirectMessage(ctx);
+    assert.match(ctx.sent[0].msg, /which one/i);
+    assert.equal(db.prepare('SELECT resolved FROM problem_reports WHERE id = ?').get(a).resolved, 0, 'nothing closed on a guess');
+    assert.equal(db.prepare('SELECT resolved FROM problem_reports WHERE id = ?').get(b).resolved, 0);
+  } finally {
+    setSetting('reports.adminTelegramIds', prevAdmins);
+  }
+});
+
+test('a customer cannot close cases, only admins', async () => {
+  const prevAdmins = getSetting('reports.adminTelegramIds');
+  setSetting('reports.adminTelegramIds', [ADMIN_TG]);
+  db.prepare('DELETE FROM problem_reports').run();
+  try {
+    const id = openCase('everything is down for me');
+    const ctx = fakeCtx(`#${id} fixed`, { chatType: 'group', userId: 96099 });
+    await handleGroupMessage(ctx);
+    assert.equal(
+      db.prepare('SELECT resolved FROM problem_reports WHERE id = ?').get(id).resolved, 0,
+      "a member naming someone else's case number must not close it"
+    );
+  } finally {
+    setSetting('reports.adminTelegramIds', prevAdmins);
+  }
+});
+
+test('closing an already-closed case says so instead of pretending', async () => {
+  const prevAdmins = getSetting('reports.adminTelegramIds');
+  setSetting('reports.adminTelegramIds', [ADMIN_TG]);
+  db.prepare('DELETE FROM problem_reports').run();
+  try {
+    const id = openCase('app crashing on launch', { topic: 'crashing' });
+    const first = fakeCtx(`#${id} fixed`, { chatType: 'private', userId: ADMIN_TG });
+    await handleDirectMessage(first);
+    const again = fakeCtx(`#${id} fixed`, { chatType: 'private', userId: ADMIN_TG });
+    await handleDirectMessage(again);
+    assert.match(again.sent[0].msg, /already closed/);
+  } finally {
+    setSetting('reports.adminTelegramIds', prevAdmins);
+  }
+});
+
+test('an admin saying "fixed" with no case number is left alone', async () => {
+  const prevAdmins = getSetting('reports.adminTelegramIds');
+  setSetting('reports.adminTelegramIds', [ADMIN_TG]);
+  db.prepare('DELETE FROM problem_reports').run();
+  try {
+    const id = openCase('channels missing from the guide', { topic: 'missing' });
+    const ctx = fakeCtx('that should be fixed now everyone', { chatType: 'group', userId: ADMIN_TG });
+    await handleGroupMessage(ctx);
+    assert.equal(
+      db.prepare('SELECT resolved FROM problem_reports WHERE id = ?').get(id).resolved, 0,
+      'ordinary admin chatter must not close whatever case happens to be open'
+    );
+  } finally {
+    setSetting('reports.adminTelegramIds', prevAdmins);
+  }
+});
