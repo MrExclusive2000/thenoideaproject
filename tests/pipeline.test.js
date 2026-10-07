@@ -2233,13 +2233,35 @@ test('retrieved FAQs are handed to the model as knowledge', async () => {
   }
 });
 
-test('an embedding failure falls back to keyword matching, never to nothing', async () => {
-  // aiEmbeddings stays false: the endpoint 404s, exactly like an un-pulled
-  // model. The bot must still answer.
+test('an install where embeddings have never worked stays on keyword matching', async () => {
+  // The endpoint 404s for embeddings, exactly like an un-pulled model, and no
+  // vector has ever been produced here.
+  const { _resetEmbedProof } = await import('../src/ai/embeddings.js');
+  db.prepare('DELETE FROM faq_vectors').run();
+  _resetEmbedProof();
   const ctx = fakeCtx('how to install on my firestick??');
   const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
-  assert.equal(result, 'faq', 'no embeddings → the canned FAQ is still there to catch it');
+  assert.equal(result, 'faq', 'no embeddings anywhere → the canned entry still catches it');
   assert.match(ctx.sent[0].msg, /Downloader app/);
+});
+
+test('one timed-out embedding does not downgrade a working AI to canned answers', async () => {
+  // The live bug: Ollama serves one model at a time, so an embedding queued
+  // behind a running generation times out on a busy node. That used to flip
+  // the bot into keyword mode mid-conversation, firing a narrow entry verbatim
+  // at a broad question — then answering properly the moment one got through.
+  aiEmbeddings = true;
+  try {
+    // Prove embeddings work here, which is what a real install looks like.
+    const warm = fakeCtx('how do i install on firestick', { userId: 99100 });
+    await answer(warm, warm.message.text, { isDm: true, logId: null });
+    assert.ok(db.prepare('SELECT COUNT(*) n FROM faq_vectors').get().n > 0, 'vectors cached');
+  } finally {
+    aiEmbeddings = false; // now embeddings start failing, as under load
+  }
+  const ctx = fakeCtx('how to install on my firestick??', { userId: 99101 });
+  const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.equal(result, 'ai', 'the model still answers, just picking knowledge by keyword');
 });
 
 test('asking the same thing again is served from cache with no second generation', async () => {

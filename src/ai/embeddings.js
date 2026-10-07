@@ -83,6 +83,7 @@ export async function embed(text) {
       return null;
     }
     lastEmbedError = null;
+    embedEverWorked = true;
     recordSuccess(baseUrl);
     return vec;
   } catch (err) {
@@ -94,6 +95,21 @@ export async function embed(text) {
 }
 
 let lastEmbedError = null;
+let embedEverWorked = false;
+
+// "Embeddings don't work here" and "that one embedding timed out" are very
+// different, and treating them the same made the bot flip mid-conversation.
+// Ollama serves one model at a time, so an embedding queued behind a running
+// generation can time out on a busy node — that must not downgrade a working
+// AI to canned answers. A cached FAQ vector is durable proof it works, so the
+// evidence survives a restart rather than resetting with the process.
+export function embeddingsProven() {
+  if (embedEverWorked) return true;
+  if (!embeddingsEnabled()) return false;
+  embedEverWorked = db.prepare('SELECT COUNT(*) n FROM faq_vectors').get().n > 0;
+  return embedEverWorked;
+}
+
 export const embedStatus = () => ({ enabled: embeddingsEnabled(), lastError: lastEmbedError });
 
 // ---- FAQ vectors ------------------------------------------------------------
@@ -149,6 +165,11 @@ export async function retrieveFaqs(question, faqs, { k = 6, floor = 0.35, qVec =
     .filter((x) => x.score >= floor)
     .sort((a, b) => b.score - a.score)
     .slice(0, k);
+}
+
+// Test helper: forget that embeddings have ever worked here.
+export function _resetEmbedProof() {
+  embedEverWorked = false;
 }
 
 export function forgetFaqVector(faqId) {

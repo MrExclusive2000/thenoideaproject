@@ -11,7 +11,7 @@ import {
   isContentIssue, looksLikeLiveIssue, wrongCopyIssue, withAdminContact,
 } from './helpers.js';
 import { alertAdmins } from './reports.js';
-import { embed, retrieveFaqs } from '../ai/embeddings.js';
+import { embed, retrieveFaqs, embeddingsProven } from '../ai/embeddings.js';
 import { lookupAnswer, rememberAnswer, cacheable } from '../ai/answer-cache.js';
 import { circuitOpen } from '../ai/breaker.js';
 import {
@@ -774,7 +774,16 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
   // One embedding per message; the cache lookup and FAQ retrieval share it.
   const aiReady = Boolean(getSetting('ai.enabled')) && !aiBudgetExceeded();
   const qVec = aiReady ? await embed(question) : null;
-  const fullAi = aiReady && qVec !== null;
+  // A missing vector only drops out of full-AI mode when embeddings have NEVER
+  // worked here — not when one call times out. Ollama serves one model at a
+  // time, so an embedding queued behind a running generation can fail on a
+  // busy node, and treating that as "no embeddings" downgraded a perfectly
+  // reachable AI to a canned entry. That is why the same narrow entry fired
+  // verbatim at a broad question ("install guide for sky glass plus purple
+  // plus tips") over and over, then a properly written answer appeared the
+  // moment an embedding got through. Without a vector the model still answers;
+  // it just picks its knowledge by keyword instead of by meaning.
+  const fullAi = aiReady && (qVec !== null || embeddingsProven());
 
   // A question about the bot itself, answered from settings — never sent to the
   // model, so it still works when the endpoint is down, which is exactly when
@@ -946,17 +955,22 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
           return servedFromCache ? 'cache' : 'ai';
         }
 
-        // The model refused, but we have a near-miss FAQ — answer with that
-        // instead of saying nothing.
-        if (result.nearMiss) {
-          db.prepare('UPDATE faqs SET hit_count = hit_count + 1 WHERE id = ?').run(result.nearMiss.id);
-          setLogSource(logId, 'faq', withAdminContact(redactServiceUrls(result.nearMiss.answer)));
-          recordUnanswered(question, ctx, 'ai-refused', result.nearMiss.id);
-          const sent = await sendChunked(ctx.api, ctx.chat.id, withSuffix(withAdminContact(redactServiceUrls(result.nearMiss.answer))), {
+        // The model refused or could not be reached, but knowledge covers this
+        // — answer from it rather than saying nothing. A STRONG match counts
+        // too, not just a near-miss: in full-AI mode the canned branch above
+        // is skipped, so without this an unreachable model would throw away a
+        // dead-on entry and reply "I couldn't answer that".
+        const standIn = result.match || result.nearMiss;
+        if (standIn) {
+          db.prepare('UPDATE faqs SET hit_count = hit_count + 1 WHERE id = ?').run(standIn.id);
+          const standInText = withAdminContact(redactServiceUrls(standIn.answer));
+          setLogSource(logId, 'faq', standInText);
+          recordUnanswered(question, ctx, 'ai-refused', standIn.id);
+          const sent = await sendChunked(ctx.api, ctx.chat.id, withSuffix(standInText), {
             ...replyParams,
             reply_markup: feedbackKeyboard(),
           });
-          if (sent) rememberReply(ctx.chat.id, sent.message_id, { question, faqId: result.nearMiss.id, source: 'faq' });
+          if (sent) rememberReply(ctx.chat.id, sent.message_id, { question, faqId: standIn.id, source: 'faq' });
           return 'faq';
         }
 

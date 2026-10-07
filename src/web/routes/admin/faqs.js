@@ -3,7 +3,7 @@ import { db, now } from '../../../db/db.js';
 import { getSetting } from '../../../settings.js';
 import { matchFaq } from '../../../faq/matcher.js';
 import { addStarterFaqs } from '../../../db/seed.js';
-import { audit } from '../../../util.js';
+import { audit, formatDate } from '../../../util.js';
 import { flash } from '../../middleware.js';
 
 export const faqsRouter = Router();
@@ -35,6 +35,26 @@ faqsRouter.get('/faqs', (req, res) => {
 });
 
 // ---- AI-suggested entries ------------------------------------------------------
+
+// Knowledge review. The overlap scan needs the embedding model, so it runs on
+// request rather than on every page load.
+faqsRouter.get('/faqs/review', async (req, res) => {
+  const { overlappingEntries, knowledgeWarnings } = await import('../../../ai/learn.js');
+  let overlaps = [];
+  let overlapError = null;
+  try {
+    overlaps = await overlappingEntries();
+  } catch (err) {
+    overlapError = err.message;
+  }
+  res.render('admin/knowledge-review', {
+    title: 'Review knowledge',
+    overlaps,
+    overlapError,
+    warnings: knowledgeWarnings(),
+    formatDate,
+  });
+});
 
 faqsRouter.post('/faqs/suggested/learn', async (req, res) => {
   try {

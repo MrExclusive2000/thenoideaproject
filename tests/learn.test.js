@@ -303,3 +303,31 @@ test('a fix carrying one customer-specific detail is flagged like any other draf
   assert.ok(row, 'drafted');
   assert.match(row.needs_review || '', /long number/);
 });
+
+// --- reviewing the knowledge -------------------------------------------------
+const { knowledgeWarnings } = await import('../src/ai/learn.js');
+
+test('unfinished and unused entries are listed, never touched', () => {
+  db.prepare('DELETE FROM faqs').run();
+  const old = now() - 60 * 86400;
+  const add = (q, a, kw, hits, enabled, ts) =>
+    db.prepare('INSERT INTO faqs (question, answer, keywords, hit_count, enabled, priority, created_at, updated_at) VALUES (?,?,?,?,?,0,?,?)')
+      .run(q, a, kw, hits, enabled, ts, ts);
+
+  add('What are the prices?', 'It costs [ADMIN: fill this in] per month.', 'price', 0, 1, old);
+  add('How do I install?', 'Open Downloader and enter the code.', 'install', 40, 1, old);
+  add('Old seasonal thing', 'Answer.', 'seasonal', 0, 1, old);
+  add('Recently added', 'Answer.', 'new', 0, 1, now());
+  add('No keywords on this one', 'Answer.', '', 2, 1, old);
+
+  const w = knowledgeWarnings();
+  assert.equal(w.total, 5);
+  assert.equal(w.placeholders.length, 1, 'the [ADMIN: …] gap is flagged');
+  assert.match(w.placeholders[0].question, /prices/);
+  assert.equal(w.unused.length, 1, 'a brand-new entry is not "never used" yet');
+  assert.match(w.unused[0].question, /seasonal/);
+  assert.equal(w.noKeywords.length, 1, 'invisible to the keyword fallback');
+
+  // The listing must not change anything — it is advice, not a cleanup.
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM faqs').get().n, 5);
+});

@@ -1,0 +1,59 @@
+<%- include('../partials/admin-top', { title }) %>
+
+<h1>Review knowledge</h1>
+<p class="sub">Knowledge grows by accretion — starter entries, suggestions approved over months, things written in a hurry. Nothing here is changed automatically; it's a list of what's worth a look. <a href="/admin/faqs">← back to Knowledge</a></p>
+
+<div class="cards">
+  <div class="stat"><div class="num"><%= warnings.total %></div><div class="lbl">entries</div></div>
+  <div class="stat"><div class="num"><%= overlaps.length %></div><div class="lbl">overlapping pairs</div></div>
+  <div class="stat"><div class="num"><%= warnings.placeholders.length %></div><div class="lbl">unfinished</div></div>
+  <div class="stat"><div class="num"><%= warnings.unused.length %></div><div class="lbl">never used</div></div>
+</div>
+
+<div class="card">
+  <h2>Entries that say nearly the same thing</h2>
+  <p class="sub">This is the expensive kind of mess: retrieval has to choose between two entries that each half-cover a question, and the keyword fallback just picks the higher score — which is how a narrow entry ends up answering a broad question word for word. Merge the pair into one fuller entry, or make each one clearly about its own thing.</p>
+  <% if (overlapError) { %>
+    <p class="hint">⚠️ Couldn't compare: <%= overlapError %></p>
+  <% } else if (!overlaps.length) { %>
+    <p class="hint">No overlapping pairs — either your entries are nicely distinct, or the embedding model isn't available to compare them (check <a href="/admin/ai">AI settings</a> → Test connection).</p>
+  <% } else { %>
+    <% for (const o of overlaps) { %>
+    <div style="border-left:3px solid var(--warn);padding-left:12px;margin-bottom:18px">
+      <p class="hint"><%= Math.round(o.score * 100) %>% alike</p>
+      <p><a href="/admin/faqs?edit=<%= o.a.id %>"><strong><%= o.a.question %></strong></a> <span class="badge badge-dim">used <%= o.a.hit_count %>×</span></p>
+      <p><a href="/admin/faqs?edit=<%= o.b.id %>"><strong><%= o.b.question %></strong></a> <span class="badge badge-dim">used <%= o.b.hit_count %>×</span></p>
+    </div>
+    <% } %>
+  <% } %>
+</div>
+
+<div class="card">
+  <h2>Unfinished</h2>
+  <p class="sub">Drafted answers still carrying an <code>[ADMIN: …]</code> gap. The bot will read these out as they are.</p>
+  <% if (!warnings.placeholders.length) { %><p class="hint">None. 🎉</p><% } %>
+  <% for (const f of warnings.placeholders) { %>
+  <p><a href="/admin/faqs?edit=<%= f.id %>"><%= f.question %></a><% if (!f.enabled) { %> <span class="badge badge-dim">disabled</span><% } %></p>
+  <% } %>
+</div>
+
+<div class="row">
+  <div class="card">
+    <h2>Never used</h2>
+    <p class="sub">Enabled, over a month old, never once matched. Could be dead weight — or a seasonal answer that's simply out of season. Your call.</p>
+    <% if (!warnings.unused.length) { %><p class="hint">None.</p><% } %>
+    <% for (const f of warnings.unused) { %>
+    <p><a href="/admin/faqs?edit=<%= f.id %>"><%= f.question %></a></p>
+    <% } %>
+  </div>
+  <div class="card">
+    <h2>No keywords</h2>
+    <p class="sub">Fine while the AI is matching by meaning, but these are invisible to the keyword fallback — so they vanish exactly when the endpoint is down and you need them most.</p>
+    <% if (!warnings.noKeywords.length) { %><p class="hint">None.</p><% } %>
+    <% for (const f of warnings.noKeywords) { %>
+    <p><a href="/admin/faqs?edit=<%= f.id %>"><%= f.question %></a></p>
+    <% } %>
+  </div>
+</div>
+
+<%- include('../partials/admin-bottom') %>

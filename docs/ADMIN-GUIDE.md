@@ -78,6 +78,14 @@ Once `problems.degradeThreshold` different people report service-wide problems i
 
 Both messages are editable in **Reports & status**; `{note}` is replaced with the bot's own summary of what people are reporting. Empty announcement text means the bot never offers to post.
 
+## Reviewing your knowledge
+
+**Knowledge → Review knowledge** lists what's worth a look. It changes nothing on its own.
+
+The section that matters most is **entries that say nearly the same thing**, found by comparing meaning rather than wording. Overlapping entries are the expensive kind of mess: retrieval has to choose between two entries that each half-cover a question, and the keyword fallback just picks the higher score — which is how a narrow entry ends up answering a broad question word for word. Merge the pair, or make each clearly about its own thing.
+
+Also listed: entries still carrying an `[ADMIN: …]` gap (the bot reads those out as they are), entries enabled for over a month that have never once matched, and entries with no keywords — fine while the AI matches by meaning, but invisible to the keyword fallback, so they disappear exactly when the endpoint is down and you need them most.
+
 ## Learning from cases
 
 A problem report is a case: it opens when someone reports an issue, follow-up messages attach to it, and it closes when they say it's sorted, when you resolve it in the panel, or on the auto-close timer. The conversation is stored, so a restart no longer loses the thread, and a reply the next morning still lands on the right case (window: `bot.problemWindowMinutes`, default 12h). A problem about something clearly different opens its own case rather than piling onto the open one.

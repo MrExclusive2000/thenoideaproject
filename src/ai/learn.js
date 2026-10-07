@@ -296,3 +296,51 @@ export function recurringUnresolved({ sinceDays = 30, minCount = 3 } = {}) {
     LIMIT 10
   `).all(now() - sinceDays * 86400, minCount);
 }
+
+// ---- reviewing the knowledge itself -----------------------------------------
+// Knowledge grows by accretion: starter entries, suggestions approved over
+// months, things written in a hurry. Overlapping entries are the expensive
+// kind of mess — retrieval has to choose between two entries that both half
+// cover a question, and the keyword fallback picks whichever scores higher,
+// which is how a narrow entry ends up answering a broad question verbatim.
+
+const OVERLAP_SIMILARITY = 0.88;
+
+// Pairs of entries that say close to the same thing. Uses the cached vectors,
+// so it costs nothing beyond embedding entries that changed.
+export async function overlappingEntries({ limit = 20 } = {}) {
+  const faqs = db.prepare('SELECT id, question, answer, keywords, hit_count FROM faqs WHERE enabled = 1 ORDER BY id').all();
+  if (faqs.length < 2) return [];
+  const vectors = await ensureFaqVectors(faqs);
+  if (vectors.size < 2) return []; // no embedding model — nothing to compare by
+
+  const out = [];
+  for (let i = 0; i < faqs.length; i++) {
+    for (let j = i + 1; j < faqs.length; j++) {
+      const a = vectors.get(faqs[i].id);
+      const b = vectors.get(faqs[j].id);
+      if (!a || !b) continue;
+      const score = cosine(a, b);
+      if (score >= OVERLAP_SIMILARITY) out.push({ a: faqs[i], b: faqs[j], score });
+    }
+  }
+  return out.sort((x, y) => y.score - x.score).slice(0, limit);
+}
+
+// Entries that look unfinished or unused. Neither is wrong on its own — a
+// seasonal answer can go months without a hit — so these are listed, never
+// touched automatically.
+export function knowledgeWarnings() {
+  const rows = db.prepare('SELECT id, question, answer, keywords, hit_count, enabled, created_at FROM faqs').all();
+  const monthAgo = now() - 30 * 86400;
+  const unfinished = (r) => /\[ADMIN:/i.test(r.answer);
+  return {
+    placeholders: rows.filter(unfinished),
+    // An entry nobody finished writing obviously has no hits — listing it
+    // under "never used" as well is noise that buries the real strays.
+    unused: rows.filter((r) => r.enabled && !r.hit_count && r.created_at < monthAgo && !unfinished(r)),
+    noKeywords: rows.filter((r) => r.enabled && !String(r.keywords || '').trim()),
+    disabled: rows.filter((r) => !r.enabled),
+    total: rows.length,
+  };
+}
