@@ -1,0 +1,82 @@
+{
+    "_comment": "Ollama \u2014 a SEPARATE server for the Telegram Support Suite's AI. The suite talks to it over HTTP at AI_BASE_URL (http://<this server>:<port>/v1). Pulls BOTH a chat model and an embedding model: the suite needs the embedding model to match questions by meaning and to reuse answers for repeat questions, and without it the bot silently falls back to keyword matching.",
+    "meta": {
+        "version": "PTDL_v2",
+        "update_url": null
+    },
+    "exported_at": null,
+    "name": "Ollama (for Telegram Support Suite)",
+    "author": "support-suite@localhost",
+    "description": "Standalone Ollama LLM server. Binds 0.0.0.0:<port>, auto-pulls a chat model and an embedding model on first start, and keeps them resident so a quiet group does not pay a model reload on every question. Allocate ~8GB RAM and ~8GB disk for a 3B model; more for larger ones.",
+    "features": [],
+    "docker_images": {
+        "Debian": "ghcr.io/parkervcp/yolks:debian"
+    },
+    "file_denylist": [],
+    "startup": "bash -c 'export OLLAMA_HOST=0.0.0.0:{{SERVER_PORT}}; export OLLAMA_MODELS=/home/container/.ollama/models; export LD_LIBRARY_PATH=/home/container/lib/ollama; export OLLAMA_KEEP_ALIVE=\"${OLLAMA_KEEP_ALIVE:--1}\"; export OLLAMA_CONTEXT_LENGTH=\"${OLLAMA_CONTEXT_LENGTH:-8192}\"; export OLLAMA_NUM_PARALLEL=1; export OLLAMA_MAX_LOADED_MODELS=2; /home/container/bin/ollama serve & SRV=$!; until curl -s http://127.0.0.1:{{SERVER_PORT}}/api/tags >/dev/null 2>&1; do sleep 1; done; for M in \"$OLLAMA_MODEL\" \"$OLLAMA_EMBED_MODEL\"; do [ -n \"$M\" ] && { /home/container/bin/ollama list | grep -q \"^$M[[:space:]]\" || { echo \"[ollama] pulling $M ...\"; /home/container/bin/ollama pull \"$M\"; }; }; done; echo \"[ollama] models ready: $(/home/container/bin/ollama list | tail -n +2 | awk '\"'\"'{print $1}'\"'\"' | tr '\"'\"'\\n'\"'\"' '\"'\"' '\"'\"')\"; wait $SRV'",
+    "config": {
+        "files": "{}",
+        "startup": "{\n    \"done\": \"Listening on\"\n}",
+        "logs": "{}",
+        "stop": "^C"
+    },
+    "scripts": {
+        "installation": {
+            "script": "#!/bin/bash\n# Ollama for the Telegram Support Suite \u2014 its own server, reached over HTTP.\n# The suite never runs the model in-process; point AI_BASE_URL at this server.\nset -euo pipefail\nlog() { echo \"[Ollama] $*\"; }\n\nlog \"Installing tooling...\"\napt update -y\napt install -y --no-install-recommends curl ca-certificates tar zstd\n\nmkdir -p /mnt/server/.ollama/models\ncd /mnt/server\n\n# The bundled CUDA/ROCm libraries are the bulk of the ~1.4GB archive and are\n# dead weight on a CPU node. Excluding them is the default BUT it is a choice,\n# not a fact about the egg: a server installed this way can never use a GPU,\n# however the node is later upgraded. Set OLLAMA_SKIP_GPU_LIBS=0 and reinstall\n# to get them back.\nEXCLUDES=()\nif [ \"${OLLAMA_SKIP_GPU_LIBS:-1}\" = \"1\" ]; then\n  log \"CPU-only install: excluding bundled GPU libraries (~110MB instead of ~1.4GB).\"\n  EXCLUDES=('--exclude=lib/ollama/cuda*' '--exclude=lib/ollama/rocm*')\nelse\n  log \"Including GPU libraries \u2014 only worth it if this node actually has a GPU.\"\nfi\n\nlog \"Downloading + extracting Ollama...\"\ncurl -fSL \"https://ollama.com/download/ollama-linux-amd64.tar.zst\" \\\n  | tar --use-compress-program=unzstd -xf - -C /mnt/server ${EXCLUDES[@]+\"${EXCLUDES[@]}\"}\n\nif [ ! -x /mnt/server/bin/ollama ]; then\n  echo \"[Ollama] ERROR: ollama binary missing after extraction.\"\n  echo \"[Ollama] Check the server's Disk limit \u2014 the binary needs ~150MB and each model several GB on top.\"\n  exit 1\nfi\n\nlog \"Install complete. Models are pulled on first start, not here.\"\n",
+            "container": "ghcr.io/parkervcp/installers:debian",
+            "entrypoint": "bash"
+        }
+    },
+    "variables": [
+        {
+            "name": "Chat model",
+            "description": "The model that writes answers. On a CPU node this is your single biggest speed lever: a 3B (qwen2.5:3b, llama3.2:3b) generates roughly 3x faster than an 8B and answers support questions well, because the suite feeds it the relevant FAQs rather than relying on what the model knows. Use llama3.1:8b or qwen2.5:7b only if the node has cores and RAM to spare. Avoid gemma* on CPU \u2014 it re-reads the whole prompt every message.",
+            "env_variable": "OLLAMA_MODEL",
+            "default_value": "qwen2.5:3b",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:128",
+            "field_type": "text"
+        },
+        {
+            "name": "Embedding model",
+            "description": "Used to match questions by meaning and to reuse answers for repeat questions. Cheap even on CPU \u2014 embedding a question is one pass, not a generated answer. Leave empty to disable, and the suite falls back to keyword matching.",
+            "env_variable": "OLLAMA_EMBED_MODEL",
+            "default_value": "nomic-embed-text",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:128",
+            "field_type": "text"
+        },
+        {
+            "name": "Keep models loaded",
+            "description": "How long an idle model stays in memory. -1 means never unload, which is what you want: Ollama's own default of 5m makes a quiet group pay a full model reload on top of prompt reading for nearly every question. Set e.g. 10m only if RAM is tight.",
+            "env_variable": "OLLAMA_KEEP_ALIVE",
+            "default_value": "-1",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:16",
+            "field_type": "text"
+        },
+        {
+            "name": "Context length",
+            "description": "Tokens of context. The suite's support prompt plus retrieved FAQs runs to a few thousand tokens, and Ollama's smaller default would truncate it mid-template and return a 500.",
+            "env_variable": "OLLAMA_CONTEXT_LENGTH",
+            "default_value": "8192",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer|between:2048,32768",
+            "field_type": "text"
+        },
+        {
+            "name": "CPU-only install (skip GPU libraries)",
+            "description": "1 = skip the bundled CUDA/ROCm libraries, cutting the install from ~1.4GB to ~110MB. Correct for a CPU node, but a server installed this way can never use a GPU \u2014 set to 0 and reinstall if the node has one.",
+            "env_variable": "OLLAMA_SKIP_GPU_LIBS",
+            "default_value": "1",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|in:0,1",
+            "field_type": "text"
+        }
+    ]
+}

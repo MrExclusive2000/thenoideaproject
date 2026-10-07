@@ -10,7 +10,7 @@ Everything runs as **one Node.js process** with SQLite — no external database,
 
 ## Quick start
 
-**Pelican Panel (recommended):** import `egg/egg-support-suite.json`, create a server from it, fill in the variables, start. Full walkthrough: [docs/SETUP.md](docs/SETUP.md).
+**Pelican Panel (recommended):** import `egg/egg-support-suite.json`, create a server from it, fill in the variables, start. For the AI, import `egg/ollama.egg.json` as a second server — it pulls both the chat model and the embedding model the bot needs, and keeps them loaded. Full walkthrough: [docs/SETUP.md](docs/SETUP.md).
 
 **Docker:** `cp .env.example .env`, edit it, then `docker compose up -d` → panel on port 8080.
 
