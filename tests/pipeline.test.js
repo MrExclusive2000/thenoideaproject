@@ -2656,3 +2656,74 @@ test('a dead endpoint is only dialled twice, then answers come instantly', async
     _resetCircuits();
   }
 });
+
+// ---- honest deflection when the AI is unreachable ------------------------------
+// Live bug: with the endpoint down, in-scope questions were answered with the
+// off-topic brush-off ("I'm strictly service support") and the generic "I
+// couldn't answer that one". Both state the question was out of scope — but
+// scope is the MODEL'S verdict, and it was never consulted.
+
+async function withDeadAi(fn) {
+  const { _resetCircuits } = await import('../src/ai/breaker.js');
+  const prev = getSetting('ai.baseUrl');
+  _resetCircuits();
+  setSetting('ai.baseUrl', 'http://127.0.0.1:1/v1');
+  try { return await fn(); } finally { setSetting('ai.baseUrl', prev); _resetCircuits(); }
+}
+
+test('an in-scope question is never called off-topic just because the AI is down', async () => {
+  await withDeadAi(async () => {
+    setSetting('bot.offtopicBehavior', 'redirect');
+    setSetting('bot.offtopicMessage', 'BRUSH-OFF LINE');
+    const ctx = fakeCtx('I need the sky glass code', { userId: 98001 });
+    const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+    assert.equal(result, 'ai-down');
+    assert.doesNotMatch(ctx.sent[0].msg, /BRUSH-OFF/, 'the scope verdict was never the model\'s to give');
+    assert.match(ctx.sent[0].msg, /can't reach my AI/i, 'it says what is actually wrong');
+  });
+});
+
+test('the AI-down notice replaces the generic "couldn\'t answer" line too', async () => {
+  await withDeadAi(async () => {
+    const ctx = fakeCtx('can you confirm the sky glass code for me please', { userId: 98002 });
+    await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+    assert.ok(ctx.sent.length);
+    assert.doesNotMatch(ctx.sent[0].msg, /couldn't answer that one/i);
+  });
+});
+
+test('a working AI still gives the off-topic brush-off for real banter', async () => {
+  aiResponse = 'OFFTOPIC';
+  setSetting('bot.offtopicBehavior', 'redirect');
+  setSetting('bot.offtopicMessage', 'BRUSH-OFF LINE');
+  setSetting('bot.offtopicChatMinutes', 0);
+  try {
+    const ctx = fakeCtx('who won the football last night', { userId: 98003 });
+    const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+    assert.equal(result, 'offtopic', 'the model DID judge this, so its verdict stands');
+    assert.match(ctx.sent[0].msg, /BRUSH-OFF/);
+  } finally {
+    aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+    setSetting('bot.offtopicChatMinutes', 30);
+  }
+});
+
+test('"what can you do" is answered, not brushed off', async () => {
+  const ctx = fakeCtx('Can you answer any of my questions', { userId: 98004 });
+  const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.equal(result, 'capability');
+  assert.match(ctx.sent[0].msg, /Installing and updating/);
+  // It must work with the endpoint down — that is when people ask it.
+  await withDeadAi(async () => {
+    const ctx2 = fakeCtx('what can you help with', { userId: 98005 });
+    assert.equal(await answer(ctx2, ctx2.message.text, { isDm: true, logId: null }), 'capability');
+  });
+});
+
+test('a real support question is not mistaken for a capability question', async () => {
+  for (const q of ['can you give me the sky glass code', 'can you check if my account is active']) {
+    const ctx = fakeCtx(q, { userId: 98010 });
+    const result = await answer(ctx, q, { isDm: true, logId: null });
+    assert.notEqual(result, 'capability', `"${q}" is a support question, not a question about the bot`);
+  }
+});

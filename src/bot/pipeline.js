@@ -13,6 +13,7 @@ import {
 import { alertAdmins } from './reports.js';
 import { embed, retrieveFaqs } from '../ai/embeddings.js';
 import { lookupAnswer, rememberAnswer, cacheable } from '../ai/answer-cache.js';
+import { circuitOpen } from '../ai/breaker.js';
 import {
   queueProblemAlert, setProblemRearmHook, maybeAutoDegrade,
   looksLikeCaseClose, caseNumbersIn, closeCaseAsAdmin,
@@ -362,6 +363,19 @@ const THANKS_EXTRA = new Set([
 
 function plainWords(text) {
   return String(text).toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
+}
+
+// "What can you do?", "can you answer any of my questions", "are you a bot?" —
+// a question ABOUT the bot, not a support question and not banter. Brushing
+// these off with "can't help with that, I'm strictly service support" is the
+// worst of both: it refuses the one question the bot can always answer, and
+// it reads as broken when the user then asks what it IS for.
+const CAPABILITY_RE = /\b(?:what|which|anything)\b.{0,30}\b(?:can|could)\s+(?:you|u)\b|\b(?:can|could)\s+(?:you|u)\b.{0,30}\b(?:answer|help|do|assist)\b|\bwhat(?:'?s| is| are)?\s+(?:your|ur)\s+(?:purpose|job|use|point)\b|\bare\s+(?:you|u)\s+(?:a\s+)?(?:bot|ai|real|human)\b|\bwhat\s+(?:do|are)\s+(?:you|u)\s+(?:do|for)\b/i;
+
+function looksLikeCapabilityQuestion(text) {
+  const t = String(text || '').trim();
+  if (t.length > 120) return false; // a long message is a real question with these words in it
+  return CAPABILITY_RE.test(t);
 }
 
 function looksLikeGreeting(text) {
@@ -762,6 +776,18 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
   const qVec = aiReady ? await embed(question) : null;
   const fullAi = aiReady && qVec !== null;
 
+  // A question about the bot itself, answered from settings — never sent to the
+  // model, so it still works when the endpoint is down, which is exactly when
+  // a confused user is most likely to ask it.
+  if (looksLikeCapabilityQuestion(question)) {
+    const msg = String(getSetting('bot.capabilityMessage') || '').trim();
+    if (msg) {
+      setLogSource(logId, 'capability');
+      await ctx.api.sendMessage(ctx.chat.id, withAdminContact(msg), replyParams);
+      return 'capability';
+    }
+  }
+
   // Before the FAQ matcher: "which service is best" would otherwise fuzzy-hit
   // the which-service FAQ (username classification) or reach the AI.
   if (isBestServiceQuestion(question)) {
@@ -825,6 +851,13 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         let reply = null;
         let cacheVec = null;
         let servedFromCache = false;
+        // Whether the model actually got a say. Off-topic and "can't answer"
+        // are both the MODEL'S verdict; with it unreachable the bot is
+        // guessing, and must not dress a guess up as a judgement. Seeded from
+        // the circuit so a message filtered out before the call (no scope
+        // signal, no history) is treated the same as one the call failed on —
+        // both reached a verdict the model never gave.
+        let aiUnavailable = circuitOpen(String(getSetting('ai.baseUrl') || '').replace(/\/+$/, ''));
         if (!offScript) {
           await ctx.replyWithChatAction?.('typing')?.catch?.(() => {});
           // Live vs VOD hint for problem reports: pause/rewind advice is
@@ -881,6 +914,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
               if (err.code === 'AI_BUSY' || err.code === 'AI_TIMEOUT') throw err;
               console.error('AI error:', err.message);
               state.bot.lastError = `AI: ${String(err.message).slice(0, 280)}`;
+              aiUnavailable = true;
               reply = null;
             }
             if (reply && canCache) {
@@ -934,10 +968,10 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
           setLogSource(logId, 'unsure');
           recordUnanswered(question, ctx, 'ai-refused', null);
           if (isDm || getSetting('bot.offtopicBehavior') === 'redirect') {
-            const msg = await spoken('bot.unsureMessage');
+            const msg = await spoken(aiUnavailable ? 'bot.aiDownMessage' : 'bot.unsureMessage');
             if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, replyParams);
           }
-          return 'unsure';
+          return aiUnavailable ? 'ai-down' : 'unsure';
         }
 
         // Truly unrelated to the service — strict-topic rule kicked in.
@@ -949,6 +983,17 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         // spoken to: always in a DM; in a group only on a mention or a reply
         // to the bot. "Anyone coming to the pub later?" is aimed at the
         // GROUP — the bot butting in with banter would be worse than silence.
+        // Scope is the model's call. Unreachable means the bot cannot tell an
+        // off-topic message from a support question it simply has no FAQ for —
+        // and "I need the sky glass code" being called off-topic is the worst
+        // possible answer. Say what is actually wrong instead.
+        if (aiUnavailable && (isDm || directed)) {
+          setLogSource(logId, 'ai-down');
+          recordUnanswered(question, ctx, 'ai-refused', null);
+          const msg = await spoken('bot.aiDownMessage');
+          if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, replyParams);
+          return 'ai-down';
+        }
         if (getSetting('bot.offtopicBehavior') === 'redirect' && (isDm || directed)) {
           // Banter budget: the FIRST off-topic question in a while gets one
           // short friendly answer; the next inside the window gets the witty
@@ -997,7 +1042,10 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
   if (fallback) {
     await ctx.api.sendMessage(ctx.chat.id, fallback, replyParams);
   } else if (isDm) {
-    await ctx.api.sendMessage(ctx.chat.id, withAdminContact("I couldn't answer that one — {admin} and they'll help you personally."));
+    const tail = circuitOpen(String(getSetting('ai.baseUrl') || '').replace(/\/+$/, ''))
+      ? withAdminContact(String(getSetting('bot.aiDownMessage') || ''))
+      : withAdminContact("I couldn't answer that one — {admin} and they'll help you personally.");
+    if (tail) await ctx.api.sendMessage(ctx.chat.id, tail);
   }
   return 'none';
 }

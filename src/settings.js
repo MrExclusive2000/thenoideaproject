@@ -34,6 +34,21 @@ const DEFAULTS = {
   // Where everyone goes when the bot can't help. {admin} in any bot message is
   // replaced with this; leave the handle empty and messages fall back to
   // "message an admin directly".
+  // Sent instead of the "can't help" and off-topic lines while the AI endpoint
+  // is unreachable. Those lines both tell the user their question was out of
+  // scope — but scope is the MODEL'S verdict, and without it the bot is
+  // guessing. Saying so is honest and tells them to come back; calling an
+  // in-scope question off-topic is just wrong.
+  // "What can you do?" is the one question the bot can always answer, and it
+  // used to get the off-topic brush-off. Empty = fall through to normal handling.
+  'bot.capabilityMessage':
+    "Here's what I can help with:\n" +
+    '• Installing and updating the apps (Firestick, Android, iPhone, TVs)\n' +
+    '• Logins, accounts, renewals and prices\n' +
+    '• Buffering, freezing, channels or streams not working\n' +
+    '• Requesting films and series\n\n' +
+    'Just ask in your own words — no need for commands. Anything I can\'t do, {admin}.',
+  'bot.aiDownMessage': "⚠️ I can't reach my AI right now, so I can only answer things in my FAQ list. Try me again in a minute — or {admin} if it's urgent.",
   'bot.adminContact': '',
   // The Downloader / aftv.news code for the current app build. The bot sends
   // the file itself when it fits in Telegram's 50MB bot limit and quotes this

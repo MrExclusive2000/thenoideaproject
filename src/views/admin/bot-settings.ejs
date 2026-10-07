@@ -135,6 +135,18 @@
   </div>
 
   <div class="field">
+    <label for="aiDownMessage">When the AI endpoint is unreachable</label>
+    <input id="aiDownMessage" name="aiDownMessage" type="text" maxlength="600" value="<%= s.aiDownMessage %>">
+    <p class="hint">Sent instead of the "can't help" and off-topic lines while the endpoint is down. Both of those tell the customer their question was out of scope — but scope is the AI's verdict, so without it the bot is guessing, and calling an in-scope question off-topic is simply wrong. FAQ answers still work normally.</p>
+  </div>
+
+  <div class="field">
+    <label for="capabilityMessage">Answer to "what can you do?" (empty = handle it normally)</label>
+    <textarea id="capabilityMessage" name="capabilityMessage" rows="6" maxlength="1000"><%= s.capabilityMessage %></textarea>
+    <p class="hint">Questions about the bot itself are answered straight from here, never sent to the AI — so they still work when the endpoint is down, which is exactly when a confused customer asks.</p>
+  </div>
+
+  <div class="field">
     <label for="downloadCode">Downloader / aftv.news code for the current build</label>
     <input id="downloadCode" name="downloadCode" type="text" maxlength="32" placeholder="9804805" value="<%= s.downloadCode %>">
     <p class="hint">/download sends the file itself when it fits in Telegram's 50MB limit. When it doesn't, the bot quotes this code instead — it works in the Downloader app on a Firestick and as <code>aftv.news/CODE</code> in any browser.</p>
