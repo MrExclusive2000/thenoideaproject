@@ -104,3 +104,61 @@ export function describeUpdate(local, remote) {
     : 'Auto-update is OFF for this server, so a restart will NOT pull them — turn on the auto-update variable in the Startup tab, or update manually.';
   return `⚠️ ${n} newer commit${n > 1 ? 's' : ''} available.\n${remote.latest ? `Latest: ${remote.latest}\n` : ''}${restart}`;
 }
+
+// ---- applying an update -----------------------------------------------------
+// Pulls the branch this server was installed from and reinstalls dependencies
+// when the lockfile moved. Deliberately does NOT restart: the new code only
+// runs after a restart, and bringing the bot down is the caller's decision to
+// confirm, not a side effect of asking for an update.
+export async function applyUpdate() {
+  const local = localBuild();
+  if (!local.isGit) return { ok: false, message: FAILURE_HINTS['not-a-git-checkout'] };
+  const branch = local.branch && local.branch !== 'HEAD' ? local.branch : null;
+  if (!branch) return { ok: false, message: FAILURE_HINTS['detached-head'] };
+
+  if (tryGit(['fetch', '--quiet', 'origin', branch], 60000) === null) {
+    return { ok: false, message: FAILURE_HINTS['fetch-failed'] };
+  }
+
+  const before = tryGit(['rev-parse', 'HEAD']);
+  const target = tryGit(['rev-parse', `origin/${branch}`]);
+  if (!before || !target) return { ok: false, message: FAILURE_HINTS['compare-failed'] };
+  if (before === target) return { ok: true, changed: false, message: '✅ Already on the latest commit — nothing to pull.' };
+
+  const changes = tryGit(['log', '--format=%h %s', `HEAD..origin/${branch}`]) || '';
+  // Read the lockfile id from both sides BEFORE moving, so we know whether
+  // dependencies actually changed rather than reinstalling every time.
+  const lockBefore = tryGit(['rev-parse', 'HEAD:package-lock.json']);
+  const lockAfter = tryGit(['rev-parse', `origin/${branch}:package-lock.json`]);
+
+  if (tryGit(['reset', '--hard', target], 60000) === null) {
+    return { ok: false, message: 'Could not apply the update — git refused to move the checkout.' };
+  }
+  cachedLocal = null; // the running build has changed on disk
+  cachedRemote = { at: 0, result: null };
+
+  let deps = 'unchanged';
+  if (lockBefore !== lockAfter) {
+    try {
+      execFileSync('npm', ['ci', '--omit=dev', '--no-audit', '--no-fund'], {
+        cwd: config.rootDir, timeout: 10 * 60 * 1000, stdio: ['ignore', 'ignore', 'ignore'],
+      });
+      deps = 'reinstalled';
+    } catch {
+      // The pull succeeded, so say so plainly rather than implying it failed —
+      // but a restart now would run new code against old dependencies.
+      deps = 'FAILED';
+    }
+  }
+
+  const lines = changes.split('\n').filter(Boolean);
+  return {
+    ok: true,
+    changed: true,
+    deps,
+    count: lines.length,
+    commits: lines,
+    from: before.slice(0, 7),
+    to: target.slice(0, 7),
+  };
+}

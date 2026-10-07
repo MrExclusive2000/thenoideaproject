@@ -199,3 +199,13 @@ test('a failed check says why rather than claiming to be up to date', () => {
   assert.doesNotMatch(msg, /Up to date/, 'an unreachable remote is not evidence of being current');
   assert.match(describeUpdate({ isGit: false }, null), /wasn't installed from git/);
 });
+
+test('applying an update reports no-op when already current', async () => {
+  const { applyUpdate } = await import('../src/build.js');
+  const r = await applyUpdate();
+  // This checkout tracks a real branch; whatever the outcome, it must be a
+  // structured answer and never a thrown error from git.
+  assert.equal(typeof r.ok, 'boolean');
+  if (r.ok && !r.changed) assert.match(r.message, /Already on the latest/);
+  if (!r.ok) assert.ok(r.message.length, 'a failure always explains itself');
+});

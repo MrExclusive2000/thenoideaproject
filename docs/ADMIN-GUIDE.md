@@ -38,6 +38,12 @@ The answer that matters is the last line: either *"Up to date"*, or *"N newer co
 
 It also warns if the checkout has local edits, since a restart with auto-update on discards them.
 
+**`/update`** (admin, private chat) pulls the branch this server was installed from, reinstalls dependencies if the lockfile moved, and lists what changed. It does **not** restart on its own — the new files are on disk but the running process is still the old code — so it offers a **🔄 Restart now** button as a separate step.
+
+A caveat worth knowing before you press it: a process inside the container can only stop itself. Pelican treats a clean exit as "you stopped it" and leaves the server off, so the restart exits with a crash code to get picked up by auto-restart. If your server doesn't have restart-on-crash enabled it will sit offline until you hit Start in the panel. The message says as much when you press it.
+
+If the dependency install fails, no restart button is offered at all — restarting there would bring the bot back up running new code against old packages.
+
 Same information in the panel under **Branding & backup → Version**, with a **Check for updates** button. The check costs a network round trip so it runs on request, not on every page load, and the result is cached for a few minutes.
 
 `/version` still answers the old way for customers — service status and the latest app build — so nothing changed for them.

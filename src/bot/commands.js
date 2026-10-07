@@ -10,7 +10,7 @@ import { sendDigest, buildStatsText } from './reports.js';
 import { caseNumberIn, caseSummary, closeCaseAsAdmin, openCasesList, looksLikeCaseClose } from './problems.js';
 import { hub } from './hub.js';
 import { state } from '../state.js';
-import { localBuild, updateCheck, describeUpdate } from '../build.js';
+import { localBuild, updateCheck, describeUpdate, applyUpdate } from '../build.js';
 
 const isPrivate = (ctx) => ctx.chat?.type === 'private';
 
@@ -130,6 +130,7 @@ export function registerCommands(bot) {
         '',
         'Admin: /adopt /mute /unmute /report /broadcast <text> /id',
         '/cases — open cases · /case 12 — read one · /case 12 fixed — close it',
+        '/version — what is running · /update — pull the latest code',
         'Or just reply "#12 fixed" to an alert.'
       );
     }
@@ -161,6 +162,48 @@ export function registerCommands(bot) {
     }
     lines.push('', describeUpdate(local, remote));
     await ctx.reply(lines.join('\n'));
+  });
+
+  // /update — pull the branch this server was installed from. Restarting is a
+  // separate, confirmed step: the new code only runs after a restart, and
+  // taking the bot down should never be a side effect of asking for an update.
+  bot.command('update', async (ctx) => {
+    if (!isAdminUser(ctx.from.id)) return;
+    if (!isPrivate(ctx)) return ctx.reply('Send /update in a private message to me.');
+    await ctx.reply('⏳ Pulling the latest code…');
+    const r = await applyUpdate();
+    if (!r.ok) return ctx.reply(`❌ ${r.message}`);
+    if (!r.changed) return ctx.reply(r.message);
+
+    const shown = r.commits.slice(0, 10).map((c) => `• ${c}`).join('\n');
+    const more = r.count > 10 ? `\n…and ${r.count - 10} more` : '';
+    const depsLine = r.deps === 'reinstalled'
+      ? '\n📦 Dependencies changed and were reinstalled.'
+      : r.deps === 'FAILED'
+        ? '\n⚠️ Dependencies changed but the install FAILED. Do not restart yet — fix it from the panel console first, or the bot will come back up against the wrong packages.'
+        : '';
+    await ctx.reply(
+      `✅ Updated ${r.from} → ${r.to} (${r.count} commit${r.count > 1 ? 's' : ''}):\n${shown}${more}${depsLine}\n\n` +
+      'The files are updated but this process is still running the old code. Restart to apply:',
+      r.deps === 'FAILED' ? {} : {
+        reply_markup: { inline_keyboard: [[{ text: '🔄 Restart now', callback_data: 'update:restart' }]] },
+      }
+    );
+  });
+
+  bot.callbackQuery('update:restart', async (ctx) => {
+    if (!isAdminUser(ctx.from.id)) return ctx.answerCallbackQuery({ text: 'Admins only.' });
+    await ctx.answerCallbackQuery({ text: 'Restarting…' });
+    await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+    // Pelican treats a clean exit as "you stopped it" and leaves the server
+    // off; a non-zero exit is a crash, which its crash detection restarts.
+    // That is the only lever a process inside the container has, so say what
+    // it depends on rather than promising it will come back.
+    await ctx.reply(
+      '🔄 Stopping now. The panel should bring me back within a few seconds.\n\n' +
+      'If I am still offline after a minute, hit Start in the Pelican panel — this relies on auto-restart-on-crash being enabled for the server.'
+    ).catch(() => {});
+    setTimeout(() => process.exit(1), 1500);
   });
 
   bot.command('faq', cmdFaq);
