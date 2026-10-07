@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { db, now } from '../db/db.js';
 import { getSetting } from '../settings.js';
+import { circuitOpen, recordFailure, recordSuccess } from './breaker.js';
 
 // Why embeddings at all, on a node that generates at a few tokens a second:
 // an embedding is ONE forward pass over a short string, not an autoregressive
@@ -55,6 +56,11 @@ export async function embed(text) {
   const apiKey = getSetting('ai.apiKey');
   const model = getSetting('ai.embedModel');
   if (!baseUrl) return null;
+  // Same circuit as generation: one dead endpoint, one place that knows.
+  if (circuitOpen(baseUrl)) {
+    lastEmbedError = 'endpoint marked down — not retrying yet';
+    return null;
+  }
 
   try {
     const res = await fetch(`${baseUrl}/embeddings`, {
@@ -77,9 +83,12 @@ export async function embed(text) {
       return null;
     }
     lastEmbedError = null;
+    recordSuccess(baseUrl);
     return vec;
   } catch (err) {
-    lastEmbedError = String(err.cause?.code || err.message || err);
+    const cause = err.cause?.code || err.message || err;
+    lastEmbedError = String(cause);
+    recordFailure(baseUrl, cause);
     return null;
   }
 }

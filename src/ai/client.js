@@ -1,6 +1,7 @@
 import { db, now } from '../db/db.js';
 import { getSetting, redactServiceUrls, withAdminContact } from '../settings.js';
 import { scoreFaq, tokens } from '../faq/matcher.js';
+import { circuitOpen, circuitError, recordFailure, recordSuccess } from './breaker.js';
 import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail } from './guardrails.js';
 
 const usageStmt = db.prepare(
@@ -236,6 +237,10 @@ async function chatCompletion(messages, { maxTokens, temperature, timeoutMs, idl
   const model = getSetting('ai.model');
   if (!baseUrl || !model) throw new Error('AI endpoint not configured');
 
+  // A known-dead endpoint is skipped entirely rather than spending another
+  // connect timeout on it. Callers fall back to FAQs, which are instant.
+  if (circuitOpen(baseUrl)) throw circuitError(baseUrl);
+
   const ac = new AbortController();
   let stopReason = null;
   let stallTimer = null;
@@ -282,6 +287,9 @@ async function chatCompletion(messages, { maxTokens, temperature, timeoutMs, idl
         `\n\nSet the AI base URL to: ${fix.url}`;
     } else if (/127\.0\.0\.1|localhost/.test(baseUrl)) {
       hint = " — note: inside the server's container, 127.0.0.1 is the container itself, NOT your node. Use your node's LAN IP or Docker gateway (often 172.17.0.1), and start Ollama with OLLAMA_HOST=0.0.0.0 so it accepts outside connections.";
+    }
+    if (recordFailure(baseUrl, cause)) {
+      hint += `\n\n(Not retrying for a minute — answering from FAQs meanwhile.)`;
     }
     const wrapped = new Error(`AI endpoint unreachable at ${baseUrl} (${cause})${hint}`);
     if (isTimeout) wrapped.code = 'AI_TIMEOUT';
@@ -367,6 +375,7 @@ async function chatCompletion(messages, { maxTokens, temperature, timeoutMs, idl
     }
   }
 
+  recordSuccess(baseUrl);
   usageStmt.run(today(), tokensUsed);
   // finish_reason 'length' = the model hit max_tokens mid-sentence — callers
   // trim the ragged tail instead of sending "1. **Use" to a customer.

@@ -2608,3 +2608,51 @@ test('an admin saying "fixed" with no case number is left alone', async () => {
     setSetting('reports.adminTelegramIds', prevAdmins);
   }
 });
+
+// ---- the AI failing must not cost the FAQ --------------------------------------
+
+test('when the AI endpoint is unreachable a near-miss FAQ still answers', async () => {
+  const { _resetCircuits } = await import('../src/ai/breaker.js');
+  const prevUrl = getSetting('ai.baseUrl');
+  _resetCircuits();
+  // Point at a port nothing is listening on: a real connection failure, which
+  // is what a wrong scheme or an offline Ollama produces.
+  setSetting('ai.baseUrl', 'http://127.0.0.1:1/v1');
+  try {
+    // Scores ~0.41 against the buffering FAQ — below the match threshold, so
+    // it is exactly the case that used to fall through to "I couldn't answer
+    // that" when askAi threw, skipping the fallback sitting right below it.
+    const ctx = fakeCtx('my stream keeps buffering', { isDm: true, userId: 97001 });
+    const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+    assert.equal(result, 'faq', 'the near-miss FAQ answers rather than being skipped');
+    assert.ok(ctx.sent.length, 'something was actually sent');
+    assert.doesNotMatch(ctx.sent[0].msg, /couldn't answer/i);
+  } finally {
+    setSetting('ai.baseUrl', prevUrl);
+    _resetCircuits();
+  }
+});
+
+test('a dead endpoint is only dialled twice, then answers come instantly', async () => {
+  const { _resetCircuits, circuitOpen } = await import('../src/ai/breaker.js');
+  const prevUrl = getSetting('ai.baseUrl');
+  _resetCircuits();
+  setSetting('ai.baseUrl', 'http://127.0.0.1:1/v1');
+  try {
+    for (let i = 0; i < 3; i++) {
+      const ctx = fakeCtx('my stream keeps buffering', { isDm: true, userId: 97100 + i });
+      await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+    }
+    assert.equal(circuitOpen('http://127.0.0.1:1/v1'), true, 'the endpoint is marked down');
+
+    const started = Date.now();
+    const ctx = fakeCtx('my stream keeps buffering', { isDm: true, userId: 97200 });
+    await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+    const ms = Date.now() - started;
+    assert.ok(ms < 1000, `an answer with the endpoint down took ${ms}ms — it must not re-dial`);
+    assert.ok(ctx.sent.length, 'and it still answers');
+  } finally {
+    setSetting('ai.baseUrl', prevUrl);
+    _resetCircuits();
+  }
+});

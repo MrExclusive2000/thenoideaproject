@@ -236,3 +236,57 @@ test('an empty base URL suggests nothing rather than inventing one', () => {
   assert.equal(correctedBaseUrl(''), null);
   assert.equal(correctedBaseUrl(null), null);
 });
+
+// --- dead-endpoint circuit breaker -------------------------------------------
+// A dead endpoint cost ~10s of TCP connect timeout PER CALL, and the bot calls
+// it for the embedding, the answer and even to reword a canned greeting — so
+// every message took 10-20s and ended in "I couldn't answer that". From the
+// outside that is indistinguishable from the bot being offline.
+const { circuitOpen, recordFailure, recordSuccess, breakerStatus, isConnectionError, _resetCircuits } =
+  await import('../src/ai/breaker.js');
+
+test('a slow model never trips the breaker', () => {
+  _resetCircuits();
+  // Generation timeouts are NORMAL on a CPU node. Treating them as "endpoint
+  // down" would disable the AI exactly when it is working, just slowly.
+  for (let i = 0; i < 10; i++) recordFailure('http://node:11434/v1', 'TimeoutError');
+  assert.equal(circuitOpen('http://node:11434/v1'), false);
+  assert.equal(isConnectionError('TimeoutError'), false);
+});
+
+test('repeated connection failures stop the bot retrying a dead endpoint', () => {
+  _resetCircuits();
+  const url = 'http://dead:11434/v1';
+  assert.equal(recordFailure(url, 'UND_ERR_CONNECT_TIMEOUT'), false, 'one failure is not proof');
+  assert.equal(circuitOpen(url), false);
+  assert.ok(recordFailure(url, 'UND_ERR_CONNECT_TIMEOUT'), 'the second opens it');
+  assert.equal(circuitOpen(url), true);
+  assert.equal(breakerStatus(url).down, true);
+  assert.ok(breakerStatus(url).retryInSeconds > 0);
+});
+
+test('the wrong-scheme error counts as unreachable', () => {
+  // The exact failure a https:// address against a plain-HTTP Ollama gives.
+  assert.ok(isConnectionError('ERR_SSL_WRONG_VERSION_NUMBER'));
+  assert.ok(isConnectionError('ECONNREFUSED'));
+  assert.ok(isConnectionError('ENOTFOUND'));
+});
+
+test('a working endpoint clears the circuit', () => {
+  _resetCircuits();
+  const url = 'http://flaky:11434/v1';
+  recordFailure(url, 'ECONNREFUSED');
+  recordFailure(url, 'ECONNREFUSED');
+  assert.equal(circuitOpen(url), true);
+  recordSuccess(url);
+  assert.equal(circuitOpen(url), false, 'one good answer puts it straight back in service');
+  assert.equal(breakerStatus(url).down, false);
+});
+
+test('circuits are tracked per endpoint, not globally', () => {
+  _resetCircuits();
+  recordFailure('http://a:1/v1', 'ECONNREFUSED');
+  recordFailure('http://a:1/v1', 'ECONNREFUSED');
+  assert.equal(circuitOpen('http://a:1/v1'), true);
+  assert.equal(circuitOpen('http://b:2/v1'), false, 'a second endpoint is unaffected');
+});

@@ -4,6 +4,7 @@ import { config } from '../../../config.js';
 import { state } from '../../../state.js';
 import { aiUsageToday } from '../../../ai/client.js';
 import { getSetting } from '../../../settings.js';
+import { breakerStatus } from '../../../ai/breaker.js';
 
 export const dashboardRouter = Router();
 
@@ -46,6 +47,9 @@ dashboardRouter.get('/', (req, res) => {
     // bot is quietly on keyword matching.
     embedWanted: Boolean(getSetting('ai.embedEnabled')),
     embedWorking: db.prepare('SELECT COUNT(*) n FROM faq_vectors').get().n > 0,
+    // The bot stops dialling an endpoint that will not connect, so without
+    // this the symptom is invisible: answers just quietly come from FAQs.
+    aiDown: breakerStatus(String(getSetting('ai.baseUrl') || '').replace(/\/+$/, '')),
   };
   const setupDone = checklist.botToken && checklist.botOnline && checklist.groupAdded && !checklist.privacyHint && checklist.hasFaqs;
 

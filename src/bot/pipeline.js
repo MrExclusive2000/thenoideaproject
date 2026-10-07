@@ -862,14 +862,27 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
               k: Number(getSetting('ai.retrieveCount')) || 6,
               qVec: cacheVec,
             });
-            reply = await askAi(question, {
-              history, assumeOnTopic, playback, grounding, secondRound: deepen,
-              // The banner above already said "we know". Walking someone
-              // through restarting their box cannot fix a fault on our side,
-              // and asking them to is a waste of their evening.
-              knownOutage: Boolean(prefix) && getSetting('service.status') !== 'operational' && looksLikeProblem(question),
-              knowledgeFaqs: retrieved.length ? retrieved.map((r) => r.faq) : null,
-            });
+            try {
+              reply = await askAi(question, {
+                history, assumeOnTopic, playback, grounding, secondRound: deepen,
+                // The banner above already said "we know". Walking someone
+                // through restarting their box cannot fix a fault on our side,
+                // and asking them to is a waste of their evening.
+                knownOutage: Boolean(prefix) && getSetting('service.status') !== 'operational' && looksLikeProblem(question),
+                knowledgeFaqs: retrieved.length ? retrieved.map((r) => r.faq) : null,
+              });
+            } catch (err) {
+              // An unreachable endpoint must NOT skip the near-miss FAQ below.
+              // It used to: the fallback sits after this call inside the same
+              // try, so any throw jumped straight past it to "I couldn't
+              // answer that" — while a perfectly good FAQ sat unused. Busy and
+              // timeout keep their own handling, which tells the user plainly
+              // that the bot is overloaded rather than guessing at an answer.
+              if (err.code === 'AI_BUSY' || err.code === 'AI_TIMEOUT') throw err;
+              console.error('AI error:', err.message);
+              state.bot.lastError = `AI: ${String(err.message).slice(0, 280)}`;
+              reply = null;
+            }
             if (reply && canCache) {
               await rememberAnswer(question, reply, { source: 'ai', vector: cacheVec });
             }

@@ -39,6 +39,9 @@
     <tr><td><%= checklist.hasFile ? '✅' : '⬜' %></td><td><a href="/admin/files">Upload your first APK</a> for the customer portal</td></tr>
     <tr><td><%= checklist.adminIds ? '✅' : '⬜' %></td><td><a href="/admin/reports">Set your admin Telegram ID</a> to receive alerts and digests</td></tr>
     <tr><td><%= checklist.adminContact ? '✅' : '⬜' %></td><td><a href="/admin/bot">Set your Telegram handle</a> — there's no ticket system, so everything the bot can't answer is pointed at you by name</td></tr>
+    <% if (checklist.aiDown && checklist.aiDown.down) { %>
+    <tr><td>🔴</td><td><strong>The AI endpoint isn't answering</strong> (<code><%= checklist.aiDown.lastError %></code>). The bot has stopped dialling it and is answering from FAQs instead, so replies are instant but limited. Retrying in <%= checklist.aiDown.retryInSeconds %>s — fix the endpoint in <a href="/admin/ai">AI settings</a> and hit Test connection.</td></tr>
+    <% } %>
     <% if (checklist.embedWanted && checklist.hasFaqs && !checklist.embedWorking) { %>
     <tr><td>⚠️</td><td><strong>The embedding model hasn't answered yet.</strong> Until it does the bot matches questions by keyword, not meaning, and repeat answers aren't reused. Pull it on your Ollama node (<code>ollama pull nomic-embed-text</code>) and hit <strong>Test connection</strong> in <a href="/admin/ai">AI settings</a>.</td></tr>
     <% } %>
