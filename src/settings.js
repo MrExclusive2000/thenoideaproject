@@ -218,6 +218,11 @@ const DEFAULTS = {
   'services.xcPass2': '',
   // Refresh the cached lineup this often (hours). 0 = only on demand.
   'services.xcRefreshHours': 24,
+  // How long a channel's guide is served from the cache before going back to
+  // the panel (minutes). Without it, every "what's on" was a live API call,
+  // so the same question asked twice cost two. A finished run is dropped
+  // early regardless, so raising this does not mean serving yesterday's guide.
+  'services.epgCacheMinutes': 30,
   // Rotating group promos ("recommend us", renewals) every N days.
   'promo.enabled': false,
   'promo.intervalDays': 3,

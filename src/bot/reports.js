@@ -5,6 +5,7 @@ import { hub } from './hub.js';
 import { vetSweep } from './joiners.js';
 import { autoCloseSweep, degradeRecoverySweep } from './problems.js';
 import { sweepScheduledBroadcasts, expiryReminders, expiryUpsells, suggestFaqsSweep, promoSweep, xcChannelSweep } from './scheduled.js';
+import { pruneEpgCache } from '../xc.js';
 
 // Instant alerts, throttled per type so a flapping error can't flood DMs.
 const lastAlert = new Map();
@@ -103,6 +104,7 @@ function pruneOldData() {
   db.prepare('DELETE FROM download_codes WHERE expires_at < ?').run(t - 7 * 86400);
   db.prepare('DELETE FROM audit_log WHERE ts < ?').run(t - 365 * 86400);
   db.prepare('DELETE FROM faq_vectors WHERE faq_id NOT IN (SELECT id FROM faqs)').run();
+  pruneEpgCache();
 }
 
 async function digestTick() {

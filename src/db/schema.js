@@ -475,6 +475,26 @@ const migrations = [
   );
   CREATE INDEX idx_xc_channels_name ON xc_channels(service, name);
   `,
+  // v20 — the guide, cached per channel. The lineup was already cached but
+  // "what's on" went to the panel on every single question, so one customer
+  // asking the same thing three times was three API calls, and a busy evening
+  // hammered the panel for answers we already had.
+  //
+  // One row per channel holding the run of listings as JSON: nothing ever
+  // queries inside them, they are read back whole and formatted into the
+  // prompt, so rows-per-listing would buy nothing. last_end is the panel's own
+  // epoch for the end of the cached run, which lets a finished run expire
+  // early instead of waiting out the clock.
+  `
+  CREATE TABLE xc_epg (
+    service    INTEGER NOT NULL,
+    stream_id  INTEGER NOT NULL,
+    listings   TEXT NOT NULL,
+    last_end   INTEGER NOT NULL DEFAULT 0,
+    fetched_at INTEGER NOT NULL,
+    PRIMARY KEY (service, stream_id)
+  );
+  `,
 ];
 
 export function migrate(db) {

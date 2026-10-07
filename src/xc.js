@@ -74,6 +74,13 @@ export async function refreshChannels(service = 1) {
   const cats = await call(service, { action: 'get_live_categories' });
   const streams = await call(service, { action: 'get_live_streams' });
   if (!Array.isArray(streams)) return { ok: false, error: lastError || 'no channel list returned' };
+  // A panel mid-restart can answer 200 with an empty array. Taking that at
+  // face value wipes a working lineup and the bot then answers no channel
+  // question at all until the next sweep, which is up to a day away. An empty
+  // list is only believed when there was nothing cached to lose.
+  if (!streams.length && channelCount(service) > 0) {
+    return { ok: false, error: 'panel returned an empty channel list — keeping the cached lineup' };
+  }
 
   const categoryName = new Map(
     (Array.isArray(cats) ? cats : []).map((c) => [String(c.category_id), String(c.category_name || '')])
@@ -148,16 +155,115 @@ const decodeMaybeBase64 = (v) => {
   }
 };
 
-export async function shortEpg(streamId, { service = 1, limit = 4 } = {}) {
-  const data = await call(service, { action: 'get_short_epg', stream_id: String(streamId), limit: String(limit) });
-  const listings = data?.epg_listings;
-  if (!Array.isArray(listings)) return [];
-  return listings.slice(0, limit).map((l) => ({
-    title: decodeMaybeBase64(l.title).slice(0, 200),
-    description: decodeMaybeBase64(l.description).slice(0, 300),
-    start: String(l.start || ''),
-    end: String(l.end || ''),
-  })).filter((l) => l.title);
+// How long a cached run of listings is served for. Long enough that a channel
+// asked about repeatedly costs one call, short enough that the guide is still
+// the guide. Overridable because a panel on a thin connection wants longer.
+const epgTtlSeconds = () => Math.max(60, (Number(getSetting('services.epgCacheMinutes')) || 30) * 60);
+
+// A cached run is also dropped early once everything in it has finished — a
+// 20-minute TTL is too long for back-to-back half-hour shows and too short for
+// a three-hour match. But only after this much time, so a panel reporting
+// nonsense timestamps can't defeat the cache completely, which is the whole
+// point of having one.
+const MIN_CACHE_SECONDS = 10 * 60;
+
+const readEpg = db.prepare('SELECT * FROM xc_epg WHERE service = ? AND stream_id = ?');
+const writeEpg = db.prepare(
+  'INSERT INTO xc_epg (service, stream_id, listings, last_end, fetched_at) VALUES (?, ?, ?, ?, ?) ' +
+  'ON CONFLICT(service, stream_id) DO UPDATE SET listings = excluded.listings, ' +
+  'last_end = excluded.last_end, fetched_at = excluded.fetched_at'
+);
+
+const parseListings = (row) => {
+  try {
+    const out = JSON.parse(row.listings);
+    return Array.isArray(out) ? out : [];
+  } catch {
+    return [];
+  }
+};
+
+function epgIsFresh(row, t) {
+  const age = t - row.fetched_at;
+  if (age >= epgTtlSeconds()) return false;
+  if (age < MIN_CACHE_SECONDS) return true;
+  // last_end is the panel's own epoch, so it needs no timezone guesswork —
+  // but it is only trusted to SHORTEN the entry's life, never to extend it.
+  return !(row.last_end > 0 && row.last_end <= t);
+}
+
+// Two customers asking about the same channel in the same breath must not
+// both go to the panel. The second one waits on the first one's call.
+const inFlight = new Map();
+
+// A panel that just failed is not back a second later, and a failure costs the
+// full request timeout. Without a pause, a panel that is down makes EVERY
+// channel question wait twenty seconds before the bot answers without the
+// guide. Scoped to this automatic path on purpose: an admin running /channels
+// refresh always gets a real attempt, never a cached complaint.
+const FAIL_BACKOFF_MS = 60 * 1000;
+const failedUntil = new Map();
+export const _resetXcBackoff = () => failedUntil.clear();
+
+export async function shortEpg(streamId, { service = 1, limit = 4, force = false } = {}) {
+  const id = Number(streamId);
+  const t = now();
+  const cached = readEpg.get(service, id);
+  if (!force && cached && epgIsFresh(cached, t)) return parseListings(cached).slice(0, limit);
+  if (!force && (failedUntil.get(service) || 0) > Date.now()) {
+    return cached ? parseListings(cached).slice(0, limit) : [];
+  }
+
+  const key = `${service}:${id}`;
+  if (inFlight.has(key)) return (await inFlight.get(key)).slice(0, limit);
+
+  const job = (async () => {
+    // Always fetch the same number of listings, whatever this caller wants to
+    // show. Fetching `limit` would cache a 3-listing run and then silently
+    // serve 3 to a caller asking for 8, and the cache would be the reason the
+    // answer got shorter.
+    const data = await call(service, { action: 'get_short_epg', stream_id: String(id), limit: '8' });
+    if (data === null) {
+      // The panel failed, which is not the same as "nothing is on". Serve the
+      // stale run rather than nothing, and leave the cache as it was so a
+      // blip doesn't erase a guide we already had.
+      failedUntil.set(service, Date.now() + FAIL_BACKOFF_MS);
+      return cached ? parseListings(cached) : [];
+    }
+    failedUntil.delete(service);
+    // The panel answered. An empty guide IS an answer and gets cached, or
+    // every question about a channel with no listings is a fresh call.
+    const raw = Array.isArray(data.epg_listings) ? data.epg_listings : [];
+    const listings = raw.map((l) => ({
+      title: decodeMaybeBase64(l.title).slice(0, 200),
+      description: decodeMaybeBase64(l.description).slice(0, 300),
+      start: String(l.start || ''),
+      end: String(l.end || ''),
+    })).filter((l) => l.title);
+    const lastEnd = raw.reduce((max, l) => Math.max(max, Number(l.stop_timestamp) || 0), 0);
+    writeEpg.run(service, id, JSON.stringify(listings), lastEnd, t);
+    return listings;
+  })().finally(() => inFlight.delete(key));
+
+  inFlight.set(key, job);
+  return (await job).slice(0, limit);
+}
+
+export function epgCacheStats(service = 1) {
+  const r = db.prepare(
+    'SELECT COUNT(*) n, MAX(fetched_at) t FROM xc_epg WHERE service = ?'
+  ).get(service);
+  return { channels: r.n, updatedAt: r.t || 0 };
+}
+
+// Channels that left the lineup keep no guide, and a run nobody has asked
+// about in a week is not worth storing.
+export function pruneEpgCache(maxAgeDays = 7) {
+  const cutoff = now() - maxAgeDays * 86400;
+  db.prepare('DELETE FROM xc_epg WHERE fetched_at < ?').run(cutoff);
+  db.prepare(
+    'DELETE FROM xc_epg WHERE NOT EXISTS (SELECT 1 FROM xc_channels c WHERE c.service = xc_epg.service AND c.stream_id = xc_epg.stream_id)'
+  ).run();
 }
 
 // ---- grounding for the model ------------------------------------------------

@@ -11,7 +11,7 @@ import { caseNumberIn, caseSummary, closeCaseAsAdmin, openCasesList, looksLikeCa
 import { hub } from './hub.js';
 import { state } from '../state.js';
 import { localBuild, updateCheck, describeUpdate, applyUpdate } from '../build.js';
-import { xcConfigured, refreshChannels, channelCount, channelsUpdatedAt, findChannels, xcLastError } from '../xc.js';
+import { xcConfigured, refreshChannels, channelCount, channelsUpdatedAt, findChannels, xcLastError, epgCacheStats } from '../xc.js';
 
 const isPrivate = (ctx) => ctx.chat?.type === 'private';
 
@@ -419,7 +419,11 @@ export function registerCommands(bot) {
       const n = channelCount(service);
       const at = channelsUpdatedAt(service);
       const age = at ? `${Math.round((Date.now() / 1000 - at) / 3600)}h ago` : 'never';
-      bits.push(`Service ${service}: ${n} channels, updated ${age}`);
+      const epg = epgCacheStats(service);
+      bits.push(
+        `Service ${service}: ${n} channels, updated ${age}` +
+        (epg.channels ? `\n  guide cached for ${epg.channels} channel(s)` : '')
+      );
     }
     if (!bits.length) {
       return ctx.reply(
