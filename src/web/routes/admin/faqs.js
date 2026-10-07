@@ -47,13 +47,72 @@ faqsRouter.get('/faqs/review', async (req, res) => {
   } catch (err) {
     overlapError = err.message;
   }
+  const preview = req.session.replacePreview || null;
+  req.session.replacePreview = null;
   res.render('admin/knowledge-review', {
     title: 'Review knowledge',
+    preview,
     overlaps,
     overlapError,
     warnings: knowledgeWarnings(),
     formatDate,
   });
+});
+
+// Find-and-replace across knowledge and guides. Download codes change, and
+// they get written out by hand in a dozen entries — this is how you swap one
+// everywhere, or convert hardcoded codes to {purple}/{skyglass} placeholders
+// so the next change is a single field. Preview is not optional: a bad
+// replacement across every entry at once is not something to discover
+// afterwards.
+function replaceMatches(find) {
+  const faqs = db.prepare('SELECT id, question, answer, keywords FROM faqs').all()
+    .filter((f) => [f.question, f.answer, f.keywords].some((v) => String(v || '').includes(find)));
+  const guides = db.prepare('SELECT id, title, body_md FROM guides').all()
+    .filter((g) => String(g.body_md || '').includes(find));
+  return { faqs, guides };
+}
+
+faqsRouter.post('/faqs/replace', (req, res) => {
+  const find = String(req.body.find || '');
+  const replace = String(req.body.replace || '');
+  if (!find) {
+    flash(req, 'err', 'Nothing to find — type the text you want to replace.');
+    return res.redirect('/admin/faqs/review');
+  }
+
+  const { faqs, guides } = replaceMatches(find);
+  const total = faqs.length + guides.length;
+  if (!total) {
+    flash(req, 'err', `No entry or guide contains "${find}".`);
+    return res.redirect('/admin/faqs/review');
+  }
+
+  if (req.body.apply !== '1') {
+    req.session.replacePreview = { find, replace, faqs: faqs.slice(0, 20), guides: guides.slice(0, 20), total };
+    return res.redirect('/admin/faqs/review');
+  }
+
+  const run = db.transaction(() => {
+    for (const f of faqs) {
+      db.prepare('UPDATE faqs SET question = ?, answer = ?, keywords = ?, updated_at = ? WHERE id = ?').run(
+        String(f.question).split(find).join(replace),
+        String(f.answer).split(find).join(replace),
+        String(f.keywords || '').split(find).join(replace),
+        now(), f.id
+      );
+    }
+    for (const g of guides) {
+      db.prepare('UPDATE guides SET body_md = ?, updated_at = ? WHERE id = ?')
+        .run(String(g.body_md).split(find).join(replace), now(), g.id);
+    }
+  });
+  run();
+
+  audit('admin', res.locals.admin.username, 'knowledge.replace', `"${find}" -> "${replace}" in ${total}`, req.ip);
+  req.session.replacePreview = null;
+  flash(req, 'ok', `Replaced "${find}" with "${replace}" in ${faqs.length} entr${faqs.length === 1 ? 'y' : 'ies'} and ${guides.length} guide(s). Answers written before this were retired automatically.`);
+  res.redirect('/admin/faqs/review');
 });
 
 faqsRouter.post('/faqs/suggested/learn', async (req, res) => {

@@ -290,3 +290,29 @@ test('circuits are tracked per endpoint, not globally', () => {
   assert.equal(circuitOpen('http://a:1/v1'), true);
   assert.equal(circuitOpen('http://b:2/v1'), false, 'a second endpoint is unaffected');
 });
+
+// --- download codes live in settings, not in the text ------------------------
+test('{purple} and {skyglass} are filled in from settings', () => {
+  setSetting('apps.purpleCode', '3775005');
+  setSetting('apps.skyGlassCode', '3793766');
+  const out = withAdminContact('Firestick: code {skyglass}. Android: aftv.news/{skyglass}. Purple is {purple}.');
+  assert.equal(out, 'Firestick: code 3793766. Android: aftv.news/3793766. Purple is 3775005.');
+});
+
+test('an unset code is visible, never a silent blank', () => {
+  setSetting('apps.purpleCode', '');
+  const out = withAdminContact('Enter code {purple} and click Go.');
+  // "enter code  and click Go" would ship a broken instruction to a customer
+  // and nobody would notice until they tried to follow it.
+  assert.match(out, /\[purple code not set\]/);
+  setSetting('apps.purpleCode', '3775005');
+});
+
+test('changing a code updates every mention at once', () => {
+  setSetting('apps.skyGlassCode', '3793766');
+  const text = 'Use {skyglass}, or open aftv.news/{skyglass}, or tell a friend the code {skyglass}.';
+  assert.equal((withAdminContact(text).match(/3793766/g) || []).length, 3);
+  setSetting('apps.skyGlassCode', '9999999');
+  assert.equal((withAdminContact(text).match(/9999999/g) || []).length, 3, 'one field, every mention');
+  setSetting('apps.skyGlassCode', '3793766');
+});

@@ -150,6 +150,22 @@
     <label for="downloadCode">Downloader / aftv.news code for the current build</label>
     <input id="downloadCode" name="downloadCode" type="text" maxlength="32" placeholder="9804805" value="<%= s.downloadCode %>">
     <p class="hint">/download sends the file itself when it fits in Telegram's 50MB limit. When it doesn't, the bot quotes this code instead — it works in the Downloader app on a Firestick and as <code>aftv.news/CODE</code> in any browser.</p>
+  </div>
+
+  <div class="field">
+    <h3 style="margin-bottom:4px">App download codes</h3>
+    <p class="hint">Write <code>{purple}</code> or <code>{skyglass}</code> in any knowledge entry, guide or message and the current code is filled in when it's sent. Change a code here and every mention updates at once — instead of hunting through a dozen entries, which is how they drift out of date. An unset code shows as <code>[purple code not set]</code> rather than a blank gap, so it gets noticed.</p>
+    <div class="row">
+      <div>
+        <label for="skyGlassCode">Sky Glass code — <code>{skyglass}</code></label>
+        <input id="skyGlassCode" name="skyGlassCode" type="text" maxlength="32" placeholder="3793766" value="<%= s.skyGlassCode %>">
+      </div>
+      <div>
+        <label for="purpleCode">Purple App code — <code>{purple}</code></label>
+        <input id="purpleCode" name="purpleCode" type="text" maxlength="32" placeholder="3775005" value="<%= s.purpleCode %>">
+      </div>
+    </div>
+    <p class="hint">Already have codes typed into your entries? <a href="/admin/faqs/review">Knowledge → Review</a> has a find-and-replace to swap them for placeholders in one go.</p>
     <label for="busyMessage">When the AI is overloaded — queue full or answer timed out (empty = stay silent)</label>
     <input id="busyMessage" name="busyMessage" type="text" maxlength="500" value="<%= s.busyMessage %>">
   </div>

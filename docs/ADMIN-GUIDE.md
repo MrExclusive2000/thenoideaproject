@@ -78,6 +78,18 @@ Once `problems.degradeThreshold` different people report service-wide problems i
 
 Both messages are editable in **Reports & status**; `{note}` is replaced with the bot's own summary of what people are reporting. Empty announcement text means the bot never offers to post.
 
+## Download codes
+
+Codes change, and writing them out by hand in a dozen entries is exactly why they drift — a customer ends up installing last month's build and nobody notices until they complain.
+
+Set them once in **Bot settings → App download codes**, then write `{skyglass}` or `{purple}` in any knowledge entry, guide or canned message. The current code is filled in when the message is sent, so changing a code updates every mention at once. An unset code shows as `[purple code not set]` rather than a blank gap, so a broken instruction can't quietly ship.
+
+Already have codes typed into your entries? **Knowledge → Review knowledge** has a find-and-replace: search for the old code, replace with `{purple}`, preview what it would touch, then apply.
+
+## Temporary problems are not knowledge
+
+If an app is broken right now — "Purple isn't working for Exclusive customers, use Sky Glass" — that belongs in **Reports & status → service note**, not in a knowledge entry. The note reaches the AI's prompt, shows on `/status` and the portal, and leads problem answers with a known-issue banner. Written into an entry it just rots there and keeps being told to customers long after the app is fixed.
+
 ## Reviewing your knowledge
 
 **Knowledge → Review knowledge** lists what's worth a look. It changes nothing on its own.

@@ -26,8 +26,8 @@ test('first boot seeds starter FAQs and guides', () => {
   assert.equal(guides.find((g) => g.slug === 'install-android').visible, 1);
   assert.equal(guides.find((g) => g.slug === 'customer-panel').visible, 0);
   // The user's real content made it in.
-  assert.match(guides.find((g) => g.slug === 'install-firestick').body_md, /9804805/);
-  assert.match(guides.find((g) => g.slug === 'install-android').body_md, /aftv\.news\/9804805/);
+  assert.match(guides.find((g) => g.slug === 'install-firestick').body_md, /\{purple\}|\{skyglass\}/);
+  assert.match(guides.find((g) => g.slug === 'install-android').body_md, /aftv\.news\/\{purple\}/);
   assert.match(guides.find((g) => g.slug === 'pay-with-crypto').body_md, /Exodus/);
   // iOS guide ships hidden until the admin fills in the service URL.
   assert.equal(guides.find((g) => g.slug === 'install-ios').visible, 0);
@@ -75,9 +75,9 @@ test('upgrade pass refreshes untouched defaults but never edited content', () =>
   assert.match(buffering.answer, /XC or Smarters/, 'untouched v1 default upgraded to v2');
   const android = db.prepare('SELECT answer FROM faqs WHERE question = ?')
     .get('How do I install the app on an Android phone or tablet?');
-  assert.match(android.answer, /aftv\.news\/9804805/, 'untouched v10 default upgraded to v11');
+  assert.match(android.answer, /aftv\.news\/\{purple\}/, 'untouched v10 default upgraded to the current generation');
   const androidGuide = db.prepare("SELECT body_md, visible FROM guides WHERE slug = 'install-android'").get();
-  assert.match(androidGuide.body_md, /aftv\.news\/9804805/, 'placeholder guide replaced with real content');
+  assert.match(androidGuide.body_md, /aftv\.news\/\{purple\}/, 'placeholder guide replaced with real content');
   assert.equal(androidGuide.visible, 1, 'replaced guide made visible');
   const vpn = db.prepare('SELECT answer FROM faqs WHERE question = ?').get('Can I use a VPN with the app?');
   assert.equal(vpn.answer, 'MY CUSTOM ANSWER', 'edited FAQ left alone');
@@ -117,7 +117,7 @@ test('starter FAQs actually match how people ask', () => {
     ['my mate wants to sign up', 'friend'],
     ['how do i invite them to this group', 'friend'],
     ['dont know how to install the apps', 'Depends on your device'],
-    ['how do i get the apps on my firestick', '9804805'],
+    ['how do i get the apps on my firestick', 'Downloader'],
     ['how do i install this on my android phone', 'aftv.news'],
     ['whats the android download link', 'aftv.news'],
     ['how do i install this on my iphone', 'Smarters Player Lite'],
@@ -207,28 +207,29 @@ test('the v22 URL FAQ is retired: never seeded, unedited leftovers deleted', () 
   assert.match(ios.answer, /what's the service URL/, 'iOS FAQ points at the URL flow');
 });
 
-test('smarters/sky-glass FAQ ships disabled and matches once the admin adds the code', () => {
+test('the Sky Glass entry ships ready to use and owns sky-glass questions', () => {
   const row = db.prepare('SELECT * FROM faqs WHERE question = ?')
-    .get('How do I install Smarters or Sky Glass on the Firestick?');
+    .get('How do I install the Sky Glass app?');
   assert.ok(row, 'seeded');
-  assert.equal(row.enabled, 0, 'disabled until the real code is filled in');
-  assert.match(row.answer, /SMARTERS-SKY-CODE/);
+  assert.match(row.answer, /\{skyglass\}/, 'the code comes from settings, not hand-edited into the answer');
+  assert.doesNotMatch(row.answer, /\d{6,}/, 'no code is baked into the text');
+  assert.equal(row.enabled, 1, 'Sky Glass is the recommended app, so it ships ready to use');
 
-  db.prepare("UPDATE faqs SET enabled = 1, answer = replace(answer, 'SMARTERS-SKY-CODE', '5551234') WHERE id = ?").run(row.id);
   const faqs = db.prepare('SELECT * FROM faqs').all();
   for (const q of [
     'sky glass',
     'how do i install sky glass',
-    'whats the code for smarters',
     'can i have the sky glass code',
   ]) {
     const { match } = matchFaq(q, faqs, 0.5);
     assert.ok(match, `no match for: ${q}`);
-    assert.match(match.question, /Smarters or Sky Glass/, `"${q}" matched wrong FAQ: ${match?.question}`);
+    assert.match(match.question, /Sky Glass/, `"${q}" matched wrong FAQ: ${match?.question}`);
   }
-  // The Purple/general code questions stay with the Firestick FAQ...
+  // A GENERIC code question must still land on the general install entry —
+  // the two must not share enough vocabulary to cancel each other out.
   const { match: dl } = matchFaq('whats the downloader code', faqs, 0.5);
-  assert.match(dl.answer, /9804805/, 'general downloader-code question keeps the Purple/general code');
+  assert.ok(dl, 'a generic downloader-code question still matches something');
+  assert.match(dl.answer, /\{purple\}|\{skyglass\}/, 'and it is an install entry');
   // ...and app-comparison questions stay with the which-app FAQ.
   const { match: cmp } = matchFaq('is purple better than smarters', faqs, 0.5);
   assert.match(cmp.question, /Which app should I use/, `comparison matched wrong FAQ: ${cmp?.question}`);

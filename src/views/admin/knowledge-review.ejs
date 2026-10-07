@@ -11,6 +11,45 @@
 </div>
 
 <div class="card">
+  <h2>Find and replace</h2>
+  <p class="sub">Swap text across every entry and guide at once — a changed download code, a renamed app. Best used to convert a hardcoded code into a placeholder (<code>{purple}</code> or <code>{skyglass}</code>), so the next change is one field in <a href="/admin/bot">Bot settings</a> instead of this.</p>
+  <form method="post" action="/admin/faqs/replace">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <div class="row">
+      <div>
+        <label for="find">Find</label>
+        <input id="find" name="find" type="text" required value="<%= preview ? preview.find : '' %>" placeholder="9804805">
+      </div>
+      <div>
+        <label for="replace">Replace with</label>
+        <input id="replace" name="replace" type="text" value="<%= preview ? preview.replace : '' %>" placeholder="{purple}">
+      </div>
+    </div>
+    <p class="hint">Exact text, case sensitive. Leave <em>Replace with</em> empty to delete the text.</p>
+    <p><button class="btn-ghost" type="submit">Preview</button></p>
+  </form>
+
+  <% if (preview) { %>
+  <div style="border-left:3px solid var(--warn);padding-left:12px;margin-top:16px">
+    <p><strong><%= preview.total %></strong> item(s) contain “<%= preview.find %>”. Nothing has changed yet.</p>
+    <% for (const f of preview.faqs) { %>
+      <p class="hint">entry #<%= f.id %> — <%= f.question %></p>
+    <% } %>
+    <% for (const g of preview.guides) { %>
+      <p class="hint">guide — <%= g.title %></p>
+    <% } %>
+    <form method="post" action="/admin/faqs/replace">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <input type="hidden" name="find" value="<%= preview.find %>">
+      <input type="hidden" name="replace" value="<%= preview.replace %>">
+      <input type="hidden" name="apply" value="1">
+      <button type="submit">Replace in all <%= preview.total %></button>
+    </form>
+  </div>
+  <% } %>
+</div>
+
+<div class="card">
   <h2>Entries that say nearly the same thing</h2>
   <p class="sub">This is the expensive kind of mess: retrieval has to choose between two entries that each half-cover a question, and the keyword fallback just picks the higher score — which is how a narrow entry ends up answering a broad question word for word. Merge the pair into one fuller entry, or make each one clearly about its own thing.</p>
   <% if (overlapError) { %>

@@ -54,6 +54,11 @@ const DEFAULTS = {
   // the file itself when it fits in Telegram's 50MB bot limit and quotes this
   // code when it doesn't.
   'bot.downloadCode': '',
+  // Downloader / aftv.news codes per app. Referenced from knowledge entries,
+  // guides and canned messages as {purple} and {skyglass}, so changing a code
+  // is one edit here rather than a hunt through every entry that quotes it.
+  'apps.purpleCode': '',
+  'apps.skyGlassCode': '',
   // Appended to the LAST round of fixes — the next "still broken" reply
   // really does get flagged, so this note may promise it. Empty = off.
   'bot.problemFollowupNote': "Still happening after trying these? Reply here and I'll flag it straight to the team.",
@@ -274,8 +279,27 @@ export function withAdminContact(text) {
   const phrase = handle
     ? `message ${handle.startsWith('@') ? handle : `@${handle}`} directly`
     : 'message an admin directly';
-  return String(text ?? '').replace(/\{admin\}/gi, phrase);
+
+  // Download codes change, and they were written out by hand in a dozen
+  // different entries — which is exactly why they drift out of date, and why
+  // a customer ends up installing last month's build. Writing {purple} or
+  // {skyglass} in an entry, a guide or a canned message means one field in
+  // Bot settings updates every one of them at once.
+  const codes = {
+    purple: String(getSetting('apps.purpleCode') || '').trim(),
+    skyglass: String(getSetting('apps.skyGlassCode') || '').trim(),
+  };
+
+  return String(text ?? '')
+    .replace(/\{admin\}/gi, phrase)
+    .replace(/\{(purple|skyglass)\}/gi, (whole, name) => {
+      const code = codes[name.toLowerCase()];
+      // An unset code must never render as an empty string in the middle of
+      // "enter code  and click Go" — say it is missing so it gets noticed.
+      return code || `[${name} code not set]`;
+    });
 }
+
 
 // The per-user service login URLs must never ride along in FAQ/guide text or
 // AI answers — each user gets THEIR url from the dedicated flow only, so a

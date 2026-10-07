@@ -21,7 +21,7 @@ export const STARTER_FAQS = [
     // Owns the device-less phrasings ("don't know how to install the apps");
     // the device FAQs below keep only their distinctive vocabulary.
     question: 'How do I install the apps?',
-    answer: "Depends on your device:\n📺 Firestick: install the Downloader app from the Amazon store, open it and enter code 9804805, click Go, then install the Purple App (plus XC or Smarters as backups — same login works in all).\n📱 Android phone/tablet: open https://aftv.news/9804805 in your browser (every Downloader code also works as an aftv.news link) and pick the Purple App.\n🍏 iPhone/iPad: install Smarters Player Lite free from the App Store and log in with your username, password and the service URL (ask here if you don't have it).\nThen open the app and log in with your service details. If your device blocks the install, say so and I'll walk you through allowing it.",
+    answer: "Depends on your device:\n📺 Firestick: install the Downloader app from the Amazon store, open it and enter code {skyglass}, click Go, then install Sky Glass — that's the app we recommend now. The Purple App is on its own code, {purple}, if you want it as well.\n📱 Android phone/tablet: open https://aftv.news/{skyglass} in your browser (every Downloader code also works as an aftv.news link). Purple is at https://aftv.news/{purple}.\n🍏 iPhone/iPad: install Smarters Player Lite free from the App Store and log in with your username, password and the service URL (ask here if you don't have it).\nThen open the app and log in with your service details. If your device blocks the install, say so and I'll walk you through allowing it.",
     keywords: 'install, installing, installed, app, apps, get, setup, put',
     priority: 1,
   },
@@ -32,23 +32,23 @@ export const STARTER_FAQS = [
   },
   {
     question: 'How do I install the app on my Firestick?',
-    answer: 'Install the Downloader app from the Amazon app store, open it and enter code 9804805, then click Go. That page has all our apps — install the Purple App as your main one, plus XC or Smarters as backups (the same login works in all of them).\nIf the Firestick blocks the install: Settings > My Fire TV > About > click the device name 7–10 times to unlock Developer Options, then enable both options in there and go back to Downloader.\nOnce installed, open the app and log in with your service details. Full walkthrough is in the Firestick guide.',
-    keywords: 'firestick, fire, stick, downloader, tv, code, 9804805, sideload, app, apps',
+    answer: 'Install the Downloader app from the Amazon app store, open it, enter code {skyglass} and click Go — that installs Sky Glass, the app we recommend now. The Purple App has its own code, {purple}, and XC or Smarters work as backups (the same login works in all of them).\nIf the Firestick blocks the install: Settings > My Fire TV > About > click the device name 7–10 times to unlock Developer Options, then enable both options in there and go back to Downloader.\nOnce installed, open the app and log in with your service details. Full walkthrough is in the Firestick guide.',
+    keywords: 'firestick, fire, stick, downloader, tv, code, 9804805, 3775005, sideload, app, apps, purple, sky glass, skyglass, download code',
     priority: 2,
   },
   {
     question: 'How do I install the app on an Android phone or tablet?',
-    answer: 'Open https://aftv.news/9804805 in your phone’s browser — every Downloader code also works as a link at aftv.news/CODE. Pick the app you want — we recommend the Purple App — and allow installs from unknown sources if your phone asks (the prompt varies by model). Install it, open it, and log in with your service details.',
+    answer: 'Open https://aftv.news/{skyglass} in your phone’s browser for Sky Glass, the app we recommend — every Downloader code works as a link at aftv.news/CODE, so the Purple App is at https://aftv.news/{purple}. Pick the app you want and allow installs from unknown sources if your phone asks (the prompt varies by model). Install it, open it, and log in with your service details.',
     keywords: 'android, phone, tablet, mobile, apk, installer, link, aftv, samsung, pixel, app, apps',
   },
   {
     // Ships DISABLED — replace SMARTERS-SKY-CODE with the real Downloader
     // code for these apps, then enable. Apps can have different codes; the
     // Firestick FAQ's code belongs to the Purple App page.
-    question: 'How do I install Smarters or Sky Glass on the Firestick?',
-    answer: 'Smarters and Sky Glass use their own Downloader code (different from the Purple App):\n1. Open the Downloader app on your Firestick.\n2. Enter code SMARTERS-SKY-CODE and click Go.\n3. Install the app, open it and log in with your service details.\nIf the install gets blocked, Developer Options need enabling first — ask me how and I\'ll walk you through it.',
-    keywords: 'smarters, sky, glass, skyglass, code, install',
-    enabled: 0,
+    question: 'How do I install the Sky Glass app?',
+    answer: 'Sky Glass is the main app we recommend now. It has its own Downloader code, separate from the Purple App:\n📺 Firestick: open the Downloader app, enter code {skyglass} and click Go.\n📱 Android or any browser: open https://aftv.news/{skyglass}\nInstall it, open it and log in with your usual service details.\nIf the install gets blocked, the device needs permission first — ask me about Developer Options and I\'ll walk you through it.',
+    keywords: 'sky, glass, skyglass, sky glass, main app, recommended app',
+    enabled: 1,
   },
   {
     question: 'How do I install the app on an iPhone or iPad (iOS)?',
@@ -67,7 +67,7 @@ export const STARTER_FAQS = [
   },
   {
     question: 'How can my friend join the service?',
-    answer: "Happy to get them set up!\n1. First they need their own login (username + password) — ask the admin here in the group, or {admin} to sort out access and pricing.\n2. Bring them into this group: send me /invite and I'll give you a personal one-use invite link for them.\n3. Once they have their login, installing takes two minutes: enter code 9804805 in the Downloader app, install the Purple App (plus XC or Smarters as backup) and sign in — full steps in the Firestick guide.",
+    answer: "Happy to get them set up!\n1. First they need their own login (username + password) — ask the admin here in the group, or {admin} to sort out access and pricing.\n2. Bring them into this group: send me /invite and I'll give you a personal one-use invite link for them.\n3. Once they have their login, installing takes two minutes: enter code {skyglass} in the Downloader app, install Sky Glass and sign in — full steps in the Firestick guide.",
     keywords: 'friend, join, joining, signup, sign up, mate, refer, referral, trial, interested, bring, invite, inviting, group',
   },
   {
@@ -149,7 +149,7 @@ export const STARTER_FAQS = [
   },
   {
     question: 'How do I update the app to the latest version?',
-    answer: 'On a Firestick: open the Downloader app, enter code 9804805 again and install the newest version straight over the old one — your settings are kept. On Android: open https://aftv.news/9804805 in your browser again. On iPhone/iPad: update Smarters Player Lite through the App Store. You can also message me /version to see the latest version.',
+    answer: 'On a Firestick: open the Downloader app, enter your app\'s code again ({skyglass} for Sky Glass, {purple} for Purple) and install the newest version straight over the old one — your settings are kept. On Android: open https://aftv.news/{skyglass} or https://aftv.news/{purple} in your browser again. On iPhone/iPad: update Smarters Player Lite through the App Store. You can also message me /version to see the latest version.',
     keywords: 'update, upgrade, latest, version, new, old',
   },
   {
@@ -208,7 +208,7 @@ const STARTER_GUIDES = [
 ## 2. Get the apps
 
 1. Open **Downloader** — you'll see a search/address bar.
-2. Enter this code: **9804805**
+2. Enter this code: **{purple}**
 3. Click **Go** — a page opens where you can install all our available apps.
 4. We recommend installing more than one app for the best experience:
    - **Purple App** — use this as your main app
@@ -234,7 +234,7 @@ Ask in the group — the bot answers install questions instantly. For a human, {
     visible: 1,
     body_md: `## Install the app
 
-1. Open this link in the browser on your Android device: **https://aftv.news/9804805**
+1. Open this link in the browser on your Android device: **https://aftv.news/{purple}**
    (every Firestick Downloader code also works as a link — just put it after aftv.news/)
 2. Select the app you would like to install — we recommend the **Purple App**.
 3. If prompted, allow installation from unknown sources (this varies a little depending on your phone model).
@@ -334,15 +334,15 @@ const V3_CHANNEL =
 const V2_LOGIN =
   'Double-check the username and password — watch for extra spaces and capital letters. If it still fails your access may have expired: {admin} and we’ll sort it.';
 const V10_INSTALL_ANY =
-  "Depends on your device:\n📺 Firestick: install the Downloader app from the Amazon store, open it and enter code 9804805, click Go, then install the Purple App (plus XC or Smarters as backups — same login works in all).\n📱 Android phone/tablet: open our Android installer link (ask here or check the customer panel if you don't have it) and pick the Purple App.\nThen open the app and log in with your service details. If your device blocks the install, say so and I'll walk you through allowing it.";
+  "Depends on your device:\n📺 Firestick: install the Downloader app from the Amazon store, open it and enter code {purple}, click Go, then install the Purple App (plus XC or Smarters as backups — same login works in all).\n📱 Android phone/tablet: open our Android installer link (ask here or check the customer panel if you don't have it) and pick the Purple App.\nThen open the app and log in with your service details. If your device blocks the install, say so and I'll walk you through allowing it.";
 const V10_ANDROID =
   'Open our Android installer link on your device (ask here or check the customer panel if you don’t have it), pick the app you want — we recommend the Purple App — and allow installs from unknown sources if your phone asks (the prompt varies by model). Install it, open it, and log in with your service details.';
 const V10_UPDATE =
-  'On a Firestick: open the Downloader app, enter code 9804805 again and install the newest version straight over the old one — your settings are kept. On Android: use the installer link again. You can also message me /version to see the latest version.';
+  'On a Firestick: open the Downloader app, enter code {purple} again and install the newest version straight over the old one — your settings are kept. On Android: use the installer link again. You can also message me /version to see the latest version.';
 const V11_INSTALL_ANY =
-  "Depends on your device:\n📺 Firestick: install the Downloader app from the Amazon store, open it and enter code 9804805, click Go, then install the Purple App (plus XC or Smarters as backups — same login works in all).\n📱 Android phone/tablet: open https://aftv.news/9804805 in your browser (every Downloader code also works as an aftv.news link) and pick the Purple App.\nThen open the app and log in with your service details. If your device blocks the install, say so and I'll walk you through allowing it.";
+  "Depends on your device:\n📺 Firestick: install the Downloader app from the Amazon store, open it and enter code {skyglass}, click Go, then install Sky Glass — that's the app we recommend now. The Purple App is on its own code, {purple}, if you want it as well.\n📱 Android phone/tablet: open https://aftv.news/{skyglass} in your browser (every Downloader code also works as an aftv.news link). Purple is at https://aftv.news/{purple}.\nThen open the app and log in with your service details. If your device blocks the install, say so and I'll walk you through allowing it.";
 const V11_UPDATE =
-  'On a Firestick: open the Downloader app, enter code 9804805 again and install the newest version straight over the old one — your settings are kept. On Android: open https://aftv.news/9804805 in your browser again. You can also message me /version to see the latest version.';
+  'On a Firestick: open the Downloader app, enter code {purple} again and install the newest version straight over the old one — your settings are kept. On Android: open https://aftv.news/{purple} in your browser again. You can also message me /version to see the latest version.';
 const V11_WHICH_APP =
   'Use the Purple App as your main app. XC and Smarters are backups — install at least one of them too. The same login works in every app, so if one ever plays up, just switch to a backup and carry on.';
 // v22 shipped a URL FAQ that would have sent BOTH services' URLs to anyone —
@@ -374,6 +374,19 @@ const V1_ANSWERS = {
   'How do I update the app to the latest version?': 'Download the newest APK from the portal and install it straight over the old one — your settings are kept. On a Firestick, enter the download code or link in the Downloader app again. You can also message me /version to see the latest version and /download to get it.',
   'How do I check or renew my subscription?': 'To check your status, expiry date or to renew, {admin}.',
 };
+
+// The generation shipped before Sky Glass became the main app and before
+// download codes moved to {purple}/{skyglass} placeholders. Recorded so an
+// install still carrying this exact text is recognised as untouched and
+// gets refreshed, instead of looking hand-edited and being left behind.
+const V21_INSTALL_ANY =
+  "Depends on your device:\n📺 Firestick: install the Downloader app from the Amazon store, open it and enter code 9804805, click Go, then install the Purple App (plus XC or Smarters as backups — same login works in all).\n📱 Android phone/tablet: open https://aftv.news/9804805 in your browser (every Downloader code also works as an aftv.news link) and pick the Purple App.\n🍏 iPhone/iPad: install Smarters Player Lite free from the App Store and log in with your username, password and the service URL (ask here if you don't have it).\nThen open the app and log in with your service details. If your device blocks the install, say so and I'll walk you through allowing it.";
+const V21_FIRESTICK =
+  'Install the Downloader app from the Amazon app store, open it and enter code 9804805, then click Go. That page has all our apps — install the Purple App as your main one, plus XC or Smarters as backups (the same login works in all of them).\nIf the Firestick blocks the install: Settings > My Fire TV > About > click the device name 7–10 times to unlock Developer Options, then enable both options in there and go back to Downloader.\nOnce installed, open the app and log in with your service details. Full walkthrough is in the Firestick guide.';
+const V21_ANDROID =
+  'Open https://aftv.news/9804805 in your phone’s browser — every Downloader code also works as a link at aftv.news/CODE. Pick the app you want — we recommend the Purple App — and allow installs from unknown sources if your phone asks (the prompt varies by model). Install it, open it, and log in with your service details.';
+const V21_UPDATE =
+  'On a Firestick: open the Downloader app, enter code 9804805 again and install the newest version straight over the old one — your settings are kept. On Android: open https://aftv.news/9804805 in your browser again. On iPhone/iPad: update Smarters Player Lite through the App Store. You can also message me /version to see the latest version.';
 
 function previousDefaults(question) {
   const out = [];
