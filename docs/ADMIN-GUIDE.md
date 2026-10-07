@@ -3,7 +3,7 @@
 Everything the panel and the bot can do, section by section.
 
 ## Dashboard
-Live bot status (online / no token / error / **conflict** = same token running twice), messages seen and answered in 24h, AI calls against the daily budget, active customers, downloads, and a **setup checklist** that disappears once you're fully configured. "Needs attention" links you to open tickets, unanswered questions and customers expiring within 7 days.
+Live bot status (online / no token / error / **conflict** = same token running twice), messages seen and answered in 24h, AI calls against the daily budget, active customers, downloads, and a **setup checklist** that disappears once you're fully configured. "Needs attention" links you to unanswered questions and customers expiring within 7 days.
 
 ## Bot settings
 - **Enabled / DM toggle** — master switches.
@@ -36,18 +36,25 @@ Upload APKs (and zip/ipa/exe/pdf/txt/mp4). Files are checked by real content (an
 Markdown editor with preview. Visible guides appear in the portal and are folded into the bot's AI knowledge, and the bot serves them in chat via `/guides`.
 
 ## Customers
-Create one shared login or bulk accounts (`name01`, `name02`, …) — passwords are generated and **shown exactly once**. Set access length in days, extend with one click (+30/+90/+1y/exact date/never), disable, reset password, delete. Filters for *expiring ≤7d*, *expired*, *disabled*. Each customer page shows download history, tickets, and the **Telegram link** flow (generate a code, customer DMs `/link CODE` to the bot). Linked customers get expiry-reminder DMs automatically and can use `/myaccount`, `/download`, `/ticket`.
+Create one shared login or bulk accounts (`name01`, `name02`, …) — passwords are generated and **shown exactly once**. Set access length in days, extend with one click (+30/+90/+1y/exact date/never), disable, reset password, delete. Filters for *expiring ≤7d*, *expired*, *disabled*. Each customer page shows download history and the **Telegram link** state. Linked customers get expiry-reminder DMs automatically, and their `/download` use is recorded against the account.
 
-## Tickets
-DM conversations with the bot become tickets (explicitly via `/ticket`, or suggested when the bot can't answer a DM). Reply from the panel — it's delivered as a bot DM; their replies land back in the thread. Statuses: open (needs you) / pending (waiting on them) / closed (notifies them). New tickets and replies can alert you on Telegram.
+## Conversations
+Every message the bot can see in your groups is recorded — members, admins, and the bot's own answers. Replies are threaded using Telegram's reply link, so an answer you type in the group stays attached to the question it answered.
+
+Three views: **Answered** (question + every reply it got), **Nobody answered** (each one is a missing FAQ or a customer who gave up), and the **raw log**. Export either the threaded Q&A or every message as JSONL.
+
+Kept indefinitely by default — this is the record new FAQ entries get written from. Turn `retention.keepConversations` off to go back to 30-day pruning.
+
+## Getting a human
+There is no ticket system. Set **your Telegram handle** in Bot settings and anything the bot can't answer points there. Write `{admin}` in any bot message, FAQ answer or guide and it becomes "message @you directly"; leave the handle empty and it reads "message an admin directly" instead.
 
 ## Broadcasts
 Send an announcement to every connected chat, with history and per-chat delivery results. Admins can also `/broadcast <text>` straight from Telegram.
 
 ## Reports & status
 - **Service status** — operational / degraded / maintenance + note. Shown in the portal and `/status`; optionally auto-announced to the group on change.
-- **Admin Telegram IDs** — who receives alerts, digests, and may use admin bot commands (`/adopt`, `/report`, `/broadcast`, `/tickets`, `/mute`, `/unmute`, `/id`). Each admin must `/start` the bot once.
-- **Alerts** — bot/AI errors, budget reached, new tickets, banned words. Throttled so a flapping error can't spam you.
+- **Admin Telegram IDs** — who receives alerts, digests, and may use admin bot commands (`/adopt`, `/report`, `/broadcast`, `/mute`, `/unmute`, `/id`). Each admin must `/start` the bot once.
+- **Alerts** — bot/AI errors, budget reached, problem reports, banned words. Throttled so a flapping error can't spam you.
 - **AI digest** — daily or weekly: the AI reads the period's stats (answered/unanswered, ratings, downloads, expiring customers, trending questions) and writes you a short report, delivered by DM and archived on this page. *Generate digest now* for an instant one; `/report` in Telegram does the same.
 - Expiry-reminder lead time and message-log retention live here too.
 
@@ -61,4 +68,4 @@ Every login (including failures), setting change, upload, download, customer cha
 App name + accent color + logo (shown across panel, portal and login screens). **Download database backup** produces a consistent SQLite snapshot; grab `data/uploads` via the Pelican file manager for the binaries. Restore = stop server, replace `data/app.db`, start.
 
 ## Bot commands (customer side)
-`/start` menu with buttons · `/help` · `/status` & `/version` (service state + latest version + portal link) · `/faq` · `/guides` (button list, sent as chat text) · `/link CODE` · `/myaccount` / `/expiry` · `/download` (sends the APK right in the DM when ≤48 MB, otherwise a personal download code) · `/ticket` · `/close`. Every FAQ/AI answer carries 👍/👎 buttons.
+`/start` menu with buttons · `/help` · `/status` & `/version` (service state + latest version) · `/faq` · `/guides` (button list, sent as chat text) · `/invite` · `/download` (sends the APK right in the DM when ≤48 MB, otherwise quotes your Downloader/aftv.news code). Every FAQ/AI answer carries 👍/👎 buttons.

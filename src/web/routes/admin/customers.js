@@ -84,13 +84,11 @@ customersRouter.get('/customers/:id', (req, res) => {
   `).all(customer.id);
   const linkCode = db.prepare('SELECT * FROM link_codes WHERE customer_id = ? AND used = 0 AND expires_at > ? ORDER BY expires_at DESC')
     .get(customer.id, now());
-  const tickets = db.prepare('SELECT * FROM tickets WHERE customer_id = ? ORDER BY id DESC LIMIT 20').all(customer.id);
   res.render('admin/customer-edit', {
     title: `Customer: ${customer.username}`,
     customer,
     downloadHistory,
     linkCode,
-    tickets,
     formatDate,
     nowTs: now(),
     newPassword: req.session.newCustomerPassword || null,

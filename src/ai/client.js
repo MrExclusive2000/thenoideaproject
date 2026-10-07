@@ -1,5 +1,5 @@
 import { db, now } from '../db/db.js';
-import { getSetting, redactServiceUrls } from '../settings.js';
+import { getSetting, redactServiceUrls, withAdminContact } from '../settings.js';
 import { scoreFaq, tokens } from '../faq/matcher.js';
 import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail } from './guardrails.js';
 
@@ -101,11 +101,9 @@ export function buildSystemPrompt(question = '') {
   knowledge.push([
     '## Your own commands — point users to these when relevant',
     '/invite — you give the member a personal one-use invite link to bring a friend into the group',
-    '/link CODE — connects their Telegram to their customer account (code from the portal Account page or the admin)',
-    '/myaccount — shows their account status and expiry date (after linking)',
-    '/download — you send them the latest app file or a download code (after linking, in a private message)',
+    '/download — you send them the latest app file, or the Downloader code when it is too big for Telegram (private message)',
     '/guides — setup guides in chat · /faq — common questions · /status — service status and latest version',
-    '/ticket — opens a private support ticket with the human team (in a private message to you)',
+    'There is no ticket system and no customer portal login to point anyone at. When something needs a human — pricing, signups, renewals, account or login problems, anything you cannot answer — tell them to {admin}. Never invent a command, link or portal page.',
   ].join('\n'));
   knowledge.push([
     '## Downloader codes work on Android too',
@@ -126,7 +124,7 @@ export function buildSystemPrompt(question = '') {
   // Redacted at the very end: even a URL the admin pasted into an FAQ or
   // guide must never reach the model — it would quote it to ANY user, and
   // each user may only ever receive their own service's URL.
-  return redactServiceUrls([
+  return withAdminContact(redactServiceUrls([
     instructions,
     '',
     'STRICT RULES — follow these exactly:',
@@ -153,7 +151,7 @@ export function buildSystemPrompt(question = '') {
     '',
     '# KNOWLEDGE',
     knowledge.join('\n\n') || '(no FAQ or guides configured yet)',
-  ].join('\n'));
+  ].join('\n')));
 }
 
 // A slow CPU node has TWO very different silences, and only one of them means

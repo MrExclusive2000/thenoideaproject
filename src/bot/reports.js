@@ -15,15 +15,14 @@ export async function alertAdmins(type, text) {
     error: 'reports.alertErrors',
     budget: 'reports.alertBudget',
     bannedWord: 'reports.alertBannedWords',
-    ticket: 'reports.alertTickets',
     problem: 'reports.alertProblems',
     vod: 'reports.alertVod',
   };
   const settingKey = toggles[type];
   if (settingKey && !getSetting(settingKey)) return;
   const last = lastAlert.get(type) || 0;
-  // Tickets and VOD requests are individually meaningful — never throttled.
-  if (!['ticket', 'vod'].includes(type) && Date.now() - last < ALERT_COOLDOWN_MS) return;
+  // VOD requests are individually meaningful — never throttled.
+  if (type !== 'vod' && Date.now() - last < ALERT_COOLDOWN_MS) return;
   lastAlert.set(type, Date.now());
   try {
     await hub.notifyAdmins(text);
@@ -41,7 +40,6 @@ export function buildStatsText(days) {
   const faq = n("SELECT COUNT(*) n FROM messages_log WHERE ts > ? AND reply_source = 'faq'", since);
   const ai = n("SELECT COUNT(*) n FROM messages_log WHERE ts > ? AND reply_source = 'ai'", since);
   const unanswered = n('SELECT COUNT(*) n FROM unanswered WHERE ts > ? AND resolved = 0', since);
-  const openTickets = n("SELECT COUNT(*) n FROM tickets WHERE status != 'closed'");
   const openRequests = n("SELECT COUNT(*) n FROM vod_requests WHERE status = 'open'");
   const newCustomers = n('SELECT COUNT(*) n FROM customers WHERE created_at > ?', since);
   const expiring = n('SELECT COUNT(*) n FROM customers WHERE active = 1 AND expires_at BETWEEN ? AND ?', t, t + 7 * 86400);
@@ -64,7 +62,6 @@ export function buildStatsText(days) {
     `AI usage today: ${aiUsageToday().calls} calls`,
     `Answer ratings: ${up} up / ${down} down`,
     `Unanswered questions waiting: ${unanswered}`,
-    `Open tickets: ${openTickets}`,
     `Open VOD requests: ${openRequests}`,
     `New customers: ${newCustomers} | expiring within 7 days: ${expiring}`,
     `Downloads: ${downloads}`,

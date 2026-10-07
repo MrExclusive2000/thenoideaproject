@@ -2,8 +2,8 @@
 
 A self-hosted support system for a Firestick / mobile app community, built to run as a **Pelican Panel egg**:
 
-- 🤖 **Telegram AI/FAQ bot** — reads your group, answers instantly from your FAQ entries, falls back to your own self-hosted Llama (Ollama or any OpenAI-compatible endpoint), and **only ever talks about your app** (strict topic guardrails). Tickets, account linking, feedback buttons, welcome messages, broadcasts, admin alerts and AI-written digests included.
-- 🖥 **Admin web panel** — dashboard with setup checklist, bot & AI settings, FAQ manager with a live match tester, unanswered-questions inbox, file/download manager, markdown guides editor, customer manager with expiry handling, support-ticket inbox, broadcasts, service status, multi-admin with optional 2FA, audit log, branding, one-click backup.
+- 🤖 **Telegram AI/FAQ bot** — reads your group, answers instantly from your FAQ entries, falls back to your own self-hosted Llama (Ollama or any OpenAI-compatible endpoint), and **only ever talks about your app** (strict topic guardrails). Full conversation harvesting (every group message, threaded into question/answer pairs you can export), feedback buttons, welcome messages, broadcasts, admin alerts and AI-written digests included. Anything the bot can't answer is pointed at your Telegram handle — no ticket system to babysit.
+- 🖥 **Admin web panel** — dashboard with setup checklist, bot & AI settings, FAQ manager with a live match tester, unanswered-questions inbox, conversation log with JSONL export, file/download manager, markdown guides editor, customer manager with expiry handling, broadcasts, service status, multi-admin with optional 2FA, audit log, branding, one-click backup.
 - 📺 **Customer download portal** — Firestick-first (works in the Downloader app's browser with zero JavaScript), customer logins managed by you, direct APK downloads with SHA-256 shown, setup guides, and short typed codes like `your-address/d/ABC123` so nobody fights a TV remote.
 
 Everything runs as **one Node.js process** with SQLite — no external database, no build step. All persistent data lives in `data/`.

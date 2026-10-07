@@ -19,7 +19,6 @@ dashboardRouter.get('/', (req, res) => {
     customers: db.prepare('SELECT COUNT(*) n FROM customers WHERE active = 1').get().n,
     expiringSoon: db.prepare('SELECT COUNT(*) n FROM customers WHERE active = 1 AND expires_at IS NOT NULL AND expires_at BETWEEN ? AND ?').get(t, t + 7 * 86400).n,
     downloads7d: db.prepare('SELECT COUNT(*) n FROM downloads WHERE ts > ?').get(weekAgo).n,
-    openTickets: db.prepare("SELECT COUNT(*) n FROM tickets WHERE status != 'closed'").get().n,
     unanswered: db.prepare('SELECT COUNT(*) n FROM unanswered WHERE resolved = 0').get().n,
     openProblems: db.prepare('SELECT COUNT(*) n FROM problem_reports WHERE resolved = 0').get().n,
     openRequests: db.prepare("SELECT COUNT(*) n FROM vod_requests WHERE status = 'open'").get().n,

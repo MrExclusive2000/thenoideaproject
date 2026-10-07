@@ -4,9 +4,9 @@ import { InlineKeyboard, InputFile } from 'grammy';
 import { db, now } from '../db/db.js';
 import { config } from '../config.js';
 import { getSetting, redactServiceUrls } from '../settings.js';
-import { audit, randomCode } from '../util.js';
-import { sendChunked, isAdminUser, chatAllowed, linkedCustomer, customerUsable, latestFile } from './helpers.js';
-import { alertAdmins, sendDigest, buildStatsText } from './reports.js';
+import { audit } from '../util.js';
+import { sendChunked, isAdminUser, chatAllowed, linkedCustomer, latestFile, withAdminContact } from './helpers.js';
+import { sendDigest, buildStatsText } from './reports.js';
 import { hub } from './hub.js';
 
 const isPrivate = (ctx) => ctx.chat?.type === 'private';
@@ -23,10 +23,6 @@ function mdToPlain(md) {
     .trim();
 }
 
-function portalUrl() {
-  return config.publicUrl ? `${config.publicUrl}/login` : null;
-}
-
 function statusText() {
   const status = getSetting('service.status');
   const note = getSetting('service.note');
@@ -34,53 +30,25 @@ function statusText() {
   const file = latestFile();
   const lines = [`${emoji} Service status: ${status}${note ? ` — ${note}` : ''}`];
   if (file) lines.push(`Latest version: ${file.display_name}${file.version ? ` v${file.version}` : ''}`);
-  const url = portalUrl();
-  if (url) lines.push(`Downloads & guides: ${url}`);
   return lines.join('\n');
 }
 
 function startMenu() {
   return new InlineKeyboard()
     .text('📦 Latest download', 'menu:download').text('📖 Guides', 'menu:guides').row()
-    .text('👤 My account', 'menu:account').text('📡 Status', 'menu:status').row()
-    .text('🎫 Open a ticket', 'menu:ticket');
+    .text('📡 Status', 'menu:status');
 }
 
 async function cmdStatus(ctx) {
   await ctx.reply(statusText());
 }
 
-async function cmdAccount(ctx) {
-  const customer = linkedCustomer(ctx.from.id);
-  if (!customer) {
-    return ctx.reply('Your Telegram is not linked to a customer account yet. Get a link code from the portal (Account page) or from the admin, then send: /link YOURCODE');
-  }
-  const lines = [`👤 Account: ${customer.display_name || customer.username}`];
-  if (!customer.active) lines.push('Status: ❌ disabled — contact support.');
-  else if (customer.expires_at && customer.expires_at < now()) lines.push('Status: ⏰ expired — contact us to renew.');
-  else lines.push('Status: ✅ active');
-  if (customer.expires_at) {
-    const daysLeft = Math.ceil((customer.expires_at - now()) / 86400);
-    lines.push(`Access until: ${new Date(customer.expires_at * 1000).toISOString().slice(0, 10)}${daysLeft > 0 ? ` (${daysLeft} days left)` : ''}`);
-  } else {
-    lines.push('Access: never expires');
-  }
-  const url = portalUrl();
-  if (url) lines.push(`Portal: ${url}`);
-  await ctx.reply(lines.join('\n'));
-}
-
+// The account gate here used to be /link, which no longer exists — keeping it
+// would have left /download permanently refusing everyone. The bot only takes
+// commands in chats an admin adopted (or a DM to a bot only members are given),
+// and the same build ships publicly as an aftv.news code anyway, so the gate
+// was guarding nothing the code below does not already hand out.
 async function cmdDownload(ctx) {
-  const customer = linkedCustomer(ctx.from.id);
-  const usable = customerUsable(customer);
-  if (!usable.ok) {
-    const why = {
-      'not-linked': 'Link your account first: get a code from the portal or admin, then send /link YOURCODE',
-      disabled: 'Your account is disabled — contact support.',
-      expired: 'Your access has expired — contact us to renew, then try again.',
-    }[usable.why];
-    return ctx.reply(why);
-  }
   const file = latestFile();
   if (!file) return ctx.reply('No downloads are published yet.');
 
@@ -93,18 +61,25 @@ async function cmdDownload(ctx) {
     const ext = path.extname(file.original_name) || '.bin';
     const filename = `${file.display_name.replace(/[^a-zA-Z0-9._ -]/g, '').replace(/\s+/g, '-') || 'app'}${ext}`;
     await ctx.api.sendDocument(ctx.chat.id, new InputFile(filePath, filename), { caption });
+    const customer = linkedCustomer(ctx.from.id);
     db.prepare('INSERT INTO downloads (file_id, customer_id, via, ts) VALUES (?, ?, ?, ?)')
-      .run(file.id, customer.id, 'telegram', now());
+      .run(file.id, customer?.id ?? null, 'telegram', now());
     return;
   }
 
-  // Too big for Telegram — mint a personal 48h code instead (easy to type
-  // into the Downloader app on a Firestick).
-  const code = randomCode(6);
-  db.prepare('INSERT INTO download_codes (code, file_id, customer_id, max_uses, expires_at, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(code, file.id, customer.id, 3, now() + 48 * 3600, 'bot', now());
-  const base = config.publicUrl || 'http://YOUR-SERVER';
-  await ctx.reply(`${caption}\n\nOn your Firestick, open the Downloader app and enter:\n${base}/d/${code}\n\n(Code valid 48h, up to 3 uses.)`);
+  // Too big for Telegram. The Downloader code the admin publishes doubles as a
+  // plain link (aftv.news/CODE), so it covers Firestick and Android with one
+  // value and needs no portal.
+  const code = String(getSetting('bot.downloadCode') || '').trim().replace(/^.*aftv\.news\//i, '');
+  if (!code) {
+    return ctx.reply(`${caption}\n\nThis build is too big for me to send here — ${withAdminContact('{admin}')} for the download code.`);
+  }
+  await ctx.reply(
+    `${caption}\n\nThis one's too big for me to send directly, so use the code instead:\n\n` +
+    `On a Firestick: open the Downloader app and enter ${code}\n` +
+    `On Android or any browser: open https://aftv.news/${code}\n\n` +
+    '(On a phone you may need to allow installs from unknown sources.)'
+  );
 }
 
 async function cmdGuides(ctx) {
@@ -122,28 +97,6 @@ async function cmdFaq(ctx) {
   const faqs = db.prepare('SELECT question FROM faqs WHERE enabled = 1 ORDER BY priority DESC, hit_count DESC LIMIT 10').all();
   if (!faqs.length) return ctx.reply('No FAQs yet — just ask your question!');
   await ctx.reply('Common questions I can answer straight away:\n\n' + faqs.map((f, i) => `${i + 1}. ${f.question}`).join('\n') + '\n\nJust ask in your own words!');
-}
-
-async function cmdTicket(ctx, subjectText) {
-  if (!isPrivate(ctx)) return ctx.reply('Tickets are opened in a private chat — message me directly.');
-  const existing = db.prepare("SELECT * FROM tickets WHERE telegram_user_id = ? AND status != 'closed'").get(ctx.from.id);
-  if (existing) {
-    return ctx.reply(`You already have ticket #${existing.id} open — just type your message here and it goes to the team. (/close to close it.)`);
-  }
-  const customer = linkedCustomer(ctx.from.id);
-  const subject = String(subjectText || '').trim().slice(0, 150) || null;
-  const t = now();
-  const info = db.prepare('INSERT INTO tickets (customer_id, telegram_user_id, tg_username, subject, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(customer?.id ?? null, ctx.from.id, ctx.from.username || ctx.from.first_name || null, subject, 'open', t, t);
-  if (subject) {
-    db.prepare('INSERT INTO ticket_messages (ticket_id, sender, body, ts) VALUES (?, ?, ?, ?)')
-      .run(info.lastInsertRowid, 'customer', subject, t);
-  }
-  alertAdmins('ticket', `🎫 New ticket #${info.lastInsertRowid} from @${ctx.from?.username || ctx.from?.first_name}${customer ? ` (${customer.username})` : ''}${subject ? `:\n"${subject}"` : ''}`);
-  await ctx.reply(
-    `🎫 Ticket #${info.lastInsertRowid} opened${subject ? '' : ' — now describe your problem in one or more messages'}. ` +
-    'Everything you type here goes straight to the team, and their replies appear here. Send /close when it is sorted.'
-  );
 }
 
 export function registerCommands(bot) {
@@ -164,14 +117,13 @@ export function registerCommands(bot) {
       '/status — service status & latest version',
       '/faq — common questions',
       '/guides — setup guides',
-      '/myaccount — your access & expiry (linked)',
-      '/download — get the latest file (linked)',
-      '/link CODE — connect your customer account',
+      '/download — get the latest app file',
       '/invite — get a one-use invite link for a friend',
-      '/ticket — talk to a human',
+      '',
+      `Need a human? ${withAdminContact('{admin}')} — I'll hand you over rather than guess.`,
     ];
     if (isAdminUser(ctx.from.id)) {
-      lines.push('', 'Admin: /adopt /mute /unmute /report /broadcast <text> /tickets /id');
+      lines.push('', 'Admin: /adopt /mute /unmute /report /broadcast <text> /id');
     }
     await ctx.reply(lines.join('\n'));
   });
@@ -181,33 +133,10 @@ export function registerCommands(bot) {
   bot.command('guides', cmdGuides);
 
   // ---- customer (private) ----------------------------------------------------
-  bot.command('link', async (ctx) => {
-    if (!isPrivate(ctx)) return ctx.reply('Please send /link in a private message to me.');
-    const code = String(ctx.match || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (!code) return ctx.reply('Usage: /link YOURCODE — get a code from the portal (Account page) or from the admin.');
-    const row = db.prepare('SELECT * FROM link_codes WHERE code = ? AND used = 0 AND expires_at > ?').get(code, now());
-    if (!row) return ctx.reply('That code is not valid or has expired. Ask for a fresh one.');
-    const clash = db.prepare('SELECT id FROM customers WHERE telegram_user_id = ?').get(ctx.from.id);
-    if (clash && clash.id !== row.customer_id) {
-      db.prepare('UPDATE customers SET telegram_user_id = NULL WHERE id = ?').run(clash.id);
-    }
-    db.prepare('UPDATE customers SET telegram_user_id = ? WHERE id = ?').run(ctx.from.id, row.customer_id);
-    db.prepare('UPDATE link_codes SET used = 1 WHERE code = ?').run(code);
-    audit('customer', String(ctx.from.id), 'customer.link.telegram', `code ${code}`);
-    await ctx.reply('✅ Linked! You can now use /myaccount, /download and /guides — and I will remind you before your access expires.');
-  });
-
-  bot.command(['myaccount', 'expiry'], async (ctx) => {
-    if (!isPrivate(ctx)) return;
-    await cmdAccount(ctx);
-  });
-
   bot.command('download', async (ctx) => {
     if (!isPrivate(ctx)) return ctx.reply('Message me privately for downloads.');
     await cmdDownload(ctx);
   });
-
-  bot.command('ticket', async (ctx) => cmdTicket(ctx, ctx.match));
 
   // Personal one-use invite link so members can bring a friend — joins through
   // it are attributed to the inviter for the vetting flow.
@@ -230,20 +159,12 @@ export function registerCommands(bot) {
         member_limit: 1,
       });
       await ctx.reply(
-        `🎟 Here's a personal invite to ${chatTitle} for one friend:\n${link.invite_link}\n\nIt works exactly once. Heads up: they'll need their own login from the admin — once they're in, they can message me /ticket to get set up.`,
+        `🎟 Here's a personal invite to ${chatTitle} for one friend:\n${link.invite_link}\n\nIt works exactly once. Heads up: they'll need their own login — once they're in, tell them to ${withAdminContact('{admin}')} to get set up.`,
         isPrivate(ctx) ? {} : { reply_parameters: { message_id: ctx.message.message_id } }
       );
     } catch {
       await ctx.reply('I can\'t create invite links yet — an admin needs to make me a group admin with the "invite users via link" permission.');
     }
-  });
-
-  bot.command('close', async (ctx) => {
-    if (!isPrivate(ctx)) return;
-    const ticket = db.prepare("SELECT * FROM tickets WHERE telegram_user_id = ? AND status != 'closed'").get(ctx.from.id);
-    if (!ticket) return ctx.reply('You have no open ticket.');
-    db.prepare("UPDATE tickets SET status = 'closed', updated_at = ? WHERE id = ?").run(now(), ticket.id);
-    await ctx.reply(`✅ Ticket #${ticket.id} closed. Ask me anything any time!`);
   });
 
   // ---- admin ------------------------------------------------------------------
@@ -293,17 +214,6 @@ export function registerCommands(bot) {
     }
   });
 
-  bot.command('tickets', async (ctx) => {
-    if (!isAdminUser(ctx.from.id)) return;
-    const rows = db.prepare(`
-      SELECT t.id, t.subject, t.status, c.username FROM tickets t
-      LEFT JOIN customers c ON c.id = t.customer_id
-      WHERE t.status != 'closed' ORDER BY t.updated_at DESC LIMIT 15
-    `).all();
-    if (!rows.length) return ctx.reply('No open tickets. 🎉');
-    await ctx.reply('Open tickets:\n' + rows.map((r) => `#${r.id} [${r.status}] ${r.username || 'unlinked'} — ${(r.subject || '').slice(0, 60)}`).join('\n'));
-  });
-
   bot.command('id', async (ctx) => {
     await ctx.reply(`Chat ID: ${ctx.chat.id}\nYour user ID: ${ctx.from.id}`);
   });
@@ -313,10 +223,8 @@ export function registerCommands(bot) {
     await ctx.answerCallbackQuery();
     const action = ctx.match[1];
     if (action === 'status') return cmdStatus(ctx);
-    if (action === 'account') return cmdAccount(ctx);
     if (action === 'download') return cmdDownload(ctx);
     if (action === 'guides') return cmdGuides(ctx);
-    if (action === 'ticket') return cmdTicket(ctx, '');
   });
 
   bot.callbackQuery(/^guide:(\d+)$/, async (ctx) => {

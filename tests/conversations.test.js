@@ -126,3 +126,35 @@ test('a long answer is stored in full, not clipped to the old 500 chars', () => 
   const row = db.prepare('SELECT text FROM messages_log').get();
   assert.equal(row.text.length, long.length, 'a real troubleshooting answer survives intact');
 });
+
+// --- escalation path ---------------------------------------------------------
+// There is no ticket system any more: everything the bot can't handle is
+// pointed at a human, and the handle lives in one setting.
+const { withAdminContact } = await import('../src/settings.js');
+
+test('{admin} expands to the configured handle', () => {
+  setSetting('bot.adminContact', '@thebossman');
+  assert.equal(
+    withAdminContact('Not sure on that — {admin} and they will sort it.'),
+    'Not sure on that — message @thebossman directly and they will sort it.'
+  );
+});
+
+test('a handle saved without the @ still renders as a mention', () => {
+  setSetting('bot.adminContact', 'thebossman');
+  assert.match(withAdminContact('{admin}'), /@thebossman/);
+});
+
+test('an unset handle still reads as a sentence, never a raw placeholder', () => {
+  setSetting('bot.adminContact', '');
+  const out = withAdminContact("I couldn't answer that — {admin}.");
+  assert.equal(out, "I couldn't answer that — message an admin directly.");
+  assert.doesNotMatch(out, /\{admin\}/, 'a placeholder must never reach a customer');
+});
+
+test('every {admin} in a message is replaced, not just the first', () => {
+  setSetting('bot.adminContact', '@boss');
+  const out = withAdminContact('{admin} for pricing, or {admin} for renewals.');
+  assert.doesNotMatch(out, /\{admin\}/);
+  assert.equal(out.match(/@boss/g).length, 2);
+});

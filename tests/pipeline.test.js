@@ -214,7 +214,9 @@ test('the AI knows its own commands and must not offer follow-ups', async () => 
   await answer(ctx, ctx.message.text, { isDm: true, logId: null });
   const system = lastAiRequest.messages[0].content;
   assert.match(system, /\/invite — you give the member a personal one-use invite link/);
-  assert.match(system, /\/ticket — opens a private support ticket/);
+  assert.match(system, /There is no ticket system and no customer portal login/);
+  assert.match(system, /message an admin directly/, 'the {admin} placeholder is expanded before the model sees it');
+  assert.doesNotMatch(system, /\/ticket|\/myaccount|\/link CODE/, 'dead commands are never offered to the model');
   assert.match(system, /answer completely in ONE message/);
   assert.match(system, /ONE short clarifying question/);
 });
@@ -238,20 +240,6 @@ test('an AI reply that invents a download code is suppressed (live bug)', async 
 
   db.prepare("DELETE FROM faqs WHERE question = 'Where do I get the apps?'").run();
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
-});
-
-test('open ticket routes DM text into the ticket thread', async () => {
-  const t = Math.floor(Date.now() / 1000);
-  db.prepare(`INSERT INTO tickets (customer_id, telegram_user_id, tg_username, subject, status, created_at, updated_at)
-              VALUES (NULL, 2222, 'tester2', 'app crashing', 'pending', ?, ?)`).run(t, t);
-  const ctx = fakeCtx('it crashes on channel 4 specifically', { userId: 2222 });
-  await handleDirectMessage(ctx);
-  const msg = db.prepare('SELECT * FROM ticket_messages ORDER BY id DESC').get();
-  assert.match(msg.body, /channel 4/);
-  assert.equal(msg.sender, 'customer');
-  const ticket = db.prepare('SELECT * FROM tickets WHERE telegram_user_id = 2222').get();
-  assert.equal(ticket.status, 'open');
-  assert.match(ctx.sent[0].msg, /ticket #/);
 });
 
 test('group user can reply to a bot answer and continue the conversation', async () => {
@@ -886,12 +874,12 @@ test('in-scope but unanswerable question defers to a human, not the off-topic br
   setSetting('bot.cooldownSeconds', 0);
   setSetting('bot.offtopicBehavior', 'redirect');
   setSetting('bot.offtopicMessage', 'BRUSH-OFF LINE');
-  setSetting('bot.unsureMessage', 'Not sure — please open a /ticket.');
+  setSetting('bot.unsureMessage', 'Not sure — {admin}.');
   aiResponse = 'OFFTOPIC';
   const ctx = fakeCtx('does the app have a sports section i can browse', { chatType: 'group', userId: 91004 });
   await handleGroupMessage(ctx);
   assert.equal(ctx.sent.length, 1);
-  assert.match(ctx.sent[0].msg, /ticket/);
+  assert.match(ctx.sent[0].msg, /message an admin directly/);
   assert.doesNotMatch(ctx.sent[0].msg, /BRUSH-OFF/);
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
@@ -1163,29 +1151,6 @@ test('chatty off-topic questions never reach the AI either (banter pass off)', a
   assert.equal(result2, 'ai', 'typo vocabulary still counts as a scope signal');
   assert.ok(lastAiRequest, 'AI consulted');
   setSetting('bot.offtopicBehavior', 'silent');
-});
-
-test('stranded ticket replies auto-deliver when the customer next messages the bot', async () => {
-  const t = Math.floor(Date.now() / 1000);
-  db.prepare("INSERT INTO tickets (telegram_user_id, tg_username, subject, status, created_at, updated_at) VALUES (98111, 'ben', 'help', 'pending', ?, ?)").run(t, t);
-  const ticketId = db.prepare('SELECT id FROM tickets WHERE telegram_user_id = 98111').get().id;
-  db.prepare("INSERT INTO ticket_messages (ticket_id, sender, body, ts, delivered) VALUES (?, 'admin:boss', 'Your new login is ready — check the portal.', ?, 0)").run(ticketId, t);
-
-  const ctx = fakeCtx('thanks any update?', { userId: 98111 });
-  await handleDirectMessage(ctx);
-
-  assert.ok(ctx.sent.length >= 2, 'stranded reply + ticket ack both sent');
-  assert.match(ctx.sent[0].msg, /Your new login is ready/, 'stranded admin reply delivered first');
-  assert.match(ctx.sent[0].msg, /ticket #/, 'labelled as a support reply');
-  assert.match(ctx.sent[ctx.sent.length - 1].msg, /Added to your ticket/, 'normal ticket ack still sent');
-  const row = db.prepare('SELECT delivered FROM ticket_messages WHERE ticket_id = ? AND sender = ?').get(ticketId, 'admin:boss');
-  assert.equal(row.delivered, 1, 'marked delivered');
-
-  // Second message must not re-deliver it.
-  const ctx2 = fakeCtx('cheers', { userId: 98111 });
-  await handleDirectMessage(ctx2);
-  assert.ok(ctx2.sent.every((s) => !/Your new login is ready/.test(s.msg)), 'not delivered twice');
-  db.prepare('DELETE FROM tickets WHERE id = ?').run(ticketId);
 });
 
 test('a bare "Hey" gets the warm greeting, never the off-topic brush-off', async () => {
@@ -1752,29 +1717,6 @@ test('group photo replying to the BOT gets the type-it-out ask', async () => {
   await handleGroupMessage(ctx);
   assert.equal(ctx.sent.length, 1);
   assert.match(ctx.sent[0].msg, /type it out/);
-});
-
-test('photos sent into an open ticket are flagged for the admin', async () => {
-  const t = Math.floor(Date.now() / 1000);
-  db.prepare("INSERT INTO tickets (telegram_user_id, tg_username, subject, status, created_at, updated_at) VALUES (66605, 'pat', 'help', 'open', ?, ?)").run(t, t);
-  const ticketId = db.prepare('SELECT id FROM tickets WHERE telegram_user_id = 66605').get().id;
-
-  // Captionless photo → the ask, nothing stored on the ticket.
-  const ctx = fakeCtx('', { userId: 66605 });
-  ctx.message = { message_id: 13, photo: [{ file_id: 'p' }] };
-  await handleDirectMessage(ctx);
-  assert.match(ctx.sent[0].msg, /type it out/);
-  assert.equal(db.prepare('SELECT COUNT(*) n FROM ticket_messages WHERE ticket_id = ?').get(ticketId).n, 0);
-
-  // Caption + photo → the caption is stored, with the photo called out.
-  const ctx2 = fakeCtx('heres the error', { userId: 66605 });
-  ctx2.message.photo = [{ file_id: 'p' }];
-  ctx2.message.caption = 'heres the error';
-  delete ctx2.message.text;
-  await handleDirectMessage(ctx2);
-  const row = db.prepare('SELECT body FROM ticket_messages WHERE ticket_id = ? ORDER BY id DESC').get(ticketId);
-  assert.match(row.body, /heres the error/);
-  assert.match(row.body, /also sent a photo/);
 });
 
 test('off-topic group chat NOT aimed at the bot stays silent even in redirect mode', async () => {

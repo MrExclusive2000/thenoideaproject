@@ -1,6 +1,8 @@
 import { db, now } from '../db/db.js';
-import { getSetting } from '../settings.js';
+import { getSetting, withAdminContact } from '../settings.js';
 import { tokens, tokensMatch } from '../faq/matcher.js';
+
+export { withAdminContact };
 
 const TG_MAX = 4096;
 

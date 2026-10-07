@@ -8,7 +8,7 @@ import { state } from '../state.js';
 import {
   sendChunked, logMessage, setLogSource, recordUnanswered, chatAllowed,
   isLikelyInScope, hasScopeSignal, recordProblem, extractProblemTopic, isAdminUser,
-  isContentIssue, looksLikeLiveIssue, wrongCopyIssue,
+  isContentIssue, looksLikeLiveIssue, wrongCopyIssue, withAdminContact,
 } from './helpers.js';
 import { alertAdmins } from './reports.js';
 import { queueProblemAlert, setProblemRearmHook, maybeAutoDegrade } from './problems.js';
@@ -535,7 +535,7 @@ function stripMention(text) {
 // itself word-for-word; the saved setting text is the meaning contract and
 // the fallback (AI off/busy/slow/wrong → saved text goes out unchanged).
 async function spoken(key) {
-  const msg = String(getSetting(key) || '').trim();
+  const msg = withAdminContact(String(getSetting(key) || '').trim());
   return msg ? rephraseCanned(msg) : '';
 }
 
@@ -643,7 +643,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
     db.prepare('UPDATE faqs SET hit_count = hit_count + 1 WHERE id = ?').run(result.match.id);
     // A service URL the admin pasted into the FAQ must not go to everyone —
     // the per-user URL flow is the only outlet for those.
-    const faqAnswer = redactServiceUrls(result.match.answer);
+    const faqAnswer = withAdminContact(redactServiceUrls(result.match.answer));
     setLogSource(logId, 'faq', faqAnswer);
     // FAQ answers join the DM conversation memory too, so a bare follow-up
     // ("THM4821" after the which-service FAQ) reaches the AI with context.
@@ -731,9 +731,9 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         // instead of saying nothing.
         if (result.nearMiss) {
           db.prepare('UPDATE faqs SET hit_count = hit_count + 1 WHERE id = ?').run(result.nearMiss.id);
-          setLogSource(logId, 'faq', redactServiceUrls(result.nearMiss.answer));
+          setLogSource(logId, 'faq', withAdminContact(redactServiceUrls(result.nearMiss.answer)));
           recordUnanswered(question, ctx, 'ai-refused', result.nearMiss.id);
-          const sent = await sendChunked(ctx.api, ctx.chat.id, withSuffix(redactServiceUrls(result.nearMiss.answer)), {
+          const sent = await sendChunked(ctx.api, ctx.chat.id, withSuffix(withAdminContact(redactServiceUrls(result.nearMiss.answer))), {
             ...replyParams,
             reply_markup: feedbackKeyboard(),
           });
@@ -812,7 +812,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
   if (fallback) {
     await ctx.api.sendMessage(ctx.chat.id, fallback, replyParams);
   } else if (isDm) {
-    await ctx.api.sendMessage(ctx.chat.id, "I couldn't answer that one. Send /ticket followed by your question and the team will help you personally.");
+    await ctx.api.sendMessage(ctx.chat.id, withAdminContact("I couldn't answer that one — {admin} and they'll help you personally."));
   }
   return 'none';
 }
@@ -1309,41 +1309,10 @@ export async function handleDirectMessage(ctx) {
   state.bot.lastUpdateAt = Date.now();
   if (!getSetting('bot.enabled')) return;
 
-  // An open ticket turns the DM into a support thread: messages go to the
-  // ticket, not the AI.
-  const openTicket = db.prepare(
-    "SELECT * FROM tickets WHERE telegram_user_id = ? AND status != 'closed' ORDER BY id DESC LIMIT 1"
-  ).get(ctx.from.id);
-
   // Media with no caption: everything in a DM is aimed at the bot, and the
   // bot can't see it — ask them to type it out instead.
   if (!text) {
-    if (openTicket || getSetting('bot.dmEnabled')) await sendMediaNag(ctx);
-    return;
-  }
-  if (openTicket) {
-    // The customer is talking to us — deliver any admin replies that were
-    // stranded earlier (bot offline, or Telegram refused to DM them before
-    // they ever messaged the bot). This is the self-healing path.
-    const strandedReplies = db.prepare(
-      "SELECT * FROM ticket_messages WHERE ticket_id = ? AND sender LIKE 'admin%' AND delivered = 0 ORDER BY id"
-    ).all(openTicket.id);
-    for (const m of strandedReplies) {
-      try {
-        await ctx.reply(`💬 Support reply (ticket #${openTicket.id}):\n\n${m.body}`);
-        db.prepare('UPDATE ticket_messages SET delivered = 1 WHERE id = ?').run(m.id);
-      } catch {
-        break; // still failing — keep them queued
-      }
-    }
-    // A photo alongside the caption never reaches the panel — say so, so the
-    // admin knows to ask for the details in text.
-    const ticketBody = media ? `${text} [also sent a photo/video the bot can't view]` : text;
-    db.prepare('INSERT INTO ticket_messages (ticket_id, sender, body, ts) VALUES (?, ?, ?, ?)')
-      .run(openTicket.id, 'customer', ticketBody.slice(0, 3500), now());
-    db.prepare("UPDATE tickets SET status = 'open', updated_at = ? WHERE id = ?").run(now(), openTicket.id);
-    alertAdmins('ticket', `🎫 New reply on ticket #${openTicket.id} from @${ctx.from?.username || ctx.from?.first_name}:\n"${text.slice(0, 200)}"`);
-    await ctx.reply(`Added to your ticket #${openTicket.id} — the team will get back to you. (Send /close to close it.)`);
+    if (getSetting('bot.dmEnabled')) await sendMediaNag(ctx);
     return;
   }
 

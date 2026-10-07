@@ -30,7 +30,15 @@ const DEFAULTS = {
   'bot.fallbackMessage': '', // empty = stay silent when nothing matched and AI is off/down
   // Sent when a message IS about the app/service but the bot can't answer it —
   // kinder than the off-topic line, and points the user to a human.
-  'bot.unsureMessage': "I'm not totally sure on that one — send /ticket in a private message to me and the team will help you out.",
+  'bot.unsureMessage': "I'm not totally sure on that one — {admin} and they'll sort you out.",
+  // Where everyone goes when the bot can't help. {admin} in any bot message is
+  // replaced with this; leave the handle empty and messages fall back to
+  // "message an admin directly".
+  'bot.adminContact': '',
+  // The Downloader / aftv.news code for the current app build. The bot sends
+  // the file itself when it fits in Telegram's 50MB bot limit and quotes this
+  // code when it doesn't.
+  'bot.downloadCode': '',
   // Appended to the LAST round of fixes — the next "still broken" reply
   // really does get flagged, so this note may promise it. Empty = off.
   'bot.problemFollowupNote': "Still happening after trying these? Reply here and I'll flag it straight to the team.",
@@ -155,22 +163,21 @@ const DEFAULTS = {
   'promo.nextIndex': 0,
   'promo.lastSentAt': 0,
   'promo.messages': [
-    "😄 Enjoying the service? Tell your mates! Send me /invite and I'll give you a personal invite link for this group — they'll need their own login, so point them at the admin or have them message me /ticket.",
+    "😄 Enjoying the service? Tell your mates! Send me /invite and I'll give you a personal invite link for this group — they'll need their own login, so {admin} to get them set up.",
     '👋 Quick reminder: I answer questions instantly — installs, buffering fixes, logins, what to watch it on. Just ask here in the group or DM me. /help shows everything I can do.',
-    '📅 Renewals and new signups take minutes — message the admin here or send me /ticket. Paying with crypto is easier than it sounds; the step-by-step guide does the hard part.',
+    '📅 Renewals and new signups take minutes — {admin}. Paying with crypto is easier than it sounds; the step-by-step guide does the hard part.',
     '📺 Watching on more than one TV? Multi-room is available — ask the admin about adding a second stream to your plan.',
   ],
   // Weekly AI-drafted FAQ suggestions from unanswered questions.
   'suggest.faqs': true,
   'suggest.lastRunAt': 0,
   // DM sent N days BEFORE expiry ({name}, {days}). Empty = off.
-  'portal.expiryReminderMessage': '⏰ Heads up {name}: your access expires in {days} day(s). Renewing only takes a few minutes — message me /ticket or ask in the group and we will sort you out.',
+  'portal.expiryReminderMessage': '⏰ Heads up {name}: your access expires in {days} day(s). Renewing only takes a few minutes — {admin} or ask in the group and we will sort you out.',
   // DM sent ON/after expiry day ({name}). Empty = off.
-  'portal.expiryUpsellMessage': "😢 {name}, your access expired — but getting back takes minutes. Message me /ticket or ask in the group and we'll renew you today. Paying with crypto is easier than it sounds: the step-by-step guide does the hard part.",
+  'portal.expiryUpsellMessage': "😢 {name}, your access expired — but getting back takes minutes. {admin} or ask in the group and we'll renew you today. Paying with crypto is easier than it sounds: the step-by-step guide does the hard part.",
   'reports.alertErrors': true,
   'reports.alertBudget': true,
   'reports.alertBannedWords': false,
-  'reports.alertTickets': true,
   'reports.alertProblems': true, // DM admins when users report problems (buffering, channels down…)
   'reports.digest': 'off', // off | daily | weekly
   'reports.digestHour': 9,
@@ -207,6 +214,19 @@ export function getSetting(key) {
 export function setSetting(key, value) {
   setStmt.run(key, JSON.stringify(value));
   cache.set(key, value);
+}
+
+// Every "we can't help here, go to a human" line funnels through one phrase so
+// there is a single place to change who that human is. Applied to canned bot
+// messages, to FAQ answers (seeded text references it) and to the AI prompt,
+// so a {admin} placeholder never reaches a customer raw. An unset handle still
+// reads naturally rather than naming nobody.
+export function withAdminContact(text) {
+  const handle = String(getSetting('bot.adminContact') || '').trim();
+  const phrase = handle
+    ? `message ${handle.startsWith('@') ? handle : `@${handle}`} directly`
+    : 'message an admin directly';
+  return String(text ?? '').replace(/\{admin\}/gi, phrase);
 }
 
 // The per-user service login URLs must never ride along in FAQ/guide text or

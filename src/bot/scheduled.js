@@ -1,6 +1,7 @@
 import { db, now } from '../db/db.js';
 import { getSetting, setSetting } from '../settings.js';
 import { hub } from './hub.js';
+import { withAdminContact } from './helpers.js';
 import { tokens, matchFaq } from '../faq/matcher.js';
 import { composeFaqSuggestion } from '../ai/client.js';
 
@@ -56,7 +57,7 @@ export async function promoSweep() {
   if (new Date().getUTCHours() !== hour) return;
 
   const idx = (Number(getSetting('promo.nextIndex')) || 0) % msgs.length;
-  const body = String(msgs[idx]);
+  const body = withAdminContact(String(msgs[idx]));
   try {
     const results = await hub.sendToAllowedChats(body);
     const ok = results.filter((r) => r.ok).length;
@@ -84,7 +85,7 @@ function fillTemplate(template, c, daysLeft = null) {
 
 export async function expiryReminders() {
   if (!hub.online) return;
-  const template = String(getSetting('portal.expiryReminderMessage') || '').trim();
+  const template = withAdminContact(String(getSetting('portal.expiryReminderMessage') || '').trim());
   if (!template) return;
   const daysBefore = Number(getSetting('portal.expiryReminderDays')) || 3;
   const t = now();
@@ -107,7 +108,7 @@ export async function expiryReminders() {
 
 export async function expiryUpsells() {
   if (!hub.online) return;
-  const template = String(getSetting('portal.expiryUpsellMessage') || '').trim();
+  const template = withAdminContact(String(getSetting('portal.expiryUpsellMessage') || '').trim());
   if (!template) return;
   const t = now();
   // Expired within the last 3 days and not yet messaged since THIS expiry —

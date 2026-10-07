@@ -9,12 +9,12 @@ const SEED_VERSION = 25;
 export const STARTER_FAQS = [
   {
     question: 'What is this service and what do you get?',
-    answer: "Live TV channels, sports, and a full VOD library of movies and series on demand — streamed through our apps on Firestick, Android phones/tablets and iPhone/iPad (the Purple App as your main one, XC and Smarters as backups, Smarters Player Lite on iOS). One login works across all your apps, and you can request VOD titles we don't have yet.\nInterested, or want pricing? Ask the admin here in the group, or message me /ticket and the team will get you set up.",
+    answer: "Live TV channels, sports, and a full VOD library of movies and series on demand — streamed through our apps on Firestick, Android phones/tablets and iPhone/iPad (the Purple App as your main one, XC and Smarters as backups, Smarters Player Lite on iOS). One login works across all your apps, and you can request VOD titles we don't have yet.\nInterested, or want pricing? Ask the admin here in the group, or {admin} and the team will get you set up.",
     keywords: 'service, offer, offers, about, channels, movies, series, sports, vod, demand, package, works, includes, included, get',
   },
   {
     question: 'How much does it cost / what are the prices?',
-    answer: "Pricing depends on the package and how long you sign up for — the admin sorts you out directly with the current prices. Ask here in the group or message me /ticket. Payment is by crypto (Litecoin) and the step-by-step guide makes it easy, even if you've never used crypto before.",
+    answer: "Pricing depends on the package and how long you sign up for — the admin sorts you out directly with the current prices. Ask here in the group or {admin}. Payment is by crypto (Litecoin) and the step-by-step guide makes it easy, even if you've never used crypto before.",
     keywords: 'price, prices, pricing, cost, costs, how much, cheap, expensive, monthly, yearly, deal, deals, trial, free, quote, packages',
   },
   {
@@ -67,7 +67,7 @@ export const STARTER_FAQS = [
   },
   {
     question: 'How can my friend join the service?',
-    answer: "Happy to get them set up!\n1. First they need their own login (username + password) — ask the admin here in the group, or message me /ticket and the team will sort out access and pricing.\n2. Bring them into this group: send me /invite and I'll give you a personal one-use invite link for them.\n3. Once they have their login, installing takes two minutes: enter code 9804805 in the Downloader app, install the Purple App (plus XC or Smarters as backup) and sign in — full steps in the Firestick guide.",
+    answer: "Happy to get them set up!\n1. First they need their own login (username + password) — ask the admin here in the group, or {admin} to sort out access and pricing.\n2. Bring them into this group: send me /invite and I'll give you a personal one-use invite link for them.\n3. Once they have their login, installing takes two minutes: enter code 9804805 in the Downloader app, install the Purple App (plus XC or Smarters as backup) and sign in — full steps in the Firestick guide.",
     keywords: 'friend, join, joining, signup, sign up, mate, refer, referral, trial, interested, bring, invite, inviting, group',
   },
   {
@@ -92,12 +92,12 @@ export const STARTER_FAQS = [
   },
   {
     question: 'Where can I watch live sports and events (UFC, boxing, PPV, football)?',
-    answer: "Big live events are shown on the sports and PPV channels in Live TV — they usually go live shortly before the event starts, so check around fight or kickoff time. The sports guide in the customer panel shows what's on and where.\nMissed it? Big events usually land in VOD shortly after — check the VOD section, and if it's not there send a request: post \"Request: <event name>\" here or message me /ticket.",
+    answer: "Big live events are shown on the sports and PPV channels in Live TV — they usually go live shortly before the event starts, so check around fight or kickoff time. The sports guide in the customer panel shows what's on and where.\nMissed it? Big events usually land in VOD shortly after — check the VOD section, and if it's not there send a request: post \"Request: <event name>\" here or {admin}.",
     keywords: 'ufc, boxing, fight, ppv, sports, sport, football, match, event, events, live, tonight, watch, channel, vod',
   },
   {
     question: 'How do I request a movie, series or VOD?',
-    answer: 'Send the exact title and year (for series: which season), e.g. "Request: Inception (2010)". Post it in the group or open a ticket with me in a private chat (/ticket). Requests are added in batches — give it a little time and check the VOD section again.\nWondering if something WILL be on VOD (a new film, last night\'s event)? Check the VOD section first — new titles and event replays are added regularly — and if it\'s not there, request it the same way. There are also VOD recommendations in the customer panel.',
+    answer: 'Send the exact title and year (for series: which season), e.g. "Request: Inception (2010)". Post it in the group or {admin}. Requests are added in batches — give it a little time and check the VOD section again.\nWondering if something WILL be on VOD (a new film, last night\'s event)? Check the VOD section first — new titles and event replays are added regularly — and if it\'s not there, request it the same way. There are also VOD recommendations in the customer panel.',
     keywords: 'vod, request, movie, movies, film, series, show, season, episode, add, missing, available, replay, replays',
   },
   {
@@ -132,7 +132,7 @@ export const STARTER_FAQS = [
   },
   {
     question: 'Can I record shows or use catch-up?',
-    answer: "There's no DVR-style recording, but you rarely need it:\n- Series and movies are in the VOD section on demand.\n- Big events usually get replays added to VOD shortly after they finish.\n- Many channels support pause and rewind right in the player.\nMissing something? Request it — post \"Request: <title>\" here or message me /ticket.",
+    answer: "There's no DVR-style recording, but you rarely need it:\n- Series and movies are in the VOD section on demand.\n- Big events usually get replays added to VOD shortly after they finish.\n- Many channels support pause and rewind right in the player.\nMissing something? Request it — post \"Request: <title>\" here or {admin}.",
     keywords: 'record, recording, recordings, dvr, catchup, catch, rewind, pause',
   },
   {
@@ -154,7 +154,7 @@ export const STARTER_FAQS = [
   },
   {
     question: 'How do I check or renew my subscription?',
-    answer: 'Message me /myaccount in a private chat to see your status and expiry date (link your account once with /link plus the code from the portal’s Account page). To renew, contact the admin — we take crypto (Litecoin): the payment guide walks you through it step by step, and we’ll send you the wallet address and exact amount. Payment info is also in the customer panel.',
+    answer: 'To check your status and expiry date, or to renew, {admin}. We take crypto (Litecoin): the payment guide walks you through it step by step, and we’ll send you the wallet address and exact amount.',
     keywords: 'renew, renewal, expire, expiry, expired, subscription, sub, payment, pay, account',
   },
   {
@@ -164,7 +164,7 @@ export const STARTER_FAQS = [
   },
   {
     question: "The app says my login is wrong or my account doesn't work",
-    answer: 'If it says "invalid user" or your login is rejected:\n1. Double-check the username and password — watch for extra spaces and capital letters.\n2. Make sure you\'re in the right app — the same login works in Purple, XC and Smarters.\n3. If we\'ve posted about service issues (check /status or the group), it\'s likely on our side — hang tight and try again shortly.\n4. Still no luck? Your access may have expired — message me /myaccount in a private chat, or /ticket and we\'ll sort it.',
+    answer: 'If it says "invalid user" or your login is rejected:\n1. Double-check the username and password — watch for extra spaces and capital letters.\n2. Make sure you\'re in the right app — the same login works in Purple, XC and Smarters.\n3. If we\'ve posted about service issues (check /status or the group), it\'s likely on our side — hang tight and try again shortly.\n4. Still no luck? Your access may have expired — {admin} and we\'ll sort it.',
     keywords: 'login, log, password, credentials, invalid, wrong, cant, sign, denied, auth, user, username, details, incorrect, unauthorised, rejected',
   },
   {
@@ -182,7 +182,7 @@ export const STARTER_FAQS = [
   },
   {
     question: 'Do you offer refunds?',
-    answer: "All services are used at your own discretion, and refunds may not be available once a service has been activated. If something isn't working, talk to us first — we're always happy to help fix it. Message me /ticket in a private chat and the team will look after you.",
+    answer: "All services are used at your own discretion, and refunds may not be available once a service has been activated. If something isn't working, talk to us first — we're always happy to help fix it. {admin} and the team will look after you.",
     keywords: 'refund, refunds, money, back, cancel, guarantee, chargeback',
   },
   {
@@ -226,7 +226,7 @@ const STARTER_GUIDES = [
 
 ## Problems?
 
-Ask in the group — the bot answers install questions instantly. For a human, message the bot **/ticket** in a private chat.`,
+Ask in the group — the bot answers install questions instantly. For a human, {admin}.`,
   },
   {
     title: 'Install on Android phone / tablet',
@@ -332,7 +332,7 @@ const V3_BUFFERING =
 const V3_CHANNEL =
   "First try a different link/server for the same channel, or the same channel in a backup app (XC/Smarters) — and give it a minute, streams sometimes restart on their own. Still down? Report it with: the exact channel name, what you see (frozen / black screen / error message), and the time. That helps us fix it fast.";
 const V2_LOGIN =
-  'Double-check the username and password — watch for extra spaces and capital letters. If it still fails your access may have expired: message me /myaccount in a private chat, or contact the admin via /ticket and we’ll sort it.';
+  'Double-check the username and password — watch for extra spaces and capital letters. If it still fails your access may have expired: {admin} and we’ll sort it.';
 const V10_INSTALL_ANY =
   "Depends on your device:\n📺 Firestick: install the Downloader app from the Amazon store, open it and enter code 9804805, click Go, then install the Purple App (plus XC or Smarters as backups — same login works in all).\n📱 Android phone/tablet: open our Android installer link (ask here or check the customer panel if you don't have it) and pick the Purple App.\nThen open the app and log in with your service details. If your device blocks the install, say so and I'll walk you through allowing it.";
 const V10_ANDROID =
@@ -355,11 +355,11 @@ const V12_IOS =
 const V20_LANGUAGE =
   "While the video is playing, open the player controls (press OK on the remote or tap the screen) and look for the audio/track button — usually a headphones or speech-bubble icon. Pick English (or whichever language you want) from the list. The same login works in XC and Smarters too, and their players sometimes list audio tracks differently.\nIf only one language is listed, that copy only came with one audio track — reply with the exact title and the language you need and I'll flag it to the team to source a better copy.";
 const V19_VOD_REQUEST =
-  'Send the exact title and year (for series: which season), e.g. "Request: Inception (2010)". Post it in the group or open a ticket with me in a private chat (/ticket). Requests are added in batches — give it a little time and check the VOD section again. There are also VOD recommendations in the customer panel.';
+  'Send the exact title and year (for series: which season), e.g. "Request: Inception (2010)". Post it in the group or {admin}. Requests are added in batches — give it a little time and check the VOD section again. There are also VOD recommendations in the customer panel.';
 const V18_FIRESTICK_BUY =
   "Any current Firestick runs our apps. Quick guide:\n- Best value: Fire TV Stick 4K — smooth, handles 4K streams, usually the sweet spot on price.\n- Fastest: Fire TV Stick 4K Max — worth it if you want the snappiest menus.\n- Budget: the basic Fire TV Stick or Lite is fine for HD viewing.\nAvoid very old sticks (2016 and earlier) — they struggle with modern apps. Whichever you get, setup takes two minutes: ask me how to install and I'll walk you through it.";
 const V16_WHAT_IS =
-  "Live TV channels, movies, series and sports — streamed through our apps on Firestick, Android phones/tablets and iPhone/iPad (the Purple App as your main one, XC and Smarters as backups, Smarters Player Lite on iOS). One login works across all your apps.\nInterested, or want pricing? Ask the admin here in the group, or message me /ticket and the team will get you set up.";
+  "Live TV channels, movies, series and sports — streamed through our apps on Firestick, Android phones/tablets and iPhone/iPad (the Purple App as your main one, XC and Smarters as backups, Smarters Player Lite on iOS). One login works across all your apps.\nInterested, or want pricing? Ask the admin here in the group, or {admin} and the team will get you set up.";
 const V13_WHICH_SERVICE =
   "Easy way to tell — look at the username you log in with:\n- If it's randomly generated (a mix of letters and numbers), you're on SERVICE-NAME-1.\n- If it starts with THM, you're on SERVICE-NAME-2.\nStill not sure? Ask here and we'll check for you.";
 const V14_WHICH_SERVICE =
@@ -369,10 +369,10 @@ const V1_ANSWERS = {
   'How do I install the app on my Firestick?': 'Easiest way is with the Downloader app:\n1. On the Firestick go to Settings > My Fire TV > Developer Options and allow apps from unknown sources (or allow Downloader there).\n2. Install "Downloader" from the Amazon app store.\n3. Open Downloader and enter the download link or code from our portal.\n4. Install the APK when it finishes, open the app and sign in.\nGot a portal login? Message me /download in a private chat and I’ll send the file or a code.',
   'How do I install the app on an Android phone or tablet?': '1. Log in to the download portal and download the latest APK.\n2. Open the file — Android will ask you to allow installs from your browser; allow it.\n3. Install and sign in.\nYou can also message me /download in a private chat to get the file sent straight to you.',
   'The app keeps buffering, freezing or stuttering — how do I fix it?': 'Try these in order — they fix most buffering:\n1. Restart the app and your device.\n2. Restart your router.\n3. Clear the app cache (Settings > Applications > Manage Installed Applications > the app > Clear cache).\n4. Use 5GHz WiFi or wired ethernet if you can — 2.4GHz struggles with HD streams.\n5. Try a lower quality stream or a different link/server for the same channel.\n6. Run a speed test — HD needs about 10 Mbps, 4K about 25 Mbps.\nStill buffering after all that? Tell us the channel and the time it happened.',
-  'How do I request a movie, series or VOD?': 'Send the exact title and year (for series: which season), e.g. "Request: Inception (2010)". Post it in the group or open a ticket with me in a private chat (/ticket). Requests are added in batches — give it a little time and check the VOD section again.',
+  'How do I request a movie, series or VOD?': 'Send the exact title and year (for series: which season), e.g. "Request: Inception (2010)". Post it in the group or {admin}. Requests are added in batches — give it a little time and check the VOD section again.',
   "A channel or stream isn't working — what do I do?": "First try a different link/server for the same channel if the app offers one, and give it a minute — streams sometimes restart on their own. Still down? Report it with: the exact channel name, what you see (frozen / black screen / error message), and the time. That helps us fix it fast.",
   'How do I update the app to the latest version?': 'Download the newest APK from the portal and install it straight over the old one — your settings are kept. On a Firestick, enter the download code or link in the Downloader app again. You can also message me /version to see the latest version and /download to get it.',
-  'How do I check or renew my subscription?': 'Message me /myaccount in a private chat to see your status and expiry date (link your account once with /link plus the code from the portal’s Account page). To renew, contact the admin — in the group or via /ticket.',
+  'How do I check or renew my subscription?': 'To check your status, expiry date or to renew, {admin}.',
 };
 
 function previousDefaults(question) {

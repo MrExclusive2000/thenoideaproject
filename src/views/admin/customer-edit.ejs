@@ -62,7 +62,7 @@
   <div class="card">
     <h2>Telegram link</h2>
     <% if (customer.telegram_user_id) { %>
-      <p>Linked to Telegram user ID <code><%= customer.telegram_user_id %></code>. They can use /myaccount, /download and /ticket in a DM with the bot, and get expiry reminders.</p>
+      <p>Linked to Telegram user ID <code><%= customer.telegram_user_id %></code>. They get expiry reminders from the bot, and <code>/download</code> records against this account.</p>
       <form method="post" action="/admin/customers/<%= customer.id %>/unlink">
         <input type="hidden" name="_csrf" value="<%= csrf %>">
         <button class="btn-ghost btn-sm">Unlink</button>
@@ -78,18 +78,6 @@
         <input type="hidden" name="_csrf" value="<%= csrf %>">
         <button class="btn-sm"><%= linkCode ? 'Regenerate code' : 'Generate link code' %></button>
       </form>
-    <% } %>
-  </div>
-
-  <div class="card">
-    <h2>Tickets</h2>
-    <% if (!tickets.length) { %><p class="hint">No tickets from this customer.</p><% } else { %>
-    <table class="list">
-      <% for (const t of tickets) { %>
-      <tr><td><a href="/admin/tickets/<%= t.id %>">#<%= t.id %> <%= t.subject || '(no subject)' %></a></td>
-        <td><span class="badge <%= t.status === 'closed' ? 'badge-dim' : 'badge-warn' %>"><%= t.status %></span></td></tr>
-      <% } %>
-    </table>
     <% } %>
   </div>
 </div>

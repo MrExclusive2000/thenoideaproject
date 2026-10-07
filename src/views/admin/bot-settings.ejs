@@ -125,6 +125,19 @@
     <input id="fallbackMessage" name="fallbackMessage" type="text" maxlength="500" value="<%= s.fallbackMessage %>">
     <label for="unsureMessage">When a question IS about the app but the bot can't answer it (empty = stay silent)</label>
     <input id="unsureMessage" name="unsureMessage" type="text" maxlength="500" value="<%= s.unsureMessage %>">
+    <p class="hint">Write <code>{admin}</code> anywhere in a bot message and it becomes "message @you directly" using the handle below.</p>
+  </div>
+
+  <div class="field">
+    <label for="adminContact">Your Telegram handle — where everyone goes for a human</label>
+    <input id="adminContact" name="adminContact" type="text" maxlength="64" placeholder="@yourname" value="<%= s.adminContact %>">
+    <p class="hint">There is no ticket system: anything the bot can't answer is pointed here. Leave empty and messages say "message an admin directly" instead of naming you.</p>
+  </div>
+
+  <div class="field">
+    <label for="downloadCode">Downloader / aftv.news code for the current build</label>
+    <input id="downloadCode" name="downloadCode" type="text" maxlength="32" placeholder="9804805" value="<%= s.downloadCode %>">
+    <p class="hint">/download sends the file itself when it fits in Telegram's 50MB limit. When it doesn't, the bot quotes this code instead — it works in the Downloader app on a Firestick and as <code>aftv.news/CODE</code> in any browser.</p>
     <label for="busyMessage">When the AI is overloaded — queue full or answer timed out (empty = stay silent)</label>
     <input id="busyMessage" name="busyMessage" type="text" maxlength="500" value="<%= s.busyMessage %>">
   </div>

@@ -341,6 +341,52 @@ const migrations = [
   CREATE INDEX idx_messages_reply ON messages_log(chat_id, reply_to_tg_msg_id);
   CREATE INDEX idx_messages_tg_msg ON messages_log(chat_id, tg_msg_id);
   `,
+  // v14 — /ticket, /link and /myaccount are gone; everyone needing a human is
+  // sent to the admin instead. Existing installs have those commands baked
+  // into FAQ answers, guides and canned messages written long before this, and
+  // a bot that keeps telling customers to "send /ticket" at a command that no
+  // longer replies is worse than one that says nothing. Rewrite the common
+  // phrasings to the {admin} placeholder, which is expanded at send time from
+  // bot.adminContact. Longest phrases first, so the bare-token fallback only
+  // catches what the specific ones missed.
+  `
+  UPDATE faqs SET answer = replace(replace(replace(replace(replace(replace(replace(replace(replace(answer,
+    'message the bot **/ticket** in a private chat', '{admin}'),
+    'open a ticket with me in a private chat (/ticket)', '{admin}'),
+    'Message me /ticket in a private chat', '{admin}'),
+    'message me /ticket in a private chat', '{admin}'),
+    'Message me /ticket', '{admin}'),
+    'message me /ticket', '{admin}'),
+    'send me /ticket', '{admin}'),
+    'send /ticket', '{admin}'),
+    '/ticket', 'the admin')
+  WHERE answer LIKE '%/ticket%';
+
+  UPDATE faqs SET answer = replace(replace(replace(replace(answer,
+    'message me /myaccount in a private chat', '{admin}'),
+    'Message me /myaccount in a private chat', '{admin}'),
+    '/myaccount', 'the admin'),
+    '/link', 'the admin')
+  WHERE answer LIKE '%/myaccount%' OR answer LIKE '%/link%';
+
+  UPDATE guides SET body_md = replace(replace(replace(replace(replace(body_md,
+    'message the bot **/ticket** in a private chat', '{admin}'),
+    'Message me /ticket', '{admin}'),
+    'message me /ticket', '{admin}'),
+    '/ticket', 'the admin'),
+    '/myaccount', 'the admin')
+  WHERE body_md LIKE '%/ticket%' OR body_md LIKE '%/myaccount%';
+
+  UPDATE settings SET value = replace(replace(replace(replace(replace(value,
+    'send /ticket in a private message to me and the team will help you out', '{admin} and they will help you out'),
+    'message me /ticket', '{admin}'),
+    'send me /ticket', '{admin}'),
+    'message the admin here or send me /ticket', '{admin}'),
+    '/ticket', 'the admin')
+  WHERE value LIKE '%/ticket%';
+
+  DELETE FROM settings WHERE key = 'reports.alertTickets';
+  `,
 ];
 
 export function migrate(db) {
