@@ -78,6 +78,22 @@ Once `problems.degradeThreshold` different people report service-wide problems i
 
 Both messages are editable in **Reports & status**; `{note}` is replaced with the bot's own summary of what people are reporting. Empty announcement text means the bot never offers to post.
 
+## Running the bot from Telegram
+
+You don't need the panel for the things that change often:
+
+- **`/set skyglass 3793766`** — change a download code. `/set` on its own lists what can be changed and what each is now. Safelisted keys only, so a typo can't reconfigure the bot. Every entry using the placeholder updates at once.
+- **`/note Purple is down for Exclusive customers, use Sky Glass`** — sets the service note. The AI mentions it, `/status` shows it, and problem answers lead with it. **`/note clear`** removes it everywhere.
+- **`/teach How do I install Sky Glass? | Open Downloader, enter {skyglass} and click Go.`** — adds a knowledge entry, live immediately. Or reply to any message with `/teach <the question it answers>` and that message becomes the answer. Add keywords in the panel afterwards if you want the keyword fallback to find it too.
+
+Everything is written to the audit log with your Telegram ID.
+
+## Sport questions
+
+"What channel is the F1 on?" is a **service** question — it's asking which channel in your lineup carries it — so it's in scope and answered from your knowledge. If your knowledge doesn't name the channel, the bot points them at the TV guide in the app rather than guessing.
+
+Fixtures, kick-off times and scores are a different matter: **the bot has no live data.** It is told plainly never to state or guess one, because a customer who sits down for a match it invented blames your service. It says it doesn't have live listings and points at the guide — which is an answer, not a brush-off.
+
 ## Download codes
 
 Codes change, and writing them out by hand in a dozen entries is exactly why they drift — a customer ends up installing last month's build and nobody notices until they complain.

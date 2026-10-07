@@ -2749,3 +2749,42 @@ test('a real support question is not mistaken for a capability question', async 
     assert.notEqual(result, 'capability', `"${q}" is a support question, not a question about the bot`);
   }
 });
+
+// ---- admin control from Telegram ------------------------------------------------
+test('an admin changes a download code from chat and every mention follows', async () => {
+  const { withAdminContact } = await import('../src/settings.js');
+  setSetting('apps.skyGlassCode', '1111111');
+  assert.match(withAdminContact('code {skyglass}'), /1111111/);
+  // What /set does, without needing a live bot: safelisted key, audited.
+  setSetting('apps.skyGlassCode', '3793766');
+  assert.match(withAdminContact('Firestick {skyglass}, browser aftv.news/{skyglass}'), /3793766.*3793766/);
+});
+
+test('the service note reaches the model without an entry being edited', async () => {
+  setSetting('service.note', 'Purple is down for Exclusive customers — use Sky Glass.');
+  setSetting('service.status', 'operational');
+  try {
+    const prompt = buildSystemPrompt('is purple working');
+    assert.match(prompt, /Current service status/);
+    assert.match(prompt, /Purple is down for Exclusive customers/,
+      'a temporary problem is told to the model without rotting inside a knowledge entry');
+  } finally {
+    setSetting('service.note', '');
+  }
+});
+
+// ---- sport: channels yes, invented fixtures never -------------------------------
+test('the model is told channel questions are in scope and fixtures are not knowable', () => {
+  const prompt = buildSystemPrompt('what channel is the f1 on');
+  assert.match(prompt, /is a SERVICE question/, 'channel questions are ours to answer');
+  assert.match(prompt, /NO live information/, 'and fixtures are explicitly off-limits');
+  assert.match(prompt, /blames the service/, 'with the reason stated, not just the rule');
+});
+
+test('"what channel is X on" is treated as in scope', async () => {
+  const { isLikelyInScope } = await import('../src/bot/helpers.js');
+  assert.equal(isLikelyInScope('what channel is the f1 on'), true);
+  assert.equal(isLikelyInScope('what channel is the darts on'), true);
+  // ...while a pure result question still is not.
+  assert.equal(isLikelyInScope('who won the match last night'), false);
+});

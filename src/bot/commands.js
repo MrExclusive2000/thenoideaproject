@@ -3,7 +3,7 @@ import path from 'node:path';
 import { InlineKeyboard, InputFile } from 'grammy';
 import { db, now } from '../db/db.js';
 import { config } from '../config.js';
-import { getSetting, redactServiceUrls } from '../settings.js';
+import { getSetting, setSetting, redactServiceUrls } from '../settings.js';
 import { audit } from '../util.js';
 import { sendChunked, isAdminUser, chatAllowed, linkedCustomer, latestFile, withAdminContact } from './helpers.js';
 import { sendDigest, buildStatsText } from './reports.js';
@@ -131,6 +131,7 @@ export function registerCommands(bot) {
         'Admin: /adopt /mute /unmute /report /broadcast <text> /id',
         '/cases — open cases · /case 12 — read one · /case 12 fixed — close it',
         '/version — what is running · /update — pull the latest code',
+        '/set skyglass 123456 — change a code · /note <text> — service note · /teach Q | A',
         'Or just reply "#12 fixed" to an alert.'
       );
     }
@@ -295,6 +296,93 @@ export function registerCommands(bot) {
   bot.command('cases', async (ctx) => {
     if (!isAdminUser(ctx.from.id)) return;
     await ctx.reply(openCasesList());
+  });
+
+  // ---- managing the bot from Telegram ---------------------------------------
+  // Codes change often and the panel is a laptop away. These are deliberately
+  // narrow: a safelist of settings, never arbitrary keys, so a typo cannot
+  // reconfigure the bot.
+  const SETTABLE = {
+    skyglass: { key: 'apps.skyGlassCode', label: 'Sky Glass code' },
+    purple: { key: 'apps.purpleCode', label: 'Purple App code' },
+    download: { key: 'bot.downloadCode', label: '/download code' },
+    admin: { key: 'bot.adminContact', label: 'admin contact' },
+  };
+
+  bot.command('set', async (ctx) => {
+    if (!isAdminUser(ctx.from.id)) return;
+    const [nameRaw, ...rest] = String(ctx.match || '').trim().split(/\s+/);
+    const name = String(nameRaw || '').toLowerCase().replace(/[^a-z]/g, '');
+    const value = rest.join(' ').trim();
+    const target = SETTABLE[name];
+    if (!target) {
+      return ctx.reply(
+        `Usage: /set <what> <value>\n\n${Object.entries(SETTABLE)
+          .map(([k, v]) => `/set ${k} — ${v.label} (now: ${getSetting(v.key) || 'not set'})`)
+          .join('\n')}`
+      );
+    }
+    if (!value) return ctx.reply(`${target.label} is currently: ${getSetting(target.key) || 'not set'}\n\nTo change it: /set ${name} <value>`);
+    const before = getSetting(target.key) || 'not set';
+    setSetting(target.key, value.slice(0, 64));
+    audit('admin', `tg:${ctx.from.id}`, 'settings.update', `${target.key}: ${before} -> ${value}`);
+    await ctx.reply(`✅ ${target.label} changed from ${before} to ${value}.\n\nEvery entry using the placeholder now says ${value} — nothing else to edit.`);
+  });
+
+  // A temporary problem belongs in the service note, not in knowledge: the note
+  // reaches the AI, /status and the portal, and deleting it clears all three.
+  // Written into an entry it just rots there and keeps being told to customers.
+  bot.command('note', async (ctx) => {
+    if (!isAdminUser(ctx.from.id)) return;
+    const text = String(ctx.match || '').trim();
+    if (!text) {
+      const current = getSetting('service.note');
+      return ctx.reply(current
+        ? `Current service note:\n"${current}"\n\nChange it: /note <text>  ·  Remove it: /note clear`
+        : 'No service note set. Add one with: /note Purple is down for Exclusive customers, use Sky Glass');
+    }
+    if (/^(clear|none|off|remove)$/i.test(text)) {
+      setSetting('service.note', '');
+      audit('admin', `tg:${ctx.from.id}`, 'service.note', 'cleared');
+      return ctx.reply('✅ Service note cleared — customers stop being told about it.');
+    }
+    setSetting('service.note', text.slice(0, 500));
+    audit('admin', `tg:${ctx.from.id}`, 'service.note', text.slice(0, 120));
+    await ctx.reply(`✅ Service note set:\n"${text}"\n\nThe AI now mentions this, /status shows it, and problem answers lead with it. Clear it with /note clear when it's fixed.`);
+  });
+
+  // Teach the bot something without opening the panel.
+  bot.command('teach', async (ctx) => {
+    if (!isAdminUser(ctx.from.id)) return;
+    const arg = String(ctx.match || '').trim();
+    const replied = ctx.message?.reply_to_message?.text || '';
+    let question = '';
+    let answer = '';
+
+    if (arg.includes('|')) {
+      [question, answer] = arg.split('|').map((x) => x.trim());
+    } else if (replied && arg) {
+      // Replying to an answer with "/teach <the question it answers>".
+      question = arg;
+      answer = replied;
+    }
+    if (!question || !answer) {
+      return ctx.reply(
+        'Two ways to teach me:\n' +
+        '• /teach How do I install Sky Glass? | Open Downloader, enter {skyglass} and click Go.\n' +
+        '• Reply to a message with: /teach <the question it answers>\n\n' +
+        'Codes are placeholders: write {skyglass} or {purple} and I fill in the current one.'
+      );
+    }
+    const t = now();
+    const info = db.prepare(
+      'INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at) VALUES (?, ?, ?, 1, 0, ?, ?)'
+    ).run(question.slice(0, 300), answer.slice(0, 2500), '', t, t);
+    audit('admin', `tg:${ctx.from.id}`, 'faq.add', `#${info.lastInsertRowid} via telegram`);
+    await ctx.reply(
+      `✅ Learned it (entry #${info.lastInsertRowid}, live now):\n\nQ: ${question}\nA: ${withAdminContact(answer).slice(0, 400)}\n\n` +
+      'Add keywords in the panel if you want the fallback to find it too — without them it is only matched by meaning.'
+    );
   });
 
   bot.command('case', async (ctx) => {
