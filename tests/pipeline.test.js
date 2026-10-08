@@ -3651,3 +3651,45 @@ test('"yes" still belongs to a flow that asked a question', async () => {
   const { parseAvailabilityQuestion } = await import('../src/bot/requests.js');
   assert.equal(parseAvailabilityQuestion('yes'), null);
 });
+
+// --- the AI works the problem before anyone is sent to a human --------------
+
+test('a first-round problem answer never hands off to the admin', async () => {
+  const { stripPrematureHandoff } = await import('../src/ai/guardrails.js');
+  // Live reply: one thin check, then straight to the admin — while the system
+  // was adding "still happening? reply here and I'll dig up the next things
+  // to try" directly underneath it.
+  const live = 'If your login is rejected, please try checking the username and password for any extra spaces or capital letters. Still no luck? Message @ExclusiveDoctor directly for further assistance.';
+  const out = stripPrematureHandoff(live);
+  assert.doesNotMatch(out, /@ExclusiveDoctor|further assistance/i);
+  assert.match(out, /extra spaces or capital letters/, 'the fix survives');
+  assert.doesNotMatch(out, /Still no luck\?\s*$/, 'and the dangling lead-in goes with it');
+
+  for (const shape of [
+    'Restart the app and clear the cache. If that fails, contact the admin.',
+    'Try a different stream for that channel. Speak to an admin if it keeps happening.',
+    'Clear the cache from Manage Installed Applications. The admin will sort it out.',
+  ]) assert.doesNotMatch(stripPrematureHandoff(shape), /admin/i, shape);
+});
+
+test('when the handoff IS the answer it is left alone', async () => {
+  const { stripPrematureHandoff } = await import('../src/ai/guardrails.js');
+  // Renewals, payments and expired accounts are not troubleshooting — no
+  // amount of cache clearing fixes them, and the human is the whole answer.
+  for (const only of [
+    'To renew, message @ExclusiveDoctor directly.',
+    'Message an admin directly for pricing.',
+  ]) assert.match(stripPrematureHandoff(only), /admin|@ExclusiveDoctor/i, only);
+});
+
+test('an ordinary answer is not touched by the handoff guard', async () => {
+  const { stripPrematureHandoff } = await import('../src/ai/guardrails.js');
+  const normal = 'Open the Downloader app, enter code 3793766 and click Go. Then log in with your usual details.';
+  assert.equal(stripPrematureHandoff(normal), normal);
+});
+
+test('the model is told to work the whole playbook on the first round', () => {
+  const prompt = buildSystemPrompt('my login says invalid');
+  assert.match(prompt, /For ANY problem report/, 'not just playback problems');
+  assert.match(prompt, /Give them ALL, in their order/, 'all the steps, not the first one');
+});

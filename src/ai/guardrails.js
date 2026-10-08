@@ -180,6 +180,36 @@ export function echoesInstructions(reply) {
   return INSTRUCTION_ECHO.test(String(reply || ''));
 }
 
+// A handoff to a human, in any of the shapes a model writes one.
+const HANDOFF_RE = /\b(?:message|contact|dm|speak\s+to|talk\s+to|reach\s+out\s+to|get\s+in\s+touch\s+with|ask)\s+(?:@\w+|an?\s+admin|the\s+admin|the\s+team|support|customer\s+service)\b|\b(?:the\s+)?admin\s+(?:will|can|should)\b|\bfurther\s+assistance\b/i;
+
+// The first answer to a problem must not end by sending them to a human. The
+// system adds its own line immediately after — "still happening? reply here
+// and I'll dig up the next things to try" — so a handoff above it contradicts
+// the very next sentence, and the customer gets one thin fix and a brush
+// toward the admin instead of the playbook they were owed.
+//
+// Only the trailing sentences go, and only while something of substance
+// remains: when the handoff IS the answer (a renewal, a payment, an expired
+// account) there is nothing else in the reply and it stays untouched.
+export function stripPrematureHandoff(reply) {
+  let out = String(reply || '').trimEnd();
+  for (let i = 0; i < 3; i++) {
+    const body = out.replace(/[.!?]+$/, '');
+    const idx = Math.max(body.lastIndexOf('. '), body.lastIndexOf('! '), body.lastIndexOf('? '), body.lastIndexOf('\n'));
+    const last = out.slice(idx + 1).trim();
+    if (!HANDOFF_RE.test(last)) break;
+    const candidate = out.slice(0, idx + 1).trimEnd();
+    // Nothing useful would be left, so the handoff WAS the whole answer —
+    // a renewal or a payment, where the human is the point. Set low on
+    // purpose: "Restart the app and clear the cache" is a thin answer but
+    // still a better first round than being sent to a person.
+    if (candidate.replace(/[^a-z]/gi, '').length < 15) break;
+    out = candidate;
+  }
+  return out.replace(/\s*(?:still\s+no\s+luck\??|if\s+that\s+fails\??|otherwise\??)\s*$/i, '').trimEnd();
+}
+
 export function containsBannedWord(text, bannedWords) {
   if (!text || !bannedWords?.length) return false;
   const lower = text.toLowerCase();

@@ -4,7 +4,7 @@ import { scoreFaq, tokens } from '../faq/matcher.js';
 import { scoreGuide } from '../guides.js';
 import { redactWalletAddresses } from '../payments.js';
 import { circuitOpen, circuitError, recordFailure, recordSuccess } from './breaker.js';
-import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, echoesInstructions, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail } from './guardrails.js';
+import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, echoesInstructions, stripPrematureHandoff, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail } from './guardrails.js';
 
 const usageStmt = db.prepare(
   'INSERT INTO ai_usage (day, calls, tokens) VALUES (?, 1, ?) ' +
@@ -178,7 +178,7 @@ export function buildSystemPrompt(question = '', providedFaqs = null, { service 
     "- Be warm: when a message opens with a greeting or pleasantry ('hey mate, quick one...'), match the friendly tone in your first few words, then answer. Light friendliness is good; full off-topic chat is not.",
     '- Those support topics are ALWAYS in scope, even when the knowledge below does not mention the exact channel, show or device named by the user. In that case give the closest general fix from the knowledge.',
     '- Live channels and live events cannot be paused, rewound or restarted from the beginning — never give pause/rewind/resume advice for a live TV problem. That advice is for VOD (films and episodes) only.',
-    "- For playback problems, the fixes in the knowledge are the admin's playbook — give those, in their order. Do not pad answers with generic internet advice (WiFi bands, router placement, ISP calls) the knowledge doesn't mention.",
+    "- For ANY problem report — playback, logins, the app, the guide — the fixes in the knowledge are the admin's playbook. Give them ALL, in their order, not just the first one. Do not pad answers with generic internet advice (WiFi bands, router placement, ISP calls) the knowledge doesn't mention.",
     "- The service is its own standalone streaming service with its OWN apps. Channels (BBC 1, Sky Sports…) and VOD are watched INSIDE those apps — never through a broadcaster's or another provider's app. Never suggest installing, updating or checking BBC iPlayer, ITVX, Sky Go, Netflix or any other third-party app. For playback problems give the fixes from the knowledge (restart the app, clear its cache, try a different link/stream for the channel, check the connection).",
     '- Never ask the user to repeat details they already provided (such as the channel name). For problem reports, give the fixes without ending on a question — the system automatically invites the user to confirm if the problem persists.',
     "- If you can answer, answer completely in ONE message. Never offer to do something next, like 'Would you like me to...' or 'Let me know if you want...', and never close with 'feel free to ask' or 'let me know if you need anything else' — you get no second message, so every one of those is a promise you cannot keep.",
@@ -519,6 +519,17 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
             'restarting apps and power-cycling boxes cannot fix a problem on our side, and asking them to is a waste of their evening.',
         }]
       : []),
+    ...(grounding && !secondRound
+      ? [{
+          role: 'system',
+          content:
+            'This is the FIRST attempt at this problem. Work through the playbook yourself: give every step in it, in order. ' +
+            'Do NOT tell them to message an admin, and do not say a human will take over — the system adds its own line ' +
+            'inviting them back if these steps do not work, and a handoff here contradicts it and reads as not bothering. ' +
+            'The only exception is something no troubleshooting can fix: an expired subscription, a payment, or a change to ' +
+            'their account. Mention the admin for those and nothing else.',
+        }]
+      : []),
     ...(secondRound
       ? [{
           role: 'system',
@@ -588,6 +599,10 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
   // Reciting the brief at the customer is worse than not answering: it reads
   // as a broken machine and tells them nothing.
   if (echoesInstructions(reply)) return null;
+  // First go at a problem: the model works the playbook, the system decides
+  // when a human gets involved. A handoff here would contradict the follow-up
+  // line the system is about to add.
+  if (grounding && !secondRound) reply = stripPrematureHandoff(reply);
 
   const bannedWords = db.prepare('SELECT word FROM banned_words').all().map((r) => r.word);
   if (containsBannedWord(reply, bannedWords)) return null;
