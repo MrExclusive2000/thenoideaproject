@@ -204,6 +204,22 @@
         <input id="purpleCode" name="purpleCode" type="text" maxlength="32" placeholder="3775005" value="<%= s.purpleCode %>">
       </div>
     </div>
+  </div>
+
+  <div class="card">
+    <h2>Payment wallets</h2>
+    <p class="sub">The bot gives these out itself, exactly as typed. A coin with no address here is <strong>not offered to anyone</strong> — it is better to take one coin than to tell someone you take Bitcoin and have nowhere to send it.</p>
+    <p class="hint">⚠️ These never go into the AI prompt and the AI can never produce one: anything address-shaped is stripped out of its replies and replaced with "ask me for the wallet address". A model copying a 42-character string correctly 99 times out of 100 is not good enough when the hundredth customer loses their money for good. An address that isn't the right shape is rejected rather than saved, so check it against your wallet after saving.</p>
+    <div class="row">
+      <div>
+        <label for="ltcAddress">Litecoin (LTC) receive address</label>
+        <input id="ltcAddress" name="ltcAddress" type="text" maxlength="128" autocomplete="off" spellcheck="false" value="<%= s.ltcAddress %>">
+      </div>
+      <div>
+        <label for="btcAddress">Bitcoin (BTC) receive address</label>
+        <input id="btcAddress" name="btcAddress" type="text" maxlength="128" autocomplete="off" spellcheck="false" value="<%= s.btcAddress %>">
+      </div>
+    </div>
     <p class="hint">Already have codes typed into your entries? <a href="/admin/faqs/review">Knowledge → Review</a> has a find-and-replace to swap them for placeholders in one go.</p>
     <label for="busyMessage">When the AI is overloaded — queue full or answer timed out (empty = stay silent)</label>
     <input id="busyMessage" name="busyMessage" type="text" maxlength="500" value="<%= s.busyMessage %>">

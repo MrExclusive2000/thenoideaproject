@@ -495,6 +495,22 @@ const migrations = [
     PRIMARY KEY (service, stream_id)
   );
   `,
+  // v21 — let a guide be upgraded the way an FAQ already can be.
+  //
+  // FAQs are refreshed when their text still matches a shipped default, which
+  // needs every old default kept as a string. Guides are far too long for
+  // that, so they were only ever replaced while they still carried the
+  // "edit me first" marker — meaning a guide with real content was frozen
+  // forever, however out of date it got. It matters more now: the bot sends
+  // guides to customers, so a stale one is an answer, not a panel page.
+  //
+  // The hash of the text we seeded is recorded instead. Unchanged hash means
+  // the admin never touched it, so it is safe to replace; anything else is
+  // their work and is left alone. No old bodies to keep, and it covers every
+  // future edit rather than just this one.
+  `
+  ALTER TABLE guides ADD COLUMN seed_hash TEXT;
+  `,
 ];
 
 export function migrate(db) {

@@ -5,6 +5,17 @@ import { embed, embedStatus } from '../../../ai/embeddings.js';
 import { testAiConnection } from '../../../ai/client.js';
 import { audit } from '../../../util.js';
 import { flash } from '../../middleware.js';
+import { addressLooksValid } from '../../../payments.js';
+
+// A wallet address is handed to customers exactly as typed, so a value that is
+// not even the right shape is rejected and the previous one kept, rather than
+// silently stored. Blank means "we no longer take this coin".
+function walletField(raw, coin, current) {
+  const v = String(raw ?? '').trim().slice(0, 128);
+  if (!v) return '';
+  return addressLooksValid(coin, v) ? v : String(current || '');
+}
+
 
 export const settingsRouter = Router();
 
@@ -35,6 +46,8 @@ settingsRouter.get('/bot', (req, res) => {
       downloadCode: getSetting('bot.downloadCode'),
       purpleCode: getSetting('apps.purpleCode'),
       skyGlassCode: getSetting('apps.skyGlassCode'),
+      ltcAddress: getSetting('payments.ltcAddress'),
+      btcAddress: getSetting('payments.btcAddress'),
       busyMessage: getSetting('bot.busyMessage'),
       greetingMessage: getSetting('bot.greetingMessage'),
       aiRephrase: getSetting('bot.aiRephrase'),
@@ -99,6 +112,12 @@ settingsRouter.post('/bot', (req, res) => {
     'bot.downloadCode': String(b.downloadCode || '').trim().slice(0, 32),
     'apps.purpleCode': String(b.purpleCode || '').trim().slice(0, 32),
     'apps.skyGlassCode': String(b.skyGlassCode || '').trim().slice(0, 32),
+    // Refused rather than stored when the shape is wrong: a mistyped address
+    // sends a customer's money somewhere unrecoverable, and the bot hands this
+    // value out verbatim. An empty field clears the coin, which stops it being
+    // offered at all.
+    'payments.ltcAddress': walletField(b.ltcAddress, 'ltc', getSetting('payments.ltcAddress')),
+    'payments.btcAddress': walletField(b.btcAddress, 'btc', getSetting('payments.btcAddress')),
     'bot.busyMessage': String(b.busyMessage || '').slice(0, 500),
     'bot.greetingMessage': String(b.greetingMessage || '').slice(0, 500),
     'bot.aiRephrase': b.aiRephrase === '1',

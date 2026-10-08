@@ -2,6 +2,7 @@ import { db, now } from '../db/db.js';
 import { getSetting, redactServiceUrls, withAdminContact } from '../settings.js';
 import { scoreFaq, tokens } from '../faq/matcher.js';
 import { scoreGuide } from '../guides.js';
+import { redactWalletAddresses } from '../payments.js';
 import { circuitOpen, circuitError, recordFailure, recordSuccess } from './breaker.js';
 import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail } from './guardrails.js';
 
@@ -157,7 +158,10 @@ export function buildSystemPrompt(question = '', providedFaqs = null) {
   // Redacted at the very end: even a URL the admin pasted into an FAQ or
   // guide must never reach the model — it would quote it to ANY user, and
   // each user may only ever receive their own service's URL.
-  return withAdminContact(redactServiceUrls([
+  // Addresses are scrubbed on the way IN as well: an address the admin
+  // pasted into a knowledge entry must not reach the model either, or it can
+  // quote it back slightly wrong.
+  return withAdminContact(redactWalletAddresses(redactServiceUrls([
     instructions,
     '',
     'STRICT RULES — follow these exactly:',
@@ -188,7 +192,7 @@ export function buildSystemPrompt(question = '', providedFaqs = null) {
     '',
     '# KNOWLEDGE',
     knowledge.join('\n\n') || '(no FAQ or guides configured yet)',
-  ].join('\n')));
+  ].join('\n'))));
 }
 
 // A slow CPU node has TWO very different silences, and only one of them means
@@ -602,7 +606,11 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
 
   // Belt to the prompt redaction's braces: even if a service URL sneaks into
   // a reply (user pasted it, model recombined it), it never goes out.
-  return redactServiceUrls(reply);
+  // A wrong crypto address costs the customer their money with no recourse,
+  // and a model copying a 42-character string is exactly where that happens.
+  // Anything address-shaped is replaced, matching a stored address or not —
+  // an invented one looks just as plausible to the person pasting it.
+  return redactWalletAddresses(redactServiceUrls(reply));
 }
 
 // Reword a canned reply so the bot doesn't repeat itself verbatim. The saved

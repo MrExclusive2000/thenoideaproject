@@ -16,6 +16,7 @@ import { lookupAnswer, rememberAnswer, cacheable } from '../ai/answer-cache.js';
 import { circuitOpen } from '../ai/breaker.js';
 import { looksLikeChannelQuestion, channelGrounding } from '../xc.js';
 import { looksLikeGuideRequest, findGuide, visibleGuides, mdToPlain } from '../guides.js';
+import { looksLikeWalletRequest, walletMessage } from '../payments.js';
 import {
   queueProblemAlert, setProblemRearmHook, maybeAutoDegrade,
   looksLikeCaseClose, caseNumbersIn, closeCaseAsAdmin,
@@ -796,6 +797,20 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
       setLogSource(logId, 'capability');
       await ctx.api.sendMessage(ctx.chat.id, withAdminContact(msg), replyParams);
       return 'capability';
+    }
+  }
+
+  // "Where do I send it?" is answered from settings, never by the model. A
+  // crypto address is the one value here where a single wrong character costs
+  // the customer their money with no way back, so it is sent verbatim by code
+  // or not at all — and the model's output is scrubbed of anything
+  // address-shaped on the way out.
+  if (looksLikeWalletRequest(question)) {
+    const msg = walletMessage(question);
+    if (msg) {
+      setLogSource(logId, 'wallet', msg);
+      await sendChunked(ctx.api, ctx.chat.id, msg, replyParams);
+      return 'wallet';
     }
   }
 

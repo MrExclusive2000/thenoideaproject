@@ -13,6 +13,7 @@ import { state } from '../state.js';
 import { localBuild, updateCheck, describeUpdate, applyUpdate } from '../build.js';
 import { xcConfigured, refreshChannels, channelCount, channelsUpdatedAt, findChannels, xcLastError, epgCacheStats } from '../xc.js';
 import { mdToPlain } from '../guides.js';
+import { addressLooksValid, acceptedCoins } from '../payments.js';
 
 const isPrivate = (ctx) => ctx.chat?.type === 'private';
 
@@ -298,6 +299,8 @@ export function registerCommands(bot) {
     purple: { key: 'apps.purpleCode', label: 'Purple App code' },
     download: { key: 'bot.downloadCode', label: '/download code' },
     admin: { key: 'bot.adminContact', label: 'admin contact' },
+    ltc: { key: 'payments.ltcAddress', label: 'Litecoin wallet address', coin: 'ltc' },
+    btc: { key: 'payments.btcAddress', label: 'Bitcoin wallet address', coin: 'btc' },
   };
 
   bot.command('set', async (ctx) => {
@@ -314,9 +317,21 @@ export function registerCommands(bot) {
       );
     }
     if (!value) return ctx.reply(`${target.label} is currently: ${getSetting(target.key) || 'not set'}\n\nTo change it: /set ${name} <value>`);
+    // A mistyped wallet address sends a customer's money nowhere recoverable,
+    // so a value that is not even the right SHAPE is refused outright rather
+    // than stored and handed out.
+    if (target.coin && !addressLooksValid(target.coin, value)) {
+      return ctx.reply(`\u274c That does not look like a ${target.label.replace(' wallet address', '')} address, so I have not saved it. Paste the receive address exactly as your wallet shows it.`);
+    }
     const before = getSetting(target.key) || 'not set';
-    setSetting(target.key, value.slice(0, 64));
+    setSetting(target.key, value.slice(0, 128));
     audit('admin', `tg:${ctx.from.id}`, 'settings.update', `${target.key}: ${before} -> ${value}`);
+    if (target.coin) {
+      const taking = acceptedCoins().map((c) => c.code).join(' and ');
+      return ctx.reply(
+        `✅ ${target.label} saved.\n\n${value}\n\nCheck that against your wallet before anyone pays — I hand this out exactly as written and a wrong address cannot be undone. Now taking: ${taking}.`
+      );
+    }
     await ctx.reply(`✅ ${target.label} changed from ${before} to ${value}.\n\nEvery entry using the placeholder now says ${value} — nothing else to edit.`);
   });
 

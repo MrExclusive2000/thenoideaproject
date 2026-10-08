@@ -1,6 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -108,9 +109,10 @@ test('upgrade pass refreshes untouched defaults but never edited content', () =>
   db.prepare('UPDATE faqs SET answer = ? WHERE question = ?')
     .run('MY CUSTOM ANSWER', 'Can I use a VPN with the app?');
   // Guides still carrying the old placeholder marker get replaced too.
-  db.prepare('UPDATE guides SET body_md = ?, visible = 0 WHERE slug = ?')
+  // A row from before guides recorded a seed hash: NULL hash, placeholder body.
+  db.prepare('UPDATE guides SET body_md = ?, visible = 0, seed_hash = NULL WHERE slug = ?')
     .run('> **Admin: edit this guide first!** Replace ANDROID-INSTALLER-LINK...', 'install-android');
-  db.prepare('UPDATE guides SET body_md = ? WHERE slug = ?')
+  db.prepare('UPDATE guides SET body_md = ?, seed_hash = NULL WHERE slug = ?')
     .run('my own firestick guide text', 'install-firestick');
   db.prepare("DELETE FROM faqs WHERE question = 'How do I pay with crypto?'").run();
 
@@ -340,4 +342,48 @@ test('the Sky Glass entry ships ready to use and owns sky-glass questions', () =
   // ...and app-comparison questions stay with the which-app FAQ.
   const { match: cmp } = matchFaq('is purple better than smarters', faqs, 0.5);
   assert.match(cmp.question, /Which app should I use/, `comparison matched wrong FAQ: ${cmp?.question}`);
+});
+
+test('a guide the admin never touched is refreshed; one they rewrote is not', () => {
+  // Guides are sent to customers now, so a stale one is an answer, not just a
+  // panel page. They are far too long to keep every previous body as a string
+  // the way FAQ upgrades do, so what we shipped is recorded as a hash.
+  db.prepare('DELETE FROM guides').run();
+  setSetting('seed.version', 0);
+  seedStarterContent();
+
+  const pay = db.prepare("SELECT * FROM guides WHERE slug = 'pay-with-crypto'").get();
+  assert.ok(pay.seed_hash, 'what we shipped is recorded');
+
+  // Pretend a later version ships different text for both guides.
+  db.prepare("UPDATE guides SET body_md = 'OLD SHIPPED TEXT', seed_hash = ? WHERE slug = 'pay-with-crypto'")
+    .run(createHash('sha256').update('OLD SHIPPED TEXT').digest('hex').slice(0, 32));
+  db.prepare("UPDATE guides SET body_md = 'MY OWN WORDS' WHERE slug = 'install-firestick'").run();
+
+  setSetting('seed.version', 0);
+  seedStarterContent();
+
+  const after = db.prepare("SELECT * FROM guides WHERE slug = 'pay-with-crypto'").get();
+  assert.match(after.body_md, /Exodus/, 'untouched guide refreshed to the current text');
+  assert.equal(after.seed_hash, createHash('sha256').update(after.body_md).digest('hex').slice(0, 32),
+    'and the new text is recorded, so the next upgrade still works');
+  assert.equal(db.prepare("SELECT body_md FROM guides WHERE slug = 'install-firestick'").get().body_md,
+    'MY OWN WORDS', 'a rewritten guide is never overwritten');
+});
+
+test('the payment guide and knowledge cover Bitcoin as well as Litecoin', () => {
+  db.prepare('DELETE FROM guides').run();
+  db.prepare('DELETE FROM faqs').run();
+  setSetting('seed.version', 0);
+  seedStarterContent();
+  const pay = db.prepare("SELECT * FROM guides WHERE slug = 'pay-with-crypto'").get();
+  assert.match(pay.body_md, /Bitcoin \(BTC\)/);
+  assert.match(pay.body_md, /cannot be reversed/i, 'the irreversibility warning is on the paying step');
+  const crypto = db.prepare("SELECT answer FROM faqs WHERE question = 'How do I pay with crypto?'").get();
+  assert.match(crypto.answer, /Bitcoin \(BTC\)/);
+  // No address is ever written into content — they come from settings, by code.
+  for (const f of STARTER_FAQS) {
+    assert.doesNotMatch(f.answer, /\b(bc1|ltc1)[0-9a-z]{20,}|\b[13LM][a-km-zA-HJ-NP-Z1-9]{24,}/,
+      `an address must never be baked into content: ${f.question}`);
+  }
 });

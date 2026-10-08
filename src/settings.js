@@ -61,6 +61,12 @@ const DEFAULTS = {
   // questions correctly on day one instead of printing "[code not set]".
   'apps.purpleCode': '3775005',
   'apps.skyGlassCode': '3793766',
+  // Wallet addresses. A coin with no address set is not offered to anyone —
+  // saying "we take Bitcoin" with nowhere to send it is worse than not
+  // offering it. These NEVER enter the AI prompt and never come out of the
+  // model: the bot sends them itself, verbatim (see src/payments.js).
+  'payments.ltcAddress': '',
+  'payments.btcAddress': '',
   // Appended to the LAST round of fixes — the next "still broken" reply
   // really does get flagged, so this note may promise it. Empty = off.
   'bot.problemFollowupNote': "Still happening after trying these? Reply here and I'll flag it straight to the team.",

@@ -2852,3 +2852,38 @@ test('a statement about a guide is not a request for one', async () => {
   const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
   assert.notEqual(result, 'guide');
 });
+
+// --- wallet addresses never pass through the model ---------------------------
+
+test('asking where to send payment is answered from settings, not by the AI', async () => {
+  setSetting('payments.ltcAddress', 'LbTpcL1qLMoCDbcZ4oVVnzZDNnFC5Y8PLJ');
+  setSetting('payments.btcAddress', 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq');
+  lastAiRequest = null;
+  const ctx = fakeCtx('whats the ltc wallet address');
+  const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.equal(result, 'wallet');
+  assert.equal(lastAiRequest, null, 'the model is never asked to produce an address');
+  assert.ok(ctx.sent[0].msg.split('\n').includes('LbTpcL1qLMoCDbcZ4oVVnzZDNnFC5Y8PLJ'),
+    'sent verbatim, on its own line');
+});
+
+test('an address invented by the model never reaches a customer', async () => {
+  // The failure that costs real money: not the model quoting our address, but
+  // the model producing a plausible one of its own.
+  aiResponse = "Send the payment to LbTpcL1qLMoCDbcZ4oVVnzZDNnFC5Y8PLX and we'll activate you.";
+  const ctx = fakeCtx('my picture keeps freezing on sky sports, any ideas?');
+  await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  const msg = ctx.sent.map((s) => s.msg).join('\n');
+  assert.doesNotMatch(msg, /LbTpcL1qLMoCDbcZ4oVVnzZDNnFC5Y8PLX/, 'invented address stripped');
+  assert.match(msg, /ask me for the wallet address/i);
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('a wallet address pasted into knowledge never reaches the prompt', () => {
+  db.prepare(`INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at)
+              VALUES ('Where do I send the money for renewals?', 'Send it to LbTpcL1qLMoCDbcZ4oVVnzZDNnFC5Y8PLJ and screenshot it.', 'renewal money', 1, 0, 0, 0)`).run();
+  const prompt = buildSystemPrompt('where do i send the money for renewals');
+  assert.doesNotMatch(prompt, /LbTpcL1qLMoCDbcZ4oVVnzZDNnFC5Y8PLJ/,
+    'a model given an address will quote it, and sometimes quote it wrong');
+  db.prepare("DELETE FROM faqs WHERE question = 'Where do I send the money for renewals?'").run();
+});

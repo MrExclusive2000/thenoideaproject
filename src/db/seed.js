@@ -1,10 +1,11 @@
+import { createHash } from 'node:crypto';
 import { db, now } from './db.js';
 import { getSetting, setSetting } from '../settings.js';
 
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 27;
+const SEED_VERSION = 28;
 
 export const STARTER_FAQS = [
   {
@@ -142,7 +143,7 @@ export const STARTER_FAQS = [
   },
   {
     question: 'What payment methods do you take — can I pay by card or PayPal?',
-    answer: "We take crypto — Litecoin (LTC). Don't let that put you off if you've never used it: the payment guide walks you through it step by step, and you can buy the LTC with a normal bank card in about 10 minutes (Exodus wallet + MoonPay). Ask the admin if you need to arrange a different option.",
+    answer: "We take crypto — Litecoin (LTC) or Bitcoin (BTC), whichever suits you. Don't let that put you off if you've never used it: you can buy either with a normal bank card in about 10 minutes (Exodus wallet + MoonPay), and I'll walk you through it — just ask me for the payment guide and I'll post the steps here.\nWhen you're ready to send, ask me for the wallet address and I'll give you the right one. Ask the admin if you need to arrange a different option.",
     keywords: 'card, paypal, bank, transfer, methods, method, revolut, cash, debit, credit, pay, paying',
   },
   {
@@ -161,13 +162,13 @@ export const STARTER_FAQS = [
   },
   {
     question: 'How do I check or renew my subscription?',
-    answer: 'To check your status and expiry date, or to renew, {admin}. We take crypto (Litecoin): the payment guide walks you through it step by step, and we’ll send you the wallet address and exact amount.',
+    answer: 'To check your status and expiry date, or to renew, {admin}. We take crypto — Litecoin (LTC) or Bitcoin (BTC). Ask me for the payment guide and I’ll post the steps, and ask me for the wallet address when you’re ready — the admin confirms the exact amount.',
     keywords: 'renew, renewal, expire, expiry, expired, subscription, sub, payment, pay, account',
   },
   {
     question: 'How do I pay with crypto?',
-    answer: "We take Litecoin (LTC), and any wallet works — Exodus is the easiest if you’re new:\n1. Download Exodus from exodus.com and set it up.\n2. Tap Buy Crypto, pick Litecoin (LTC), and buy the amount we tell you (first time may need quick ID verification with the payment partner).\n3. Tap Send, paste the wallet address we give you (double-check it — LTC only), enter the amount and confirm.\n4. Send us a screenshot of the confirmation and we’ll activate or renew you.\nFull walkthrough with pictures is in the payment guide.",
-    keywords: 'pay, payment, crypto, litecoin, ltc, bitcoin, wallet, exodus, moonpay, buy, send',
+    answer: "We take Litecoin (LTC) or Bitcoin (BTC), and any wallet works — Exodus is the easiest if you’re new:\n1. Download Exodus from exodus.com and set it up.\n2. Tap Buy Crypto, pick Litecoin or Bitcoin, and buy the amount we tell you (first time may need quick ID verification with the payment partner).\n3. Ask me for the wallet address — I’ll send you the right one for the coin you’re using. Tap Send in Exodus, paste it in, and check it matches before you confirm.\n4. Make sure you send the coin that matches the address — LTC to the LTC address, BTC to the BTC address. Sending the wrong coin loses it.\n5. Send us a screenshot of the confirmation and we’ll activate or renew you.\nWant the full walkthrough? Ask me for the payment guide and I’ll post it here.",
+    keywords: 'pay, payment, crypto, litecoin, ltc, bitcoin, btc, coin, wallet, address, exodus, moonpay, buy, send',
   },
   {
     question: "The app says my login is wrong or my account doesn't work",
@@ -197,6 +198,16 @@ export const STARTER_FAQS = [
 ];
 
 const EDIT_MARKER = 'Admin: edit this guide first!';
+
+// Records WHAT WE SHIPPED so a later version can tell "still ours" from
+// "the admin rewrote it". Guides run to thousands of characters, so keeping
+// every previous body the way the FAQ upgrade does is not practical.
+const seedHash = (body) => createHash('sha256').update(String(body)).digest('hex').slice(0, 32);
+
+function insertGuide(g, sort, t) {
+  db.prepare('INSERT INTO guides (title, slug, body_md, sort, visible, seed_hash, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(g.title, g.slug, g.body_md, sort, g.visible, seedHash(g.body_md), t);
+}
 
 const STARTER_GUIDES = [
   {
@@ -291,7 +302,7 @@ The panel includes:
 Simply log in with your account details and all services assigned to you appear automatically.`,
   },
   {
-    title: 'How to pay with crypto (Litecoin)',
+    title: 'How to pay with crypto (Litecoin or Bitcoin)',
     slug: 'pay-with-crypto',
     visible: 1,
     body_md: `> 🚨 **This is just a guide — you can use ANY wallet.** Exodus is simply an easy one to start with.
@@ -307,23 +318,32 @@ Simply log in with your account details and all services assigned to you appear 
 1. Go to https://www.exodus.com
 2. Download the wallet for your device and set it up.
 
-## Step 2 — Buy Litecoin (LTC)
+## Step 2 — Buy Litecoin (LTC) or Bitcoin (BTC)
+
+We take either. Litecoin usually costs less to send, so pick that if you have no preference.
 
 Exodus lets you buy in-app through payment partners like MoonPay.
 
 1. Open Exodus and tap **Buy Crypto**.
-2. Select **Litecoin (LTC)**.
+2. Select **Litecoin (LTC)** or **Bitcoin (BTC)**.
 3. Choose the amount — **we'll give you the exact amount** — and pick your payment method.
 4. Follow the payment partner's steps (first purchase may need a quick ID verification).
-5. The LTC lands in your wallet automatically after payment.
+5. The coins land in your wallet automatically after payment.
 
 ## Step 3 — Send it to us
 
-1. Go to the **Wallet** tab and select **Litecoin (LTC)**.
-2. Tap **Send**.
-3. Enter the wallet address **we give you** — double-check it's exactly right and that it's the LTC address.
-4. Enter the amount and press **Send** to confirm.
-5. You'll see a confirmation and the transaction appears in your history — **send us a screenshot** and we'll activate or renew your service.
+1. **Ask the bot for the wallet address** — send it "whats the wallet address" and it gives you
+   the right one. Every coin has its own address, so never reuse one for a different coin.
+2. Go to the **Wallet** tab in Exodus and select the coin you bought.
+3. Tap **Send**.
+4. Paste the address and **check it character for character against the one the bot sent you**.
+   A crypto transfer cannot be reversed or refunded, so this is the step to be slow on.
+5. Enter the amount and press **Send** to confirm.
+6. You'll see a confirmation and the transaction appears in your history — **send us a screenshot** and we'll activate or renew your service.
+
+> **Addresses change between coins, never between payments.** Exodus may show you a fresh
+> receive address of your own each time — that is normal and is for money coming IN to you.
+> The address you send OUR payment to is the one the bot gives you.
 
 ## Important notice
 
@@ -428,6 +448,15 @@ const V26_FIRESTICK =
 const V26_FRIEND =
   "Happy to get them set up!\n1. First they need their own login (username + password) \u2014 ask the admin here in the group, or {admin} to sort out access and pricing.\n2. Bring them into this group: send me /invite and I'll give you a personal one-use invite link for them.\n3. Once they have their login, installing takes two minutes: enter code {skyglass} in the Downloader app, install Sky Glass and sign in \u2014 full steps in the Firestick guide.";
 
+// v27: Litecoin only, and the payment answers ended by pointing at a guide
+// the customer could not reach.
+const V27_METHODS =
+  "We take crypto \u2014 Litecoin (LTC). Don't let that put you off if you've never used it: the payment guide walks you through it step by step, and you can buy the LTC with a normal bank card in about 10 minutes (Exodus wallet + MoonPay). Ask the admin if you need to arrange a different option.";
+const V27_RENEW =
+  'To check your status and expiry date, or to renew, {admin}. We take crypto (Litecoin): the payment guide walks you through it step by step, and we\u2019ll send you the wallet address and exact amount.';
+const V27_CRYPTO =
+  "We take Litecoin (LTC), and any wallet works \u2014 Exodus is the easiest if you\u2019re new:\n1. Download Exodus from exodus.com and set it up.\n2. Tap Buy Crypto, pick Litecoin (LTC), and buy the amount we tell you (first time may need quick ID verification with the payment partner).\n3. Tap Send, paste the wallet address we give you (double-check it \u2014 LTC only), enter the amount and confirm.\n4. Send us a screenshot of the confirmation and we\u2019ll activate or renew you.\nFull walkthrough with pictures is in the payment guide.";
+
 function previousDefaults(question) {
   const out = [];
   if (V1_ANSWERS[question]) out.push(V1_ANSWERS[question]);
@@ -437,6 +466,9 @@ function previousDefaults(question) {
   if (question === 'How do I install the apps?') out.push(V10_INSTALL_ANY, V11_INSTALL_ANY, V21_INSTALL_ANY);
   if (question === 'How do I install the app on my Firestick?') out.push(V21_FIRESTICK, V26_FIRESTICK);
   if (question === 'How can my friend join the service?') out.push(V26_FRIEND);
+  if (question === 'What payment methods do you take — can I pay by card or PayPal?') out.push(V27_METHODS);
+  if (question === 'How do I check or renew my subscription?') out.push(V27_RENEW);
+  if (question === 'How do I pay with crypto?') out.push(V27_CRYPTO);
   if (question === 'How do I install the app on an Android phone or tablet?') out.push(V10_ANDROID, V21_ANDROID);
   if (question === 'How do I update the app to the latest version?') out.push(V10_UPDATE, V11_UPDATE, V21_UPDATE);
   if (question === 'Which app should I use — Purple, XC or Smarters?') out.push(V11_WHICH_APP, V25_WHICH_APP);
@@ -514,13 +546,20 @@ function upgradeStarterContent() {
     STARTER_GUIDES.forEach((g, i) => {
       const row = getGuide.get(g.slug);
       if (!row) {
-        db.prepare('INSERT INTO guides (title, slug, body_md, sort, visible, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-          .run(g.title, g.slug, g.body_md, i, g.visible, t);
-      } else if (row.body_md.includes(EDIT_MARKER)) {
-        // Still the unedited placeholder version — replace with the new one.
-        db.prepare('UPDATE guides SET title = ?, body_md = ?, visible = ?, updated_at = ? WHERE id = ?')
-          .run(g.title, g.body_md, g.visible, t, row.id);
+        insertGuide(g, i, t);
+        return;
       }
+      // Replace when the admin has not touched it: either the recorded hash
+      // of what we seeded still matches, or it is an old install that still
+      // carries the "edit me first" placeholder. An edited guide is their
+      // work and is never overwritten — but it also never gets our fixes, so
+      // the hash is re-recorded on every refresh to keep the chain going.
+      const untouched = row.seed_hash
+        ? row.seed_hash === seedHash(row.body_md)
+        : row.body_md.includes(EDIT_MARKER);
+      if (!untouched) return;
+      db.prepare('UPDATE guides SET title = ?, body_md = ?, visible = ?, seed_hash = ?, updated_at = ? WHERE id = ?')
+        .run(g.title, g.body_md, g.visible, seedHash(g.body_md), t, row.id);
     });
   });
   tx();
@@ -538,9 +577,8 @@ export function seedStarterContent() {
       db.prepare('SELECT COUNT(*) n FROM guides').get().n === 0) {
     const added = addStarterFaqs();
     const t = now();
-    const insert = db.prepare('INSERT INTO guides (title, slug, body_md, sort, visible, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
     const tx = db.transaction(() => {
-      STARTER_GUIDES.forEach((g, i) => insert.run(g.title, g.slug, g.body_md, i, g.visible, t));
+      STARTER_GUIDES.forEach((g, i) => insertGuide(g, i, t));
     });
     tx();
     console.log(`Seeded ${added} starter FAQs and ${STARTER_GUIDES.length} guides (guides with placeholders ship hidden — edit them in the panel, then make them visible).`);
