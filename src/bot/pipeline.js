@@ -1544,6 +1544,31 @@ function negatesFixes(text) {
 }
 
 // "that fixed it", "working now", "all good" — the problem is over.
+// "It's working now" always closes a case — they said so. A bare "thanks"
+// only does when the bot's last word to them was the fixes: thanks after an
+// invite link, a wallet address or a guide is thanks for THAT.
+function thanksClosesCase(st, text) {
+  if (saysResolved(text)) return true;
+  if (!looksLikeThanks(text)) return false;
+  return Boolean(st?.answeredAt);
+}
+
+// Outcomes that have nothing to do with an open problem. When one of these
+// goes out while a case is open, the bot's last word was NOT the fixes — so a
+// "thanks" after it is thanks for the invite link, not a report that the
+// fault is gone. Clearing answeredAt is what the thanks rule reads.
+const ASIDE_OUTCOMES = new Set([
+  'invite', 'wallet', 'guide', 'vod-request', 'capability', 'greeting',
+  'help-ask', 'human-request', 'status', 'service-set', 'canned',
+  'credential-warning', 'smalltalk', 'offtopic',
+]);
+
+function noteAside(ctx, outcome) {
+  if (!ASIDE_OUTCOMES.has(outcome)) return;
+  if (!getProblemState(ctx.from?.id)) return;
+  setProblemState(ctx.from.id, { answeredAt: null });
+}
+
 function saysResolved(text) {
   return /\b(fixed|sorted|solved|resolved|working now|works now|all good|that (worked|did it)|back to normal|(fine|good|ok|okay|sorted|perfect) now|no more (buffering|freezing|lagging|issues?|problems?))\b/i.test(text);
 }
@@ -2667,7 +2692,14 @@ export async function handleGroupMessage(ctx) {
     if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
     return;
   }
-  if (st && (saysResolved(text) || looksLikeThanks(text)) && !saysStillBroken(text)) {
+  // A bare "thanks" closes a case only when the last thing the bot said was
+  // actually about that case. Live: a stale case was open, the customer asked
+  // for an invite link, got one, said "Thanks bud" — and was told "Great —
+  // glad it's sorted! 👍" about a fault nobody had touched, which also closed
+  // the case. They were thanking us for the link. answeredAt is cleared
+  // whenever an unrelated answer goes out, so it reads as "we gave them fixes
+  // and nothing has happened since".
+  if (st && thanksClosesCase(st, text) && !saysStillBroken(text)) {
     clearProblemState(ctx.from.id);
     resolveOpenCase(ctx.from.id, 'user', st?.caseId);
     setLogSource(logId, 'resolved');
@@ -2884,6 +2916,7 @@ export async function handleGroupMessage(ctx) {
   }
 
   const outcome = await answer(ctx, question, { isDm: false, logId, history, skipFaq: isFollowUp, suffix: problemSuffix, prefix: problemPrefix, assumeOnTopic: isFollowUp, directed: mentioned || isFollowUp });
+  noteAside(ctx, outcome);
 
   // Only mark the report answered when a real answer actually went out —
   // and remember WHEN, so too-quick confirmations can be nudged.
@@ -2924,7 +2957,8 @@ async function handleDmProblemReply(ctx, text, logId) {
     if (msg) await send(msg);
     return true;
   }
-  if ((saysResolved(text) || looksLikeThanks(text)) && !saysStillBroken(text)) {
+  // Same rule as the group: see thanksClosesCase.
+  if (thanksClosesCase(st, text) && !saysStillBroken(text)) {
     clearProblemState(ctx.from.id);
     resolveOpenCase(ctx.from.id, 'user', st?.caseId);
     setLogSource(logId, 'resolved');
@@ -3176,6 +3210,7 @@ export async function handleDirectMessage(ctx) {
   }
 
   const outcome = await answer(ctx, text, { isDm: true, logId, suffix: problemSuffix, prefix: problemPrefix });
+  noteAside(ctx, outcome);
   if (problemId) {
     const gotAnswer = ['faq', 'ai'].includes(outcome);
     db.prepare('UPDATE problem_reports SET answered = ? WHERE id = ?').run(gotAnswer ? 1 : 0, problemId);

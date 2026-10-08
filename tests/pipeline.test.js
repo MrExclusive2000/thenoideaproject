@@ -5169,3 +5169,43 @@ test('banter and its steer are one message, and never parrot the customer', asyn
     setSetting('bot.offtopicBehavior', 'silent');
   }
 });
+
+test('"thanks" for an invite link does not close an unrelated open case', async () => {
+  // Live: a case was open from earlier, the customer asked for an invite
+  // link, got one, said "Thanks bud" — and was told "Great — glad it's
+  // sorted! 👍" about a fault nobody had touched, which also closed the case.
+  // They were thanking us for the link.
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.problemNudgeMinutes', 0);
+  setSetting('bot.thanksMessage', 'Anytime! 👍');
+  setSetting('bot.problemResolvedNote', "Great — glad it's sorted! 👍");
+  _resetProblemTriage();
+  db.prepare('DELETE FROM problem_reports WHERE tg_user_id IN (99701, 99702)').run();
+  db.prepare('INSERT OR REPLACE INTO allowed_chats (chat_id, title, enabled, added_at) VALUES (-100123, ?, 1, 0)').run('Test Group');
+
+  const open = (uid) => db.prepare('SELECT COUNT(*) n FROM problem_reports WHERE tg_user_id = ? AND resolved = 0').get(uid).n;
+
+  const report = fakeCtx('bbc1 keeps buffering', { userId: 99701 });
+  await handleDirectMessage(report, 'bbc1 keeps buffering');
+  assert.equal(open(99701), 1, 'case opened');
+
+  const invite = fakeCtx('Invite a mate', { userId: 99701 });
+  invite.api.createChatInviteLink = async () => ({ invite_link: 'https://t.me/+AbC123' });
+  await handleDirectMessage(invite, 'Invite a mate');
+  assert.match(invite.sent.map((s) => s.msg).join('\n'), /personal invite/i);
+
+  const thanks = fakeCtx('Thanks bud', { userId: 99701 });
+  await handleDirectMessage(thanks, 'Thanks bud');
+  const msg = thanks.sent.map((s) => s.msg).join('\n');
+  assert.doesNotMatch(msg, /glad it's sorted/i, 'nothing was sorted');
+  assert.equal(open(99701), 1, 'and the case is still open');
+
+  // Thanks straight after the fixes still closes it — that is the whole
+  // point of the rule, and it must not be lost to the fix.
+  const second = fakeCtx('itv2 keeps freezing', { userId: 99702 });
+  await handleDirectMessage(second, 'itv2 keeps freezing');
+  const worked = fakeCtx('cheers mate that worked', { userId: 99702 });
+  await handleDirectMessage(worked, 'cheers mate that worked');
+  assert.match(worked.sent.map((s) => s.msg).join('\n'), /glad it's sorted/i);
+  assert.equal(open(99702), 0, 'closed');
+});
