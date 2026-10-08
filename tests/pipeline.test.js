@@ -9,7 +9,7 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-test-'));
 
 const { db } = await import('../src/db/db.js');
 const { setSetting, getSetting } = await import('../src/settings.js');
-const { answer, handleDirectMessage, handleGroupMessage, replyContext, _resetProblemTriage, _resetSmallTalk } = await import('../src/bot/pipeline.js');
+const { answer, handleDirectMessage, handleGroupMessage, replyContext, _resetProblemTriage, _resetSmallTalk, _resetUpset } = await import('../src/bot/pipeline.js');
 const { _aiQueueState, askAi, buildSystemPrompt } = await import('../src/ai/client.js');
 const { flushProblemAlerts, _resetProblemQueue, autoCloseSweep } = await import('../src/bot/problems.js');
 const { hub } = await import('../src/bot/hub.js');
@@ -4308,6 +4308,152 @@ test('a complaint with a symptom in it is answered, not de-escalated', async () 
   }
 });
 
+test('the anger vocabulary is wide enough to actually catch anger', async () => {
+  // Simulated customers, and the list was far too short to be any use.
+  // "This is dogshit" got a joke back (the banter pass), and "you lot are
+  // useless" got the off-topic brush-off — because "dogshit" was not in the
+  // word list and "lot" was not in the filler list. Both of those are worse
+  // than saying nothing to someone who is already cross.
+  const { _looksLikeFrustration: upset } = await import('../src/bot/pipeline.js');
+
+  for (const t of [
+    'this is dogshit',
+    'you lot are useless',
+    'what an absolute scam',
+    'this app is shit',
+    'youre a waste of space',
+    'this is a ripoff',
+    'what a shambles',
+    'bollocks to this',
+    'utter garbage you lot are',
+    'what a con',
+    'you thieving bastards',
+    'terrible app',
+  ]) assert.ok(upset(t), `anger: ${t}`);
+
+  // A symptom still beats a swear word: these have something to answer and
+  // must reach the model rather than a canned de-escalation.
+  for (const t of [
+    'the picture is terrible',
+    'my app is shit on firestick',
+    'the streams are shit',
+    'sound is awful on bbc1',
+    'terrible buffering tonight',
+    'the epg is rubbish on sky sports',
+    'that film was dreadful',
+  ]) assert.equal(upset(t), null, `has content to answer: ${t}`);
+
+  // And banter is still banter.
+  for (const t of ['tell me a joke', 'whats the weather like']) {
+    assert.equal(upset(t), null, `not anger: ${t}`);
+  }
+});
+
+test('four things simulated customers said that landed badly', async () => {
+  // All four came out of driving the real pipeline with scripted customers,
+  // and none of them was covered by a test.
+  const { _looksLikeThanks: thanks, _looksLikeHelpRequest: helpAsk, _looksLikeFrustration: upset } =
+    await import('../src/bot/pipeline.js');
+  const { isLikelyInScope } = await import('../src/bot/helpers.js');
+
+  // 1. "I want my money back" carries no service vocabulary at all — not even
+  // the word refund — so it was filed as banter and answered with a joke.
+  for (const t of [
+    'i want my money back',
+    'can i get my money back please',
+    'give me a refund',
+    'i paid for nothing',
+  ]) assert.equal(isLikelyInScope(t), true, `money: ${t}`);
+
+  // 2. A thank-you longer than six words was answered with troubleshooting.
+  assert.ok(thanks('thank you so much, you have been very kind'));
+  assert.ok(thanks('thanks for the help, really appreciate it'));
+  // ...but a thank-you with a question or a live fault in it is neither.
+  assert.equal(thanks('thanks but its still not working'), false);
+  assert.equal(thanks('cheers, do you know when itll be fixed'), false);
+  assert.equal(thanks('thank you, the app wont open though'), false);
+  assert.equal(thanks('cheers whats the ltc address'), false);
+
+  // 3. "I'm not very good with these things" got the off-topic brush-off,
+  // which is about the least helpful thing to say to someone struggling.
+  for (const t of [
+    'i am not very good with these things',
+    'im useless with tech',
+    'not very techy me',
+    'i am not good with computers',
+  ]) assert.equal(helpAsk(t), true, `asking for help: ${t}`);
+  assert.equal(helpAsk('im not very good at football'), false, 'not every modesty is an ask');
+
+  // 4. "This service is a joke" has an anger word in it and fell over on the
+  // word "service", so it was treated as a service question nobody could
+  // answer: "I'm not totally sure on that one."
+  assert.equal(upset('this service is a joke'), 'abuse');
+  assert.equal(upset('is the service down'), null, 'still a real question');
+
+  // 5. "alo" is a hello. It was getting "that one's a bit above my pay
+  // grade" — as somebody's first impression of the service.
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.greetingMessage', 'Hey 👋 What can I sort for you?');
+  _resetProblemTriage();
+  const ctx = fakeCtx('alo', { userId: 99981 });
+  assert.equal(await answer(ctx, 'alo', { isDm: true, logId: null }), 'greeting');
+});
+
+test('one rant is one apology and one admin DM, not five', async () => {
+  // A rant arrives as several messages. Each one got the same apology word
+  // for word and sent the admin another DM — so one angry customer looked
+  // like five, and the bot sounded like a machine that had heard none of it.
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.frustrationMessage', "Sorry — I'm not getting this right.");
+  setSetting('bot.frustrationRepeatMessage', 'I hear you. The team already has this.');
+  setSetting('reports.alertFrustrated', true);
+  setSetting('reports.adminTelegramIds', [777]);
+  setSetting('bot.offtopicBehavior', 'redirect');
+  _resetProblemTriage();
+  _resetSmallTalk();
+  _resetUpset();
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
+
+  const said = [];
+  for (const t of ['this is dogshit', 'you lot are useless', 'absolute joke']) {
+    const ctx = fakeCtx(t, { userId: 99961 });
+    assert.equal(await answer(ctx, t, { isDm: true, logId: null }), 'frustrated', t);
+    said.push(ctx.sent.map((x) => x.msg).join('\n'));
+  }
+  assert.match(said[0], /not getting this right/, 'the first one apologises');
+  assert.match(said[1], /team already has this/, 'the rest say a human now knows');
+  assert.match(said[2], /team already has this/);
+  assert.equal(adminDms.length, 1, 'one notification for one angry customer');
+
+  // A DIFFERENT person inside the same window still gets through — that was
+  // deliberate before this change and must stay that way.
+  const other = fakeCtx('youre useless', { userId: 99962 });
+  await answer(other, 'youre useless', { isDm: true, logId: null });
+  assert.equal(adminDms.length, 2, 'a second person is a second alert');
+  hub.api = null;
+});
+
+test('"are you a bot" is answered out loud, then with the list', async () => {
+  // It was answered with nothing but the bulleted capability list — a leaflet
+  // handed to someone who had just said hello. One message, lead-in first.
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.capabilityMessage', "Here's what I can help with:\n• Installs\n• Logins");
+  setSetting('bot.botAdmissionMessage', "Guilty — I'm a bot.");
+  _resetProblemTriage();
+
+  const ctx = fakeCtx('you a real person or a bot', { userId: 99963 });
+  assert.equal(await answer(ctx, 'you a real person or a bot', { isDm: true, logId: null }), 'capability');
+  assert.equal(ctx.sent.length, 1, 'one message, not a lead-in and then a list');
+  assert.match(ctx.sent[0].msg, /^Guilty — I'm a bot\./, 'it answers the question asked');
+  assert.match(ctx.sent[0].msg, /Installs/, 'and still says what it can do');
+
+  // "What can you do?" is a different question and gets the list alone.
+  const what = fakeCtx('what can you do', { userId: 99964 });
+  assert.equal(await answer(what, 'what can you do', { isDm: true, logId: null }), 'capability');
+  assert.doesNotMatch(what.sent[0].msg, /Guilty/, 'no admission where none was asked for');
+});
+
 test('giving up mid-case goes straight to a human, skipping more fixes', async () => {
   // The whole point: a customer who says "balls to it" does not want a second
   // round of troubleshooting. Escalate, apologise, and tell the admin.
@@ -4342,6 +4488,60 @@ test('giving up mid-case goes straight to a human, skipping more fixes', async (
   const row = db.prepare('SELECT * FROM problem_reports WHERE tg_user_id = 99925 ORDER BY id DESC LIMIT 1').get();
   assert.equal(row.escalated, 1, 'case escalated');
   hub.api = null;
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('an escalated case that is reported again is not disowned', async () => {
+  // Live shape, found by simulating customers: the bot sends "✅ Flagged to
+  // the team — no need to report it again. Your reference is #1", and one
+  // message later, to "it's still cutting out", answers "I'm not totally sure
+  // on that one — message the admin". It disowns a case it has just taken and
+  // sends them to do the thing it told them not to bother doing.
+  //
+  // Two faults, one symptom: nothing handled a repeat report on an escalated
+  // case, AND "still not working" was read as a DIFFERENT problem (its topic
+  // word is "not working", the case's was "keep buffering"), which threw the
+  // case away and answered a regular as a stranger.
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.problemFixRounds', 1);
+  setSetting('bot.problemNudgeMinutes', 0);
+  setSetting('bot.problemFlaggedNote', '✅ Flagged to the team.');
+  setSetting('bot.problemServiceQuestion', '');
+  setSetting('bot.problemAlreadyFlaggedNote', "Still with the team — ref #{case}. Nothing more you need to do.");
+  setSetting('bot.unsureMessage', "I'm not totally sure on that one.");
+  setSetting('service.status', 'operational');
+  setSetting('reports.adminTelegramIds', []);
+  _resetProblemTriage();
+  _resetProblemQueue();
+  _resetUpset();
+  db.prepare('DELETE FROM problem_reports').run();
+  aiResponse = 'Try a different link for the channel, then restart the app.';
+
+  await handleDirectMessage(fakeCtx('bbc1 keeps buffering', { userId: 99971 }), 'bbc1 keeps buffering');
+  const esc = fakeCtx('ive tried that', { userId: 99971 });
+  await handleDirectMessage(esc, 'ive tried that');
+  assert.match(esc.sent.map((s) => s.msg).join('\n'), /Flagged to the team/, 'case escalated');
+  const ref = db.prepare('SELECT id FROM problem_reports WHERE tg_user_id = 99971 ORDER BY id DESC LIMIT 1').get().id;
+
+  for (const t of ['its still buffering', 'still not working', 'no change']) {
+    const again = fakeCtx(t, { userId: 99971 });
+    await handleDirectMessage(again, t);
+    const reply = again.sent.map((s) => s.msg).join('\n');
+    assert.match(reply, /Still with the team/, `repeat report reassured: ${t}`);
+    assert.match(reply, new RegExp(`#${ref}\\b`), 'and told the reference they already have');
+    assert.doesNotMatch(reply, /not totally sure/, 'never handed back to the admin it just took it from');
+  }
+
+  // A genuinely DIFFERENT fault still opens its own case rather than being
+  // waved off with the old reference. (Fresh advice, or the repeat-detector
+  // would suppress the identical sentence and we would be testing that.)
+  aiResponse = 'Check the username and password are exactly as given, capitals included.';
+  const other = fakeCtx('now i cant log in at all', { userId: 99971 });
+  await handleDirectMessage(other, 'now i cant log in at all');
+  const otherReply = other.sent.map((s) => s.msg).join('\n');
+  assert.doesNotMatch(otherReply, /Still with the team/, 'a new fault is not the old one');
+  assert.match(otherReply, /username and password/, 'it gets answered');
+
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
 

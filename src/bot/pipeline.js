@@ -876,6 +876,9 @@ const GREETING_WORDS = new Set([
   // saying hello got told it was not our area.
   'sir', 'madam', 'maam', 'boss', 'chief', 'bro', 'bruv', 'fella', 'fellas',
   'gents', 'dude', 'folks', 'team', 'everybody', 'big', 'man', 'people',
+  // Typed fast, or on a phone. "alo" is a hello and it was getting "that
+  // one's a bit above my pay grade" — as somebody's first impression.
+  'alo', 'helo', 'ello', 'heya', 'heyy', 'heyyy', 'hiii', 'yoo', 'oi', 'ahoy',
 ]);
 const THANKS_CORE = new Set(['thanks', 'thank', 'cheers', 'ta', 'ty', 'tysm', 'appreciated', 'appreciate', 'legend', 'lifesaver']);
 const THANKS_EXTRA = new Set([
@@ -910,6 +913,17 @@ function looksLikeCapabilityQuestion(text) {
   const t = String(text || '').trim();
   if (t.length > 120) return false; // a long message is a real question with these words in it
   return CAPABILITY_RE.test(t) || IS_IT_HUMAN.test(t);
+}
+
+// Specifically "are you a bot / is this a real person", as opposed to "what
+// can you do". Both land on the capability answer, but only this one is a
+// question about what the bot IS, and it deserves saying so out loud.
+const ASKS_IF_BOT = /\b(?:are|is|r)\s+(?:you|u|this|that|it)\b[^.?!\n]{0,20}\b(?:bot|ai|robot|machine|human|real|automated|person)\b|\breal person or\b|\bam i (?:talking|speaking|chatting)\b/i;
+
+function asksIfBot(text) {
+  const t = String(text || '').trim();
+  if (!t || t.length > 120) return false;
+  return ASKS_IF_BOT.test(t) || /\b(?:you|u)\s+a\s+(?:real person|bot|human|robot)\b/i.test(t);
 }
 
 // Asking for a person. The single clearest signal a customer can send that
@@ -949,6 +963,7 @@ function looksLikeGreeting(text) {
 const CORE_GREETING = new Set([
   'hey', 'hi', 'hiya', 'hello', 'yo', 'howdy', 'hola', 'alright', 'alrite',
   'ayup', 'sup', 'wassup', 'morning', 'afternoon', 'evening', 'greetings',
+  'alo', 'helo', 'ello', 'heya', 'heyy', 'heyyy', 'hiii', 'yoo', 'oi', 'ahoy',
 ]);
 
 // A short pleasantry that is MOSTLY a greeting. The strict test above needs
@@ -1060,7 +1075,16 @@ const HELP_FILLER = new Set([
   'nee', 'ned', 'neeed', 'wnt', 'wud', 'cud', 'u', 'ur', 'abit',
 ]);
 
+// "I'm not very good with these things." Not a question, not a symptom, no
+// service vocabulary — so it got the off-topic brush-off, which is about the
+// least helpful thing you can say to somebody who has just admitted they are
+// struggling. It is an ask for help, phrased as an apology.
+const NOT_TECHY =
+  /\b(?:not|aint|ain'?t|im not|i'?m not)\s+(?:very|that|too|so|the)?\s*(?:good|great|clever|brainy|techy|technical|confident)\b[^.?!\n]{0,30}\b(?:tech\w*|computers?|these|this|them|it|gadgets?|phones?|stuff|things?)\b|\bi'?m (?:rubbish|useless|hopeless|clueless|terrible)\s+(?:with|at)\b|\bnot (?:very |that |too |overly |really |super )?(?:a )?tech ?(?:y|savvy|nical)\b|\b(?:computer|tech)\s+illiterate\b|\bno good with\b[^.?!\n]{0,20}\b(?:tech\w*|computers?|these|this)\b/i;
+
 function looksLikeHelpRequest(text) {
+  const t = String(text || '');
+  if (t.length <= 120 && NOT_TECHY.test(t) && !looksLikeProblem(t)) return true;
   const w = plainWords(text);
   if (!w.length || w.length > 7) return false;
   if (!w.some((x) => HELP_WORDS.has(x))) return false;
@@ -1090,6 +1114,20 @@ const ABUSE_WORDS = new Set([
   // Carrying content ("wtf is wrong with bbc1") fails the strict test below
   // and reaches the model as the question it is.
   'ffs', 'wtf', 'fs',
+  // The list was too short to be any use. "This is dogshit" got a joke back
+  // and "you lot are useless" got the off-topic brush-off, because neither
+  // word was here. An angry customer answered with banter is an angry
+  // customer who leaves.
+  'dogshit', 'dogshite', 'bullshit', 'bs', 'shithouse', 'trash', 'bollocks',
+  'cack', 'bobbins', 'naff', 'awful', 'terrible', 'horrible', 'horrendous',
+  'dreadful', 'abysmal', 'atrocious', 'appalling', 'dire', 'brutal',
+  'shambles', 'farce', 'disgrace', 'disgraceful', 'embarrassing', 'laughable',
+  'worthless', 'nonsense', 'waste',
+  // Calling it a con is not banter and it is not a support question — it is
+  // somebody about to ask for their money back, and they need a human now.
+  'scam', 'scammer', 'scammers', 'scamming', 'ripoff', 'robbery', 'fraud',
+  'fraudulent', 'liar', 'liars', 'lying', 'thief', 'thieves', 'thieving',
+  'robbing', 'con', 'conned',
 ]);
 // Walking away. Scored separately from abuse only so the admin alert can say
 // which it was — they get the same reply.
@@ -1111,6 +1149,21 @@ const ABUSE_FILLER = new Set([
   // "you're" / "it's" split on the apostrophe, so the orphan letters count
   // as filler or the strict test fails on punctuation alone.
   'm', 's', 're', 't', 've', 'll',
+  // Who they are shouting at. "You LOT are useless" failed the strict test on
+  // the word "lot" alone and fell through to the brush-off.
+  'lot', 'lots', 'yous', 'yas', 'guys', 'bunch', 'shower', 'pair', 'crowd',
+  'space', 'utter', 'utterly', 'well', 'really', 'pure', 'dead', 'honestly',
+  'seriously', 'tbh', 'innit', 'init', 'like',
+  // "This service is a joke" has "joke" in the anger list and fell over on
+  // the word "service" — so it was treated as a service question nobody
+  // could answer and got "I'm not totally sure on that one".
+  'service', 'services',
+  // "This app is shit" names the app and names no symptom. It is anger, not a
+  // report — and the de-escalation reply ("tell me what's not working") asks
+  // for exactly the thing the message is missing. A message that DOES carry a
+  // symptom still fails the strict test on the symptom word and goes to the
+  // model, so "the picture is terrible" is untouched.
+  'app', 'apps',
 ]);
 
 function looksLikeFrustration(text) {
@@ -1137,13 +1190,52 @@ function looksLikeFrustration(text) {
 
 export const _looksLikeHelpRequest = (t) => looksLikeHelpRequest(t);
 export const _looksLikeFrustration = (t) => looksLikeFrustration(t);
+export const _looksLikeThanks = (t) => looksLikeThanks(t);
+
+// One rant, one apology, one admin DM. The window is long enough to cover a
+// burst of angry messages and short enough that someone who comes back cross
+// a week later is a fresh customer having a fresh bad day.
+const UPSET_WINDOW_MS = 30 * 60 * 1000;
+const upsetSeen = new Map(); // userId -> ts of the message that raised the alert
+
+function upsetAlready(userId) {
+  if (!userId) return false;
+  const last = upsetSeen.get(userId) || 0;
+  const again = Date.now() - last < UPSET_WINDOW_MS;
+  upsetSeen.set(userId, Date.now());
+  if (upsetSeen.size > 2000) upsetSeen.clear();
+  return again;
+}
+
+export function _resetUpset() {
+  upsetSeen.clear();
+}
 
 function looksLikeThanks(text) {
   const w = plainWords(text);
-  if (!w.length || w.length > 6) return false;
+  if (!w.length) return false;
   const joined = w.join(' ');
   if (/^(nice one|good bot|top (man|work|bot)|good stuff|lovely stuff)( mate| m8)?$/.test(joined)) return true;
-  return w.some((x) => THANKS_CORE.has(x)) && w.every((x) => THANKS_CORE.has(x) || THANKS_EXTRA.has(x));
+  if (w.length <= 6 && w.some((x) => THANKS_CORE.has(x)) && w.every((x) => THANKS_CORE.has(x) || THANKS_EXTRA.has(x))) {
+    return true;
+  }
+  // A warm sign-off runs longer than six words. "Thank you so much, you have
+  // been very kind" is nine, so the strict word list could not reach it and
+  // the last thing a happy customer heard was "give it a full restart".
+  // Length alone is not enough to be safe, so this takes a longer message
+  // only when it thanks us and carries nothing else — no question, no
+  // symptom, and no "but it's still doing it", all of which have to keep
+  // beating a thank-you or a case gets closed on a fault that is still live.
+  if (w.length > 14) return false;
+  if (!w.some((x) => THANKS_CORE.has(x))) return false;
+  if (looksLikeQuestion(text) || looksLikeProblem(text)) return false;
+  // "Cheers, do you know when it'll be fixed" carries no question mark and no
+  // question word at the front, so looksLikeQuestion misses it — and treating
+  // it as a sign-off answers a thank-you and ignores the question.
+  if (/\?|\b(?:do|does|did|can|could|will|would|should|is|are|was|were|have|has)\s+(?:you|u|i|we|it|they|there|that|this)\b|\b(?:when|why|where|which|what|whats|who|whos|how)\b/i.test(text)) {
+    return false;
+  }
+  return !saysStillBroken(text) && !negatesFixes(text);
 }
 
 function looksLikeQuestion(text) {
@@ -1484,7 +1576,10 @@ async function handleAdminCaseClose(ctx, text, logId) {
 }
 
 function saysStillBroken(text) {
-  return /\b(still|again|didnt (work|help)|didn't (work|help)|no luck|not fixed|same (issue|problem)|tried (all|everything|them|those|that))\b/i.test(text);
+  // "No change" and "no joy" are how half of them say it, and neither was
+  // here — so a repeat report on an escalated case fell through to normal
+  // answering and got the "I'm not sure, message the admin" brush-off.
+  return /\b(still|again|didnt (work|help)|didn't (work|help)|no luck|no joy|no change|no different|nothing('?s| has)? changed|not fixed|same (issue|problem|thing)|tried (all|everything|them|those|that))\b/i.test(text);
 }
 
 // "BBC 1 22:54", "since 9pm" — the details the bot asked for.
@@ -1843,7 +1938,15 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
     const msg = String(getSetting('bot.capabilityMessage') || '').trim();
     if (msg) {
       setLogSource(logId, 'capability');
-      await ctx.api.sendMessage(ctx.chat.id, withAdminContact(msg), replyParams);
+      // "Are you a bot?" is a different question from "what can you do?" even
+      // though the same answer serves both. Asked the first one, answer it —
+      // one warm line, then the list. One message, not two: a lead-in and a
+      // list sent separately read as the bot talking to itself.
+      const admission = asksIfBot(question)
+        ? String(getSetting('bot.botAdmissionMessage') || '').trim()
+        : '';
+      const out = admission ? `${admission}\n\n${msg}` : msg;
+      await ctx.api.sendMessage(ctx.chat.id, withAdminContact(out), replyParams);
       return 'capability';
     }
   }
@@ -2041,10 +2144,22 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
   // in the group is not the bot's business.
   const upset = looksLikeFrustration(question);
   if (upset && (isDm || directed)) {
-    const who = ctx.from?.username ? `@${ctx.from.username}`
-      : [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(' ') || `id ${ctx.from?.id}`;
-    alertAdmins('frustrated', `${upset === 'giving-up' ? '🚪' : '😤'} ${who} ${upset === 'giving-up' ? 'is giving up' : 'is not happy'} in ${isDm ? 'a DM' : 'the group'}: "${String(question).slice(0, 200)}" — worth a personal message.`);
-    const msg = await spoken('bot.frustrationMessage', question);
+    // A rant is several messages, not one. "This is dogshit" / "you lot are
+    // useless" / "fix it then" arrived as three separate messages and got the
+    // same apology three times, word for word, plus three admin DMs about one
+    // customer. The alert is NOT throttled by type on purpose (each one is a
+    // different person walking out), so the de-duplication belongs here, per
+    // person: the first message gets the apology and the alert, the rest of
+    // the rant gets told that a human now has it.
+    const again = upsetAlready(ctx.from?.id);
+    if (!again) {
+      const who = ctx.from?.username ? `@${ctx.from.username}`
+        : [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(' ') || `id ${ctx.from?.id}`;
+      alertAdmins('frustrated', `${upset === 'giving-up' ? '🚪' : '😤'} ${who} ${upset === 'giving-up' ? 'is giving up' : 'is not happy'} in ${isDm ? 'a DM' : 'the group'}: "${String(question).slice(0, 200)}" — worth a personal message.`);
+    }
+    const msg = again
+      ? (await spoken('bot.frustrationRepeatMessage', question)) || await spoken('bot.frustrationMessage', question)
+      : await spoken('bot.frustrationMessage', question);
     if (msg) {
       setLogSource(logId, 'frustrated', msg);
       await ctx.api.sendMessage(ctx.chat.id, msg, replyParams).catch(() => {});
@@ -2672,7 +2787,14 @@ export async function handleGroupMessage(ctx) {
   // the wrong report, and the login issue is never recorded at all. Dropping
   // the state here lets it fall through to the first-report path, which opens
   // its own case; the previous one stays open on the panel.
-  if (st?.topic && looksLikeProblem(text)) {
+  // "Still not working" is not a new problem, whatever topic word falls out of
+  // it. extractProblemTopic read it as "not working", which differs from the
+  // open case's "keep cutting", so the case was thrown away and the message
+  // started a second one — and the customer, who had just been given a
+  // reference number, was answered as a stranger. A message that says still,
+  // again, same problem, or that the fixes did not work, is BY DEFINITION
+  // about the case already open.
+  if (st?.topic && looksLikeProblem(text) && !saysStillBroken(text) && !negatesFixes(text)) {
     const newTopic = extractProblemTopic(text);
     if (newTopic && newTopic !== st.topic) {
       clearProblemState(ctx.from.id);
@@ -2939,7 +3061,7 @@ async function handleDmProblemReply(ctx, text, logId) {
   if (!st) return false;
   // A different problem is a new case, not more detail on this one — see the
   // group path. Returning false hands it to the first-report flow.
-  if (st.topic && looksLikeProblem(text)) {
+  if (st.topic && looksLikeProblem(text) && !saysStillBroken(text) && !negatesFixes(text)) {
     const newTopic = extractProblemTopic(text);
     if (newTopic && newTopic !== st.topic) {
       clearProblemState(ctx.from.id);
@@ -3009,6 +3131,34 @@ async function handleDmProblemReply(ctx, text, logId) {
     const who = ctx.from?.username ? `@${ctx.from.username}` : ctx.from?.first_name || `id ${ctx.from.id}`;
     const ref = caseNumberFor(ctx, st);
     alertAdmins('frustrated', `${upset === 'giving-up' ? '🚪' : '😤'} ${who} ${upset === 'giving-up' ? 'is giving up on' : 'is fed up with'} an open problem${ref ? ` (#${ref})` : ''}: "${String(text).slice(0, 200)}" — about: "${String(st.firstText || '').slice(0, 160)}". Worth a personal message.`);
+  }
+
+  // Already flagged, and they are telling us the same thing again. Nothing
+  // below this line applies — isConfirmation is held at false for an
+  // escalated case — so the message fell all the way through to normal
+  // answering and got "I'm not totally sure, message the admin", one message
+  // after being told the team had it and not to report it again.
+  //
+  // A DIFFERENT fault must still get through: this takes only a repeat ("it's
+  // still doing it", "no change", "same problem") or a report on the same
+  // topic as the open case. "How do I install it on my iPhone as well" is a
+  // new question and is answered as one.
+  if (alreadyEscalated && !upset) {
+    const sameTopic = (() => {
+      if (!isProblem) return false;
+      const a = extractProblemTopic(text);
+      const b = extractProblemTopic(st.firstText || '');
+      return Boolean(a && b && a === b);
+    })();
+    if (saysStillBroken(text) || negatesFixes(text) || sameTopic) {
+      const note = withCaseNumber(await spoken('bot.problemAlreadyFlaggedNote', text), caseNumberFor(ctx, st));
+      if (note) {
+        setProblemState(ctx.from.id, { at: Date.now() });
+        setLogSource(logId, 'already-flagged');
+        await send(note);
+        return true;
+      }
+    }
   }
 
   let isConfirmation = false;

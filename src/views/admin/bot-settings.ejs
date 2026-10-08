@@ -40,6 +40,10 @@
     <input id="frustrationMessage" name="frustrationMessage" type="text" maxlength="500" value="<%= s.frustrationMessage %>">
     <p class="hint">Content-free frustration only — "Purple is rubbish on Firestick" is a complaint with a symptom in it and still gets a proper answer. You're DMed every time this fires (toggle in <a href="/admin/reports">Reports</a>), because it's the point where a customer is about to walk. If they already had a problem open, it skips straight past further troubleshooting to a human. A message containing anything on your <strong>Banned words</strong> list (further down this page) is dropped before any of this runs, so don't put swears there if you want these handled.</p>
 
+    <label for="frustrationRepeatMessage">Reply to the rest of the same rant (within 30 minutes) — empty = repeat the line above</label>
+    <input id="frustrationRepeatMessage" name="frustrationRepeatMessage" type="text" maxlength="500" value="<%= s.frustrationRepeatMessage %>">
+    <p class="hint">A rant is several messages, not one, and apologising three times in the same words reads like a machine that heard none of it. The first message gets the line above and DMs you; the rest of the rant gets this one and no further DMs — so one angry customer is one notification, not five. A different person always gets through.</p>
+
     <label for="photoMessage">Reply when someone sends a photo/video/voice note the bot can't read — empty = silent</label>
     <input id="photoMessage" name="photoMessage" type="text" maxlength="500" value="<%= s.photoMessage %>">
     <p class="hint">In private messages: any photo without a caption gets this. In the group: ONLY when the photo is a reply to one of the bot's messages — members sharing photos with each other are never interrupted. Captions are read as normal messages. Stickers and GIFs are ignored.</p>
@@ -248,6 +252,12 @@
     <label for="capabilityMessage">Answer to "what can you do?" (empty = handle it normally)</label>
     <textarea id="capabilityMessage" name="capabilityMessage" rows="6" maxlength="1000"><%= s.capabilityMessage %></textarea>
     <p class="hint">Questions about the bot itself are answered straight from here, never sent to the AI — so they still work when the endpoint is down, which is exactly when a confused customer asks.</p>
+  </div>
+
+  <div class="field">
+    <label for="botAdmissionMessage">Opening line for "are you a bot?" (empty = just send the list above)</label>
+    <input id="botAdmissionMessage" name="botAdmissionMessage" type="text" maxlength="400" value="<%= s.botAdmissionMessage %>">
+    <p class="hint">Goes on the front of the answer above, in the same message, only when someone asks what you are rather than what you can do. "You a real person or a bot?" is a friendly question, and answering it with nothing but a bulleted list reads like a leaflet handed to someone who said hello.</p>
   </div>
 
   <div class="field">

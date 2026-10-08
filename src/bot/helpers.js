@@ -226,12 +226,25 @@ export function namesForeignProduct(text) {
   return !OUR_SUBJECT.test(t);
 }
 
+// "I want my money back" contains no service vocabulary whatsoever — no app,
+// no symptom, not even the word refund, which IS in the strong list. So it was
+// filed as banter, and a customer asking for their money back was answered
+// with "Ha, that one's a bit above my pay grade". It is the most expensive
+// sentence a customer can type and it needs to reach a human, every time.
+const MONEY_BACK =
+  /\bmoney back\b|\brefund\w*\b|\bmy money\b|\bcharge ?backs?\b|\bcompensat\w*\b|\bpaid (?:for|up)\b[^.?!\n]{0,25}\b(?:nothing|nowt|no good|not work\w*)\b|\bwant (?:a |my )?(?:refund|money)\b/i;
+
+export function asksForMoneyBack(text) {
+  return MONEY_BACK.test(String(text || ''));
+}
+
 export function isLikelyInScope(text) {
   // A sales question is in scope by definition — it is about buying the thing
   // this bot exists to support. It is checked BEFORE the foreign-product veto
   // because "can I use it on Windows" names only their product and is still a
   // question about ours: the shape of the question carries the subject.
   if (looksLikePreSales(text)) return true;
+  if (asksForMoneyBack(text)) return true;
   if (namesForeignProduct(text)) return false;
   const vocab = scopeVocab();
   let hits = 0;
@@ -250,6 +263,7 @@ export function isLikelyInScope(text) {
 // conversation context gives the model nothing on-topic to work with.
 export function hasScopeSignal(text) {
   if (looksLikePreSales(text)) return true;
+  if (asksForMoneyBack(text)) return true;
   if (namesForeignProduct(text)) return false;
   const vocab = scopeVocab();
   const toks = new Set(tokens(text));

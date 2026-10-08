@@ -262,6 +262,8 @@ test('the bot settings and reports pages render, and the new replies save', asyn
   assert.equal(bot.res.status, 200, 'bot settings page renders');
   assert.ok(bot.html.includes('helpAskMessage'), 'the bare-ask-for-help reply is editable');
   assert.ok(bot.html.includes('frustrationMessage'), 'the frustration reply is editable');
+  assert.ok(bot.html.includes('frustrationRepeatMessage'), 'and the line for the rest of the rant');
+  assert.ok(bot.html.includes('botAdmissionMessage'), 'and the "are you a bot" opener');
 
   const reports = await getWithCsrf(`${base}/admin/reports`, jar);
   assert.equal(reports.res.status, 200, 'reports page renders');

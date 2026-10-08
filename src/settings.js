@@ -15,7 +15,13 @@ const DEFAULTS = {
   'bot.responseMode': 'questions', // mention | questions | all
   'bot.dmEnabled': true,
   'bot.offtopicBehavior': 'redirect', // silent | redirect
-  'bot.offtopicMessage': "Can't help with that one 😂 I'm strictly service support — installs, logins, streams, payments. /help shows what I can do.",
+  // The most-sent line in the whole bot, and it used to read like a door
+  // closing: "Can't help with that one 😂 I'm STRICTLY service support".
+  // Laughing at someone's question and then calling yourself strict is not
+  // the voice you want in front of a paying customer, or in front of someone
+  // deciding whether to become one. Same meaning, warmer, and it ends with
+  // the door open instead of shut.
+  'bot.offtopicMessage': "Ha, you've lost me there 😄 Streaming's my thing — installs, logins, picture problems, payments, requests. Anything along those lines and I'm all yours.",
   // Banter budget: the FIRST off-topic question a user asks gets ONE short,
   // friendly real answer; any more within this many minutes get the witty
   // brush-off above instead. 0 = always brush off. Redirect mode only.
@@ -53,6 +59,13 @@ const DEFAULTS = {
     '• Buffering, freezing, channels or streams not working\n' +
     '• Requesting films and series\n\n' +
     'Just ask in your own words — no need for commands. Anything I can\'t do, {admin}.',
+  // "You a real person or a bot?" is a friendly question and it was answered
+  // with the bulleted list above and nothing else — a leaflet handed to
+  // somebody who said hello. Owning it in one warm line first costs nothing
+  // and is the difference between a brochure and a conversation. The list
+  // still follows, because what it can do is the actual answer they want.
+  // Empty = the list goes out on its own as before.
+  'bot.botAdmissionMessage': "Guilty — I'm a bot 🤖 A quick one though, and there's always a real person behind me.",
   // Sent for a channel or fixture question we have nothing cached for. Code
   // answers it rather than the model, which given an empty hand will either
   // invent a channel or recite its own brief at the customer. Empty = let the
@@ -163,6 +176,18 @@ const DEFAULTS = {
   // nothing to work with and banter is the worst possible reply. One warm,
   // self-deprecating line that offers a human instead. Empty = silent.
   'bot.frustrationMessage': "Sorry — I'm clearly not getting this right 😅 Tell me what's not working and I'll have another go, or {admin} and they'll take it from here personally.",
+  // The bot says "✅ Flagged to the team — no need to report it again. Your
+  // reference is #1." The customer, one message later, says "it's still
+  // cutting out" — and got "I'm not totally sure on that one, message the
+  // admin". It disowned a case it had just taken, and told them to go and do
+  // the thing it had told them not to bother doing. Empty = let it fall
+  // through to normal answering, which is what used to happen.
+  'bot.problemAlreadyFlaggedNote': "Still with the team, that one — ref #{case}. Nothing more you need to do, they'll come back to you here. 👍",
+  // Somebody mid-rant sends three of these in a row, and apologising three
+  // times in the same words is its own kind of insult — it reads as a machine
+  // that did not hear any of it. The second one onward says the thing that
+  // has actually changed: a human now knows. Empty = repeat the line above.
+  'bot.frustrationRepeatMessage': "I hear you 😔 The team already has this and they'll come to you directly. If you tell me what's actually going wrong I'll keep digging in the meantime.",
   // Sent when someone shows the bot a photo/video/voice note it can't read —
   // in a DM always, in a group only when the media replies to the bot.
   // Empty = stay silent.
