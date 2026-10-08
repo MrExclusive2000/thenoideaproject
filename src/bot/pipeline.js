@@ -17,6 +17,7 @@ import { circuitOpen } from '../ai/breaker.js';
 import { looksLikeChannelQuestion, looksLikeFixtureQuestion, channelGrounding, channelCount, findVodTitle, vodKnown, xcConfigured } from '../xc.js';
 import { looksLikeGuideRequest, findGuide, visibleGuides, mdToPlain } from '../guides.js';
 import { looksLikeWalletRequest, walletMessage } from '../payments.js';
+import { recallService, rememberService, forgetService } from '../service-memory.js';
 import {
   queueProblemAlert, setProblemRearmHook, maybeAutoDegrade,
   looksLikeCaseClose, caseNumbersIn, closeCaseAsAdmin,
@@ -171,6 +172,9 @@ async function handleUrlServiceReply(ctx, text, logId, replyParams) {
     pendingUrl.delete(key);
     const cand = plainWords(text).sort((a, b) => b.length - a.length)[0] || '';
     const svc = serviceForUsername(cand);
+    // They just told us their username. That is the strongest evidence short
+    // of a linked account, and it saves asking them again later.
+    rememberService(ctx.from.id, svc.num, 'username', cand);
     await send(svc.url ? urlReplyText(svc) : 'The admin will share that one with you here 👍');
     return true;
   }
@@ -185,6 +189,7 @@ async function handleUrlServiceReply(ctx, text, logId, replyParams) {
   const svc = serviceFromReply(text);
   if (svc && svc.url) {
     pendingUrl.delete(key);
+    rememberService(ctx.from.id, svc.num, 'told');
     await send(urlReplyText(svc));
   } else if (svc) {
     pendingUrl.delete(key);
@@ -261,19 +266,34 @@ function peekServiceNumber(userId) {
 // 1 or 2, or null when we genuinely cannot tell.
 function serviceNumberFor(ctx, question = '') {
   const s = serviceConfig();
-  // What they said in this very message wins. "Is big bang theory on
-  // exclusive" already answers the question, and asking it back is the
-  // single most irritating thing a bot can do.
+  const id = ctx.from?.id;
+
+  // What they said in this very message wins FOR THIS MESSAGE. It is not
+  // stored: naming a service in a question says nothing about who you are.
+  // Someone on Flix can perfectly well ask "is Big Bang Theory on Exclusive?"
+  // and pinning them to Exclusive over it would be wrong from then on.
   const named = serviceNamedIn(question);
   if (named) return named;
-  // A linked customer is authoritative: their username is on file, and the
-  // username is what decides the service.
-  const customer = linkedCustomer(ctx.from?.id);
-  if (customer?.username) return serviceForUsername(customer.username).num;
-  // Otherwise whatever they told us a few minutes ago, for anything.
-  const num = peekServiceNumber(ctx.from?.id);
+
+  // A linked customer is authoritative — their username is on file, and the
+  // username is what decides the service. Recorded so it survives unlinking.
+  const customer = linkedCustomer(id);
+  if (customer?.username) {
+    const num = serviceForUsername(customer.username).num;
+    rememberService(id, num, 'linked', customer.username);
+    return num;
+  }
+
+  // An admin is on BOTH services, so a remembered answer must not quietly
+  // speak for them. They pin one deliberately with /service, which stores it
+  // as 'admin' and is honoured below like anyone else's.
+  const stored = recallService(id);
+  if (stored && !(isAdminUser(id) && stored.source !== 'admin')) return stored.service;
+
+  // Last resort: what they said a few minutes ago in this conversation.
+  const num = peekServiceNumber(id);
   if (num) return num;
-  const remembered = peekVodService(ctx.from?.id);
+  const remembered = peekVodService(id);
   if (remembered) {
     if (s.two.name && remembered.toLowerCase() === s.two.name.toLowerCase()) return 2;
     if (s.one.name && remembered.toLowerCase() === s.one.name.toLowerCase()) return 1;
@@ -327,10 +347,14 @@ async function handleServiceReply(ctx, text, logId, replyParams) {
 
   const s = serviceConfig();
   let svc = serviceFromReply(text);
+  let usedUsername = null;
   if (!svc) {
     // They may have replied with a username instead of a service name.
     const cand = plainWords(text).sort((a, b) => b.length - a.length)[0] || '';
-    if (cand.length >= 4) svc = serviceForUsername(cand);
+    if (cand.length >= 4) {
+      svc = serviceForUsername(cand);
+      usedUsername = cand;
+    }
   }
   if (!svc) {
     pendingServiceQuestion.delete(key);
@@ -344,6 +368,10 @@ async function handleServiceReply(ctx, text, logId, replyParams) {
   const num = svc.num;
   pendingServiceQuestion.delete(key);
   rememberVodService(ctx.from.id, svc.name || `service ${num}`, num);
+  // Answering "which service are you on?" IS a statement about themselves, so
+  // it is kept — this is what stops the same person being asked every time.
+  // A username is stronger evidence than a name they picked off a menu.
+  rememberService(ctx.from.id, num, usedUsername ? 'username' : 'told', usedUsername || null);
   // Re-run the original question now that the answer will be right for them.
   await answer(ctx, st.question, { isDm: ctx.chat.type === 'private', logId, assumeOnTopic: true });
   return true;

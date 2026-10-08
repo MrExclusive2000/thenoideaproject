@@ -13,6 +13,7 @@ import { state } from '../state.js';
 import { localBuild, updateCheck, describeUpdate, applyUpdate } from '../build.js';
 import { xcConfigured, refreshChannels, channelCount, channelsUpdatedAt, findChannels, xcLastError, epgCacheStats, refreshGuide, programmeCount, guideRefreshedAt, findProgrammes, refreshVod, vodCount, vodUpdatedAt, findVodTitle } from '../xc.js';
 import { mdToPlain } from '../guides.js';
+import { recallService, rememberService, forgetService, serviceMemoryStats } from '../service-memory.js';
 import { addressLooksValid, acceptedCoins } from '../payments.js';
 
 const isPrivate = (ctx) => ctx.chat?.type === 'private';
@@ -544,6 +545,52 @@ export function registerCommands(bot) {
     }
     if (!bits.length) return ctx.reply('No lookup account set yet — add the Xtream Codes username and password under Bot settings, then send /library refresh.');
     await ctx.reply(`${bits.join('\n')}\n\n/library refresh — pull the latest\n/library oppenheimer — check a title`);
+  });
+
+  // Which service someone is on, and how to change it when they move.
+  bot.command('service', async (ctx) => {
+    const names = { 1: String(getSetting('services.name1') || '').trim() || 'service 1', 2: String(getSetting('services.name2') || '').trim() || 'service 2' };
+    const arg = String(ctx.match || '').trim();
+    const admin = isAdminUser(ctx.from.id);
+    // An admin replying to someone's message sets it for THEM — the natural
+    // way to fix it when a renewal moves a customer across.
+    const target = admin && ctx.message?.reply_to_message?.from?.id
+      ? ctx.message.reply_to_message.from.id
+      : ctx.from.id;
+    const forSelf = target === ctx.from.id;
+    const who = forSelf ? 'You are' : `${ctx.message.reply_to_message.from.first_name || 'They'} is`;
+
+    if (!arg) {
+      const row = recallService(target);
+      const how = {
+        linked: 'from the account linked to that Telegram user',
+        username: 'from the username they gave me',
+        admin: 'because an admin set it',
+        told: 'because they told me',
+        guess: 'from a guess',
+      }[row?.source] || '';
+      const lines = row
+        ? [`${who} on ${names[row.service]} — ${how}.`]
+        : [`I don't have a service recorded${forSelf ? ' for you' : ' for them'} yet.`];
+      lines.push('', `Change it: /service ${names[1]}  ·  /service ${names[2]}  ·  /service clear`);
+      if (admin) {
+        const by = serviceMemoryStats();
+        lines.push(`Reply to someone's message with /service <name> to set theirs.`, `Recorded so far — ${names[1]}: ${by[1]}, ${names[2]}: ${by[2]}`);
+      }
+      return ctx.reply(lines.join('\n'));
+    }
+
+    if (/^(clear|forget|none|reset|both)$/i.test(arg)) {
+      forgetService(target);
+      return ctx.reply(forSelf
+        ? `✅ Forgotten — I'll ask next time it matters. (Use this if you're on both.)`
+        : '✅ Forgotten for them — I will ask next time.');
+    }
+
+    const wanted = [1, 2].find((n) => names[n].toLowerCase() === arg.toLowerCase());
+    if (!wanted) return ctx.reply(`Which one — ${names[1]} or ${names[2]}? (or /service clear)`);
+    rememberService(target, wanted, admin ? 'admin' : 'told');
+    await ctx.reply(`✅ ${forSelf ? 'Noted — you are' : 'Noted — they are'} on ${names[wanted]}. Channel, guide and VOD answers now use that lineup.`);
   });
 
   bot.command('case', async (ctx) => {

@@ -3544,3 +3544,49 @@ test('a reply that recites the brief is suppressed, not sent', async () => {
   assert.doesNotMatch(msg, /Say we do not have that listing/, 'the brief never reaches the customer');
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
+
+// --- remembering which service someone is on ---------------------------------
+
+test('answering the service question is remembered for next time', async () => {
+  const { _resetServiceAsk } = await import('../src/bot/pipeline.js');
+  const { forgetService, recallServiceNumber } = await import('../src/service-memory.js');
+  _resetServiceAsk();
+  forgetService(99950);
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+  setSetting('bot.cooldownSeconds', 0);
+  db.prepare('DELETE FROM xc_channels').run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (1, 101, 'UK: BBC One HD', NULL, 'b1', 1)").run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (2, 201, 'FLIX: BBC One', NULL, 'b2', 1)").run();
+
+  const ask = fakeCtx("what's on bbc 1", { userId: 99950 });
+  await handleDirectMessage(ask, ask.message.text);
+  assert.match(ask.sent[0].msg, /Which service are you on/i);
+
+  aiResponse = 'It is on FLIX: BBC One.';
+  const reply = fakeCtx('Flix', { userId: 99950 });
+  await handleDirectMessage(reply, 'Flix');
+  assert.equal(recallServiceNumber(99950), 2, 'kept, so they are never asked again');
+
+  // The whole point: a second question just gets answered.
+  _resetServiceAsk();
+  const again = fakeCtx("what's on bbc 1", { userId: 99950 });
+  const r = await answer(again, again.message.text, { isDm: true, logId: null });
+  assert.notEqual(r, 'service-ask', 'asked once, not every time');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('naming a service in a question does not pin you to it', async () => {
+  // Someone on Flix can perfectly well ask whether something is on Exclusive.
+  // Treating that as "I am on Exclusive" would be wrong for every answer after.
+  const { forgetService, recallServiceNumber } = await import('../src/service-memory.js');
+  forgetService(99951);
+  db.prepare('DELETE FROM xc_vod').run();
+  db.prepare('INSERT INTO xc_vod (service, kind, name, norm_name, category, updated_at) VALUES (1, ?, ?, ?, NULL, 1)')
+    .run('series', 'The Big Bang Theory', 'thebigbangtheory');
+
+  const ctx = fakeCtx('Is big bang theory on exclusive', { userId: 99951 });
+  await handleDirectMessage(ctx, ctx.message.text);
+  assert.match(ctx.sent.map((s) => s.msg).join('\n'), /already on the service/i, 'answered for Exclusive');
+  assert.equal(recallServiceNumber(99951), null, 'but nothing was recorded about who they are');
+});

@@ -606,6 +606,22 @@ const migrations = [
   `
   CREATE INDEX IF NOT EXISTS idx_xc_channels_epg ON xc_channels(service, epg_channel_id);
   `,
+  // v28 — which service a Telegram user is on, remembered properly.
+  //
+  // It was held in memory for ten minutes and lost on every restart, so the
+  // same person was asked again and again. `source` records how we know,
+  // which is what makes a switch safe to handle: a renewal that moves someone
+  // between services should overwrite a guess, and the stronger the evidence
+  // the longer it should stand.
+  `
+  CREATE TABLE IF NOT EXISTS tg_service (
+    tg_user_id INTEGER PRIMARY KEY,
+    service    INTEGER NOT NULL,
+    source     TEXT NOT NULL,
+    username   TEXT,
+    updated_at INTEGER NOT NULL
+  );
+  `,
 ];
 
 export function migrate(db) {
