@@ -696,7 +696,11 @@ export function findProgrammes(question, { service = 1, limit = 6 } = {}) {
 }
 
 // Is this a question about a fixture rather than about a channel?
-const FIXTURE_QUESTION = /\bwho('?s| is| are)?\s+(playing|on|against)\b|\bwho\s+\w+\s+playing\b|\bwhat\s+time\b|\bkick\s?off\b|\bis\s+(the\s+)?[\w\s]{2,30}\s+(on|playing)\b|\bany\s+(football|boxing|games?|matches)\b/i;
+// "what time is it" is a question about the clock, not about our lineup, and
+// asking which service someone is on before answering it is absurd. Anything
+// else after "what time" IS asking the time of something — "what time is the
+// arsenal game" names no verb at all, so requiring one missed it.
+const FIXTURE_QUESTION = /\bwho('?s| is| are)?\s+(playing|on|against)\b|\bwho\s+\w+\s+playing\b|\bwhat\s+time\b(?!\s+is\s+it\b)|\bkick\s?off\b|\bis\s+(the\s+)?[\w\s]{2,30}\s+(on|playing)\b|\bany\s+(football|boxing|games?|matches)\b/i;
 
 export const looksLikeFixtureQuestion = (text) =>
   FIXTURE_QUESTION.test(String(text || '')) && String(text || '').length < 160;

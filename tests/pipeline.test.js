@@ -4144,3 +4144,27 @@ test('a bare "that\'s fixed now" in conversation is not a close command', async 
   assert.equal(db.prepare('SELECT COUNT(*) n FROM problem_reports WHERE resolved = 0').get().n, before,
     'nothing closed on a guess');
 });
+
+test('an unclear answer to the service question is re-asked, not dropped', async () => {
+  // "Now" was neither a service name nor a username, so the ask was abandoned
+  // and the message fell into problem triage, which answered "let me know if
+  // it stops working again" — to someone asking the time.
+  const { _resetServiceAsk } = await import('../src/bot/pipeline.js');
+  _resetServiceAsk();
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+  setSetting('bot.cooldownSeconds', 0);
+  db.prepare('DELETE FROM xc_channels').run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (1, 101, 'UK: BBC One HD', NULL, 'b1', 1)").run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (2, 201, 'FLIX: BBC One', NULL, 'b2', 1)").run();
+
+  const ask = fakeCtx('what channel is the f1 on', { userId: 99920 });
+  await handleDirectMessage(ask, ask.message.text);
+  assert.match(ask.sent[0].msg, /Which service are you on/i);
+
+  const mumble = fakeCtx('Now', { userId: 99920 });
+  await handleDirectMessage(mumble, 'Now');
+  const msg = mumble.sent.map((s) => s.msg).join('\n');
+  assert.match(msg, /didn't catch that/i, 'asked again');
+  assert.doesNotMatch(msg, /stops working|flag it/i, 'and never answered as a problem');
+});

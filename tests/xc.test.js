@@ -779,3 +779,19 @@ test('the block says which programme is on NOW, not just a list of times', async
   db.prepare('DELETE FROM xc_channels WHERE service = 6').run();
   db.prepare('DELETE FROM xc_programmes WHERE service = 6').run();
 });
+
+test('"what time is it" is about the clock, not about our lineup', () => {
+  // It was matching the fixture pattern, so the bot asked which service the
+  // customer was on before it would tell them the time. Absurd.
+  for (const clock of ['What time is it', 'what time is it?', 'what time is it now', 'whats the time']) {
+    assert.equal(xc.looksLikeFixtureQuestion(clock), false, clock);
+  }
+  // Asking the time OF something is still a fixture question — including the
+  // phrasings that name no verb at all.
+  for (const fixture of [
+    'what time is the arsenal game',
+    'what time is the match on',
+    'what time does the boxing start',
+    'what time is kick off',
+  ]) assert.equal(xc.looksLikeFixtureQuestion(fixture), true, fixture);
+});

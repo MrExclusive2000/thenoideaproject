@@ -357,8 +357,21 @@ async function handleServiceReply(ctx, text, logId, replyParams) {
     }
   }
   if (!svc) {
+    // One more go before giving up. Dropping it meant the message fell into
+    // whatever flow was armed next — a one-word "Now" landed in problem
+    // triage and got "let me know if it stops working again".
+    if (!st.attempts) {
+      st.attempts = 1;
+      st.at = Date.now();
+      const s2 = serviceConfig();
+      setLogSource(logId, 'service-ask');
+      await ctx.api.sendMessage(ctx.chat.id, servicesAreNamed()
+        ? `Sorry, didn't catch that — ${s2.one.name} or ${s2.two.name}? (Or ${USERNAME_ASK.charAt(0).toLowerCase()}${USERNAME_ASK.slice(1)})`
+        : `Sorry, didn't catch that — ${USERNAME_ASK}`, replyParams).catch(() => {});
+      return true;
+    }
     pendingServiceQuestion.delete(key);
-    return false; // unintelligible — normal handling, they can ask again
+    return false; // give up gracefully — normal handling takes it
   }
 
   // Requiring a NAME here threw the answer away on any install where the two
@@ -2088,8 +2101,11 @@ async function handleDmProblemReply(ctx, text, logId) {
   }
 
   // Neutral reply to the auto-close notice — soft close, door open. A fresh
-  // request is not that, however neutrally it is phrased.
-  if (st.fromAutoClose && !looksLikeQuestion(text) && !isProblem && !startsNewTopic(text)) {
+  // request is not that, however neutrally it is phrased, and neither is a
+  // message hours later: the re-armed state used to live indefinitely and
+  // kept claiming unrelated one-word replies.
+  const softCloseFresh = Date.now() - (st.at || 0) < problemWindowMs();
+  if (st.fromAutoClose && softCloseFresh && !looksLikeQuestion(text) && !isProblem && !startsNewTopic(text)) {
     setLogSource(logId, 'soft-close');
     const msg = await spoken('bot.problemSoftCloseMessage');
     if (msg) await send(msg);
