@@ -16,6 +16,7 @@ import { xcConfigured, refreshChannels, channelCount, channelsUpdatedAt, findCha
 import { mdToPlain } from '../guides.js';
 import { recallService, rememberService, forgetService, serviceMemoryStats } from '../service-memory.js';
 import { addressLooksValid, acceptedCoins } from '../payments.js';
+import { buildInvite, INVITE_NO_GROUP, INVITE_NO_PERMISSION } from './invites.js';
 
 const isPrivate = (ctx) => ctx.chat?.type === 'private';
 
@@ -213,32 +214,15 @@ export function registerCommands(bot) {
   });
 
   // Personal one-use invite link so members can bring a friend — joins through
-  // it are attributed to the inviter for the vetting flow.
+  // it are attributed to the inviter for the vetting flow. The message itself
+  // is built in invites.js and shared with the plain-English path ("I want to
+  // invite my friend"), so both say exactly the same thing.
   bot.command('invite', async (ctx) => {
-    let chatId = null;
-    let chatTitle = '';
-    if (!isPrivate(ctx)) {
-      if (!chatAllowed(ctx.chat.id)) return;
-      chatId = ctx.chat.id;
-      chatTitle = ctx.chat.title || 'the group';
-    } else {
-      const chat = db.prepare('SELECT chat_id, title FROM allowed_chats WHERE enabled = 1 ORDER BY added_at LIMIT 1').get();
-      if (!chat) return ctx.reply('No group connected yet.');
-      chatId = chat.chat_id;
-      chatTitle = chat.title || 'the group';
-    }
-    try {
-      const link = await ctx.api.createChatInviteLink(chatId, {
-        name: `ref:${ctx.from.id}`.slice(0, 32),
-        member_limit: 1,
-      });
-      await ctx.reply(
-        `🎟 Here's a personal invite to ${chatTitle} for one friend:\n${link.invite_link}\n\nIt works exactly once. Heads up: they'll need their own login — once they're in, tell them to ${withAdminContact('{admin}')} to get set up.`,
-        isPrivate(ctx) ? {} : { reply_parameters: { message_id: ctx.message.message_id } }
-      );
-    } catch {
-      await ctx.reply('I can\'t create invite links yet — an admin needs to make me a group admin with the "invite users via link" permission.');
-    }
+    if (!isPrivate(ctx) && !chatAllowed(ctx.chat.id)) return;
+    const res = await buildInvite(ctx);
+    const extra = isPrivate(ctx) ? {} : { reply_parameters: { message_id: ctx.message.message_id } };
+    if (res.ok) return ctx.reply(res.text, extra);
+    await ctx.reply(res.reason === 'no-group' ? INVITE_NO_GROUP : INVITE_NO_PERMISSION, extra);
   });
 
   // ---- admin ------------------------------------------------------------------

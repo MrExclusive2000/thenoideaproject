@@ -270,3 +270,56 @@ export function containsBannedWord(text, bannedWords) {
   const lower = text.toLowerCase();
   return bannedWords.some((w) => w && lower.includes(String(w).toLowerCase()));
 }
+
+// A support bot must NEVER ask a customer for their password. Asked "I want
+// to invite my friend", the model replied "Please share your username and
+// password so I can create the link", the customer sent both, and it handed
+// back a link with the password in the query string. Three different
+// disasters, and the first one is the one that generalises: a bot that asks
+// for passwords teaches customers that handing a password to whoever asks is
+// how this service works, and the next person to ask will not be the bot.
+//
+// So this is a hard suppress, not a strip. There is no version of a reply
+// asking for a password that is worth sending.
+//
+// Asking for a USERNAME alone is fine and the bot does it legitimately (it is
+// how a customer's service is identified), so the word "password" and friends
+// are what this keys on. Telling someone to TYPE their password into the app
+// is also fine — that is device-local, and the giveaway for the dangerous
+// version is a verb that means "send it to me".
+const CREDENTIAL_REQUEST =
+  /\b(?:send|share|give|provide|tell|post|paste|dm|forward|reply(?:ing)? with|let me know|confirm|need|needs|require|requires|what(?:'?s| is)|may i have|can i (?:have|get))\b[^.?!\n]{0,60}\b(?:password|passwd|pwd|credentials|log-?in details|login details|account details|sign-?in details|login info|account info)\b/i;
+
+export function asksForCredentials(reply) {
+  return CREDENTIAL_REQUEST.test(String(reply || ''));
+}
+
+// Any URL carrying credentials in its query string, whoever wrote it. The
+// model invented "…/invite?username=X&password=Y"; a customer pasting that
+// anywhere has published their login. Belt to the suppression above, and it
+// also covers canned and FAQ text an admin might paste in by accident.
+const CREDENTIAL_URL = /\bhttps?:\/\/\S*[?&](?:pass(?:word|wd)?|pwd|pw|user(?:name)?|usr|token|auth|key)=\S*/gi;
+
+export function redactCredentialUrls(text) {
+  return String(text ?? '').replace(
+    CREDENTIAL_URL,
+    '[link removed — it had login details in it, which must never be shared]'
+  );
+}
+
+// A hostname the model made up. "exclusiveexclusive.com" does not exist; a
+// customer who clicks it gets nothing, and anyone can register it tomorrow
+// and start collecting whatever lands there. Same shape as the invented-code
+// and invented-brand checks: if the host is not in the knowledge or the
+// conversation, the model did not get it from us.
+export function inventsLink(reply, known) {
+  const hosts = String(reply || '').match(/\bhttps?:\/\/([^\s/?#)"']+)/gi) || [];
+  if (!hosts.length) return false;
+  const haystack = String(known || '').toLowerCase();
+  return hosts.some((raw) => {
+    const host = raw.replace(/^https?:\/\//i, '').split(':')[0].toLowerCase();
+    // t.me links are Telegram's own and are created by the bot, not written
+    // by the model — but a model-written one is still an invention.
+    return !haystack.includes(host);
+  });
+}

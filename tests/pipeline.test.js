@@ -4351,3 +4351,122 @@ test('"Hello" after a case closes gets a greeting, not a problem reply', async (
   assert.match(msg, /What can I help with/, 'a greeting is a greeting');
   assert.doesNotMatch(msg, /plays up again|stops working/i);
 });
+
+// --- "I want to invite my friend" -------------------------------------------
+// The transcript this came from: the model answered that question by asking
+// the customer for their username AND password, got both, and replied with
+// "https://exclusiveexclusive.com/invite?username=…&password=…" — an invented
+// domain carrying the customer's login, which they were told to pass on.
+
+test('an invite request never reaches the model — it gets the real link', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.adminContact', '@TheAdmin');
+  _resetProblemTriage();
+  db.prepare('INSERT OR REPLACE INTO allowed_chats (chat_id, title, enabled, added_at) VALUES (-100123, ?, 1, 0)').run('Test Group');
+
+  const ctx = fakeCtx('I want to invite my friend', { userId: 99930 });
+  let askedFor = null;
+  ctx.api.createChatInviteLink = async (chatId, opts) => {
+    askedFor = { chatId, opts };
+    return { invite_link: 'https://t.me/+realLinkFromTelegram' };
+  };
+
+  // Through handleDirectMessage, not answer() — the point is that none of the
+  // handlers that run first (URL flow, service ask, VOD request) eat it, and
+  // that it never gets as far as the model.
+  await handleDirectMessage(ctx, 'I want to invite my friend');
+  const msg = ctx.sent.map((s) => s.msg).join('\n');
+  assert.match(msg, /t\.me\/\+realLinkFromTelegram/, 'the link is Telegram\'s, not invented');
+  assert.match(msg, /@TheAdmin/, 'the friend is sent to the admin for an account and payment');
+  assert.match(msg, /own login/i, 'and told they need their own');
+  assert.doesNotMatch(msg, /password/i, 'never asks for or mentions a password');
+  assert.equal(askedFor.opts.member_limit, 1, 'one-use link');
+  assert.equal(askedFor.opts.name, 'ref:99930', 'attributed to the inviter');
+});
+
+test('"can you add the friends boxset" is a show, not a mate', async () => {
+  // "Friends" is a sitcom as well as a person — the VOD parser wins the tie.
+  setSetting('bot.cooldownSeconds', 0);
+  _resetProblemTriage();
+  const ctx = fakeCtx('can you add the friends boxset', { userId: 99931 });
+  ctx.api.createChatInviteLink = async () => { throw new Error('must not be called'); };
+  const result = await answer(ctx, 'can you add the friends boxset', { isDm: true, logId: null });
+  assert.notEqual(result, 'invite');
+});
+
+test('a reply asking for a password is suppressed, never sent', async () => {
+  // There is no version of this worth sending: a support bot that asks for
+  // passwords teaches customers that handing one over is normal, and the
+  // next person to ask will not be the bot.
+  const { asksForCredentials } = await import('../src/ai/guardrails.js');
+
+  for (const bad of [
+    'Please share your username and password so I can create the link.',
+    'I need your password to continue.',
+    'Send me your login details and I will sort it.',
+    'What is your password?',
+  ]) assert.equal(asksForCredentials(bad), true, `must suppress: ${bad}`);
+
+  for (const fine of [
+    'Open the app and enter your username and password.',
+    'Double-check your password is typed correctly — it is case sensitive.',
+    'Send me your username and I will tell you which service you are on.',
+  ]) assert.equal(asksForCredentials(fine), false, `must survive: ${fine}`);
+});
+
+test('the AI path drops a reply that asks for credentials or invents a domain', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.unsureMessage', "I'm not sure on that one — ask the admin.");
+  _resetProblemTriage();
+
+  const previous = aiResponse;
+  aiResponse = 'Sure! Please share your username and password so I can create the invite link.';
+  const ctx = fakeCtx('my firestick app keeps freezing on startup', { userId: 99932 });
+  const result = await answer(ctx, 'my firestick app keeps freezing on startup', { isDm: true, logId: null });
+  const msg = ctx.sent.map((s) => s.msg).join('\n');
+  assert.doesNotMatch(msg, /share your username and password/i, 'the reply never went out');
+  assert.notEqual(result, 'ai');
+
+  aiResponse = 'Go to https://exclusiveexclusive.com/invite to sort it.';
+  const ctx2 = fakeCtx('my firestick app keeps crashing when i open a channel', { userId: 99933 });
+  await answer(ctx2, 'my firestick app keeps crashing when i open a channel', { isDm: true, logId: null });
+  assert.doesNotMatch(ctx2.sent.map((s) => s.msg).join('\n'), /exclusiveexclusive\.com/i, 'invented domain never sent');
+  aiResponse = previous;
+});
+
+test('a URL carrying a login is stripped from anything the bot sends', async () => {
+  const { redactCredentialUrls } = await import('../src/ai/guardrails.js');
+  const out = redactCredentialUrls('Here you go: https://example.com/invite?username=Geo&password=WEe7NdeF — share it!');
+  assert.doesNotMatch(out, /WEe7NdeF/, 'the password is gone');
+  assert.doesNotMatch(out, /username=/, 'and so is the link');
+  assert.match(out, /link removed/i);
+});
+
+test('a customer who sends their password is warned, and it goes no further', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.adminContact', '@TheAdmin');
+  setSetting('reports.alertFrustrated', true);
+  setSetting('reports.adminTelegramIds', [777]);
+  _resetProblemTriage();
+  db.prepare("INSERT OR IGNORE INTO customers (username, password_hash, active, created_at) VALUES ('Georgewilliam1', 'x', 1, 0)").run();
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
+
+  const ctx = fakeCtx('Georgewilliam1 WEe7NdeF', { userId: 99934 });
+  await handleDirectMessage(ctx, 'Georgewilliam1 WEe7NdeF');
+  const msg = ctx.sent.map((s) => s.msg).join('\n');
+  assert.match(msg, /never send it to anyone/i);
+  assert.match(msg, /@TheAdmin/, 'told how to get it changed');
+  assert.doesNotMatch(msg, /WEe7NdeF/, 'the warning never repeats the password');
+  assert.ok(adminDms.length, 'the admin is told');
+  assert.doesNotMatch(adminDms[0].text, /WEe7NdeF/, 'and the alert does not repeat it either');
+  hub.api = null;
+});
+
+test('an ordinary two-word reply is not mistaken for a password', async () => {
+  const { looksLikeCredentialDump } = await import('../src/bot/credentials.js');
+  for (const fine of ['Georgewilliam1 firestick', 'bbc1 buffering', 'yes please', 'THM4821 Firestick']) {
+    assert.equal(looksLikeCredentialDump(fine), false, `not a password: ${fine}`);
+  }
+  assert.equal(looksLikeCredentialDump('my password is Hunter2x'), true);
+});

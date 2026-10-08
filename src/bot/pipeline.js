@@ -17,6 +17,8 @@ import { circuitOpen } from '../ai/breaker.js';
 import { looksLikeChannelQuestion, looksLikeFixtureQuestion, channelGrounding, channelCount, findVodTitle, vodKnown, xcConfigured } from '../xc.js';
 import { looksLikeGuideRequest, findGuide, visibleGuides, mdToPlain, guideLeadIn } from '../guides.js';
 import { looksLikeWalletRequest, walletMessage } from '../payments.js';
+import { looksLikeInviteRequest, buildInvite, INVITE_NO_GROUP, INVITE_NO_PERMISSION } from './invites.js';
+import { looksLikeCredentialDump, CREDENTIAL_WARNING } from './credentials.js';
 import { recallService, rememberService, forgetService } from '../service-memory.js';
 import {
   queueProblemAlert, setProblemRearmHook, maybeAutoDegrade,
@@ -1264,6 +1266,21 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
   const replyParams = isDm ? {} : { reply_parameters: { message_id: ctx.message.message_id } };
   const withSuffix = (text) => [prefix, text, suffix].filter(Boolean).join('\n\n');
 
+  // The customer has sent a password. FIRST, before anything else in here —
+  // the embedding call a few lines down would ship the raw text to an
+  // external endpoint, and after that it would reach the model, the answer
+  // cache, the DM history and the FAQ-draft pipeline.
+  // The bot taught them to do this by asking for it; the asking is fixed at
+  // the source, but the habit outlives the bug. Nothing on this path repeats
+  // the password back — not the warning, not the admin alert.
+  if (looksLikeCredentialDump(question)) {
+    setLogSource(logId, 'credential-warning');
+    const who = ctx.from?.username ? `@${ctx.from.username}` : ctx.from?.first_name || `id ${ctx.from?.id}`;
+    alertAdmins('frustrated', `🔒 ${who} sent what looks like their password in ${isDm ? 'a DM' : 'the group'}. I warned them and did not repeat it — worth changing it for them.`);
+    await ctx.api.sendMessage(ctx.chat.id, withAdminContact(CREDENTIAL_WARNING), replyParams).catch(() => {});
+    return 'credential-warning';
+  }
+
   // Full-AI mode: the model writes every reply, and the FAQ becomes knowledge
   // handed to it rather than a canned answer that pre-empts it. Keyword
   // matching only ever decided WHICH canned answer to fire, and two of an
@@ -1380,6 +1397,22 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
       await ctx.api.sendMessage(ctx.chat.id, hello, replyParams);
       return 'greeting';
     }
+  }
+
+  // "I want to invite my friend." Handled entirely in code, because the model
+  // cannot make an invite link and proved what it does instead: it asked the
+  // customer for their username AND password, then returned an invented
+  // domain with both in the query string. The real link comes from Telegram
+  // and the wording is a constant — see invites.js.
+  // The VOD parser wins ties: "can you add the friends boxset" is a request
+  // for a show, not for a mate. "Friends" is a sitcom as well as a person.
+  if (looksLikeInviteRequest(question) && !anyVodRequest(question)) {
+    const res = await buildInvite(ctx);
+    setLogSource(logId, 'invite');
+    await ctx.api.sendMessage(ctx.chat.id,
+      res.ok ? res.text : (res.reason === 'no-group' ? INVITE_NO_GROUP : INVITE_NO_PERMISSION),
+      replyParams).catch(() => {});
+    return 'invite';
   }
 
   // "I need assistance." Asked for help and nothing more — so ask what's
