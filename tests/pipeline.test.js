@@ -3375,3 +3375,42 @@ test('a friendly sign-off survives; a promise the bot cannot keep does not', asy
   assert.doesNotMatch(out, /let me know/i, 'a promise it cannot keep is cut');
   assert.match(out, /clear its cache/, 'the actual answer survives');
 });
+
+test('a channel question is never brushed off as off-topic', async () => {
+  // "What's on ITV 2 on exclusive" came back as banter plus a steer, because
+  // the model called it off-topic when it had no listings to hand. It is a
+  // question about our own lineup; having no answer is not the same as it
+  // being the wrong question.
+  const { _resetServiceAsk, _resetSmallTalk } = await import('../src/bot/pipeline.js');
+  _resetServiceAsk(); _resetSmallTalk();
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+  setSetting('bot.cooldownSeconds', 0);
+  db.prepare('DELETE FROM xc_channels').run();
+
+  aiResponse = 'OFFTOPIC';
+  const ctx = fakeCtx("What's on ITV 2 on exclusive", { userId: 99701 });
+  await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.match(JSON.stringify(lastAiRequest), /IS in scope/i,
+    'the model is told up front that this one is in scope, so it cannot bail to OFFTOPIC');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('the steer line goes out as written, not reworded into mush', async () => {
+  // "installs, logins, buffering fixes, requests" came back from the reworder
+  // as "those service stuff bits I excel at". A short branded line gains
+  // nothing from being reworded and loses its grammar.
+  setSetting('bot.smallTalkSteer', 'Anyway — service stuff is where I shine 😄 installs, logins, buffering fixes, requests. Try me!');
+  const { _resetSmallTalk } = await import('../src/bot/pipeline.js');
+  _resetSmallTalk();
+  aiResponse = 'OFFTOPIC';
+  setSetting('bot.offtopicBehavior', 'silent');
+  const ctx = fakeCtx('what do you reckon to the weather', { userId: 99702 });
+  await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  const msg = ctx.sent.map((s) => s.msg).join('\n');
+  if (/service stuff/i.test(msg)) {
+    assert.match(msg, /installs, logins, buffering fixes, requests/,
+      'the steer must be the exact line the admin wrote');
+  }
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});

@@ -126,8 +126,18 @@ const NOISE = new Set(['uk', 'hd', 'fhd', 'sd', '4k', 'tv', 'channel', 'the', 'o
 // name-only and capped: the result is injected into the prompt, and a prompt
 // carrying 200 channel names is both slow and useless.
 export function findChannels(query, { service = 1, limit = 8 } = {}) {
-  const words = String(query || '').toLowerCase().match(/[a-z0-9+]{2,}/g) || [];
-  const terms = words.filter((w) => !NOISE.has(w));
+  const raw = String(query || '').toLowerCase().match(/[a-z0-9+]+/g) || [];
+  // "ITV 2" and "BBC 1" are written "ITV2" and "BBC One HD" in a lineup, and
+  // the NUMBER is the entire point of the question. Dropping it as too short
+  // left "itv" matching ITV1, ITV2, ITV3 and ITVBe equally, and the shortest
+  // name won — so the customer was told about the wrong channel.
+  const terms = [];
+  for (let i = 0; i < raw.length; i++) {
+    const w = raw[i];
+    const next = raw[i + 1];
+    if (next && /^[a-z]+$/.test(w) && /^\d{1,2}$/.test(next)) terms.push(w + next);
+    if (w.length >= 2 && !NOISE.has(w)) terms.push(w);
+  }
   if (!terms.length) return [];
 
   const rows = db.prepare('SELECT stream_id, name, category FROM xc_channels WHERE service = ?').all(service);

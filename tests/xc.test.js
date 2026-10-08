@@ -693,3 +693,21 @@ test('a channel question stays fast against a full-size stored guide', async () 
   db.prepare('DELETE FROM xc_programmes WHERE service = 9').run();
   db.prepare('DELETE FROM xc_channels WHERE service = 9').run();
 });
+
+test('"ITV 2" finds ITV2, not whichever ITV has the shortest name', async () => {
+  db.prepare('DELETE FROM xc_channels WHERE service = 8').run();
+  const ins = db.prepare('INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (8,?,?,NULL,?,1)');
+  for (const [id, name] of [[1, 'UK: ITV1 HD'], [2, 'UK: ITV2 HD'], [3, 'UK: ITV3'], [4, 'UK: ITV4'], [5, 'UK: ITVBe']]) {
+    ins.run(id, name, `itv${id}.uk`);
+  }
+  // The digit was being dropped as too short, so "itv" matched all five
+  // equally and the shortest name won — the customer got told about ITV3.
+  for (const q of ["what's on ITV 2", 'whats on itv2', 'what channel is ITV 2']) {
+    const hit = xc.findChannels(q, { service: 8 })[0];
+    assert.ok(hit, `no match for: ${q}`);
+    assert.match(hit.name, /ITV2/, `"${q}" matched ${hit?.name}`);
+  }
+  // A number that is not part of a channel name must not invent a match.
+  assert.equal(xc.findChannels('what channel is the knitting on 4', { service: 8 }).length, 0);
+  db.prepare('DELETE FROM xc_channels WHERE service = 8').run();
+});

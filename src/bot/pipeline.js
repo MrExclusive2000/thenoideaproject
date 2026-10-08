@@ -890,9 +890,15 @@ function stripMention(text) {
 // Canned replies pass through the AI reworder so the bot doesn't repeat
 // itself word-for-word; the saved setting text is the meaning contract and
 // the fallback (AI off/busy/slow/wrong → saved text goes out unchanged).
+// Rewording a list mangles it: "installs, logins, buffering fixes, requests"
+// came back as "those service stuff bits I excel at". These lines are short,
+// deliberate and already in the house voice, so they go out as written.
+const VERBATIM_LINES = new Set(['bot.smallTalkSteer', 'bot.capabilityMessage', 'bot.offtopicMessage']);
+
 async function spoken(key) {
   const msg = withAdminContact(String(getSetting(key) || '').trim());
-  return msg ? rephraseCanned(msg) : '';
+  if (!msg) return '';
+  return VERBATIM_LINES.has(key) ? msg : rephraseCanned(msg);
 }
 
 // Off-topic banter free pass: per user, the FIRST off-topic question in a
@@ -1124,7 +1130,13 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         // A problem report, an FAQ near-miss, or plain app/device vocabulary
         // means we already KNOW this is on-topic — stop the model bailing to
         // OFFTOPIC on legit questions (e.g. "how do I enable developer options").
-        const assumeOnTopic = forceOnTopic || looksLikeProblem(question) || Boolean(result.nearMiss) || isLikelyInScope(question);
+        // A channel or fixture question is in scope by definition — it is
+        // asking about our own lineup. Without this the model was free to
+        // call "what's on ITV 2" off-topic whenever it had no listings to
+        // hand, and the customer got the banter brush-off for a perfectly
+        // ordinary question about the service.
+        const assumeOnTopic = forceOnTopic || looksLikeProblem(question) || Boolean(result.nearMiss)
+          || isLikelyInScope(question) || isServiceSpecific(question);
         // The AI only sees messages with SOMETHING to anchor them: a scope
         // signal (one fuzzy vocabulary hit is enough), a problem/near-miss,
         // or an ongoing conversation. Anything else — "Sausage", "do you
