@@ -11,6 +11,7 @@ import { caseNumberIn, caseSummary, closeCaseAsAdmin, openCasesList, looksLikeCa
 import { hub } from './hub.js';
 import { state } from '../state.js';
 import { localBuild, updateCheck, describeUpdate, applyUpdate } from '../build.js';
+import { composeFaqFromAnswer } from '../ai/client.js';
 import { xcConfigured, refreshChannels, channelCount, channelsUpdatedAt, findChannels, xcLastError, epgCacheStats, refreshGuide, programmeCount, guideRefreshedAt, findProgrammes, refreshVod, vodCount, vodUpdatedAt, findVodTitle } from '../xc.js';
 import { mdToPlain } from '../guides.js';
 import { recallService, rememberService, forgetService, serviceMemoryStats } from '../service-memory.js';
@@ -392,33 +393,74 @@ export function registerCommands(bot) {
   bot.command('teach', async (ctx) => {
     if (!isAdminUser(ctx.from.id)) return;
     const arg = String(ctx.match || '').trim();
-    const replied = ctx.message?.reply_to_message?.text || '';
+    const repliedMsg = ctx.message?.reply_to_message;
+    const replied = repliedMsg?.text || repliedMsg?.caption || '';
     let question = '';
     let answer = '';
+    let keywords = '';
+    let drafted = false;
 
     if (arg.includes('|')) {
       [question, answer] = arg.split('|').map((x) => x.trim());
     } else if (replied && arg) {
-      // Replying to an answer with "/teach <the question it answers>".
-      question = arg;
-      answer = replied;
+      // WHO wrote the message decides which half of the pair it is. Replying
+      // to a customer's problem with an instruction means the problem is the
+      // question and the instruction is the answer. Assuming the opposite
+      // stored a customer's complaint AS the answer, under the admin's
+      // instruction as the question — an entry that can never match, and
+      // would reply with the complaint if it did.
+      const repliedIsOurs = repliedMsg.from?.is_bot || isAdminUser(repliedMsg.from?.id);
+      if (repliedIsOurs) {
+        question = arg;       // "/teach <the question this answer answers>"
+        answer = replied;
+      } else {
+        question = replied;   // their problem, in their words
+        answer = arg;         // what to tell them
+      }
+    } else if (arg.length >= 25) {
+      // A plain instruction with no pipe and nothing replied to: "/teach if
+      // someone gets retry on Sky Glass, tell them to clear data and log back
+      // in." That IS the answer — the model only has to write the question
+      // customers would ask to reach it.
+      await ctx.reply('⏳ Writing that up…');
+      try {
+        const draft = await composeFaqFromAnswer(
+          [{ question: 'What should I do about this?', answer: arg }],
+          { answeredBy: 'the admin, as a standing instruction' }
+        );
+        if (draft && !draft.skip && draft.question && draft.answer) {
+          question = draft.question;
+          answer = draft.answer;
+          keywords = draft.keywords || '';
+          drafted = true;
+        }
+      } catch {
+        // AI unavailable — fall through to the usage note below.
+      }
     }
+
     if (!question || !answer) {
       return ctx.reply(
-        'Two ways to teach me:\n' +
+        'Three ways to teach me:\n' +
         '• /teach How do I install Sky Glass? | Open Downloader, enter {skyglass} and click Go.\n' +
-        '• Reply to a message with: /teach <the question it answers>\n\n' +
+        '• Reply to a customer\'s message with: /teach <what they should be told>\n' +
+        '• Reply to a good answer with: /teach <the question it answers>\n' +
+        '• Or just describe the rule and I will write it up: /teach if someone gets retry on Sky Glass, tell them to clear the app data and log back in.\n\n' +
         'Codes are placeholders: write {skyglass} or {purple} and I fill in the current one.'
       );
     }
     const t = now();
     const info = db.prepare(
       'INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at) VALUES (?, ?, ?, 1, 0, ?, ?)'
-    ).run(question.slice(0, 300), answer.slice(0, 2500), '', t, t);
+    ).run(question.slice(0, 300), answer.slice(0, 2500), keywords.slice(0, 400), t, t);
     audit('admin', `tg:${ctx.from.id}`, 'faq.add', `#${info.lastInsertRowid} via telegram`);
     await ctx.reply(
       `✅ Learned it (entry #${info.lastInsertRowid}, live now):\n\nQ: ${question}\nA: ${withAdminContact(answer).slice(0, 400)}\n\n` +
-      'Add keywords in the panel if you want the fallback to find it too — without them it is only matched by meaning.'
+      (drafted
+        ? 'I wrote the question and keywords from what you told me — check they read right, and edit it in the panel if not.'
+        : keywords
+          ? 'Keywords saved too.'
+          : 'Add keywords in the panel if you want the fallback to find it too — without them it is only matched by meaning.')
     );
   });
 

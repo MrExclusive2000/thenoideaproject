@@ -3807,3 +3807,61 @@ test('status lines are never reworded into something untrue', async () => {
   }
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
+
+// --- /teach has to understand how an admin actually writes -------------------
+
+test('replying to a CUSTOMER with an instruction stores it the right way round', async () => {
+  // Live: replied to "My sky glass keeps saying retry" with "/teach if the
+  // user has logged in and gets retry, tell them to clear data and log back
+  // in". It stored the instruction AS THE QUESTION and the customer's
+  // complaint AS THE ANSWER — an entry that can never match, and that would
+  // reply with the complaint if it did.
+  const { registerCommands } = await import('../src/bot/commands.js');
+  const handlers = {};
+  const fakeBot = {
+    command: (name, fn) => { handlers[name] = fn; },
+    callbackQuery: () => {}, on: () => {}, use: () => {}, api: {},
+  };
+  setSetting('reports.adminTelegramIds', [4242]);
+  registerCommands(fakeBot);
+  db.prepare('DELETE FROM faqs').run();
+
+  const sent = [];
+  await handlers.teach({
+    from: { id: 4242 },
+    chat: { id: 4242, type: 'private' },
+    match: 'if they get retry on Sky Glass, tell them to clear the app data and log back in with their username and password',
+    message: {
+      message_id: 2,
+      reply_to_message: { message_id: 1, from: { id: 999, is_bot: false }, text: 'My sky glass just keeps saying retry when I have logged in' },
+    },
+    reply: async (m) => { sent.push(m); },
+  });
+
+  const row = db.prepare('SELECT * FROM faqs ORDER BY id DESC LIMIT 1').get();
+  assert.ok(row, 'stored');
+  assert.match(row.question, /keeps saying retry/i, "the customer's words are the question");
+  assert.match(row.answer, /clear the app data/i, 'the instruction is the answer');
+});
+
+test('replying to a good ANSWER still works the original way round', async () => {
+  const { registerCommands } = await import('../src/bot/commands.js');
+  const handlers = {};
+  registerCommands({ command: (n, f) => { handlers[n] = f; }, callbackQuery: () => {}, on: () => {}, use: () => {}, api: {} });
+  setSetting('reports.adminTelegramIds', [4242]);
+  db.prepare('DELETE FROM faqs').run();
+
+  await handlers.teach({
+    from: { id: 4242 },
+    chat: { id: 4242, type: 'private' },
+    match: 'How do I install Sky Glass?',
+    message: {
+      message_id: 2,
+      reply_to_message: { message_id: 1, from: { id: 4242, is_bot: false }, text: 'Open Downloader, enter 3793766 and click Go.' },
+    },
+    reply: async () => {},
+  });
+  const row = db.prepare('SELECT * FROM faqs ORDER BY id DESC LIMIT 1').get();
+  assert.match(row.question, /How do I install Sky Glass/);
+  assert.match(row.answer, /Open Downloader/);
+});
