@@ -57,3 +57,54 @@ test('extractProblemTopic labels common symptoms', () => {
   assert.match(extractProblemTopic('the app crashed again'), /crash/);
   assert.equal(extractProblemTopic('what time is the match'), null);
 });
+
+test("somebody else's product is not ours to support", async () => {
+  // Live: "How do I reinstall Windows 10" came back with a five-step guide to
+  // the Media Creation Tool and BIOS boot order, and "How do I update my
+  // Windows PC" with Settings > Update & Security. We sell streaming. A
+  // customer who follows that and wipes their laptop did it on our say-so.
+  //
+  // The cause is that install / reinstall / update are STRONG service
+  // vocabulary — they are how people ask about our app — so the question was
+  // forced in scope before the model ever saw it.
+  const { hasScopeSignal, isLikelyInScope, namesForeignProduct } = await import('../src/bot/helpers.js');
+
+  for (const q of [
+    'How do I update my windows pc',
+    'How do I reinstall windows 10',
+    'How do I mute the telegram notifications',
+    'how do i fix my printer',
+    'how do i update my xbox',
+    'how do i reinstall macos',
+  ]) {
+    assert.equal(namesForeignProduct(q), true, `not ours: ${q}`);
+    assert.equal(hasScopeSignal(q), false, `must not reach the model: ${q}`);
+    assert.equal(isLikelyInScope(q), false, q);
+  }
+
+  // Our thing running on their thing is still ours.
+  for (const q of [
+    'how do i install the app on my pc',
+    'my firestick wont connect to my windows pc',
+    'how do i install purple on firestick',
+    'how do i reinstall the app',
+    'can i watch it on my macbook',
+  ]) {
+    assert.equal(namesForeignProduct(q), false, `still ours: ${q}`);
+    assert.ok(hasScopeSignal(q) || isLikelyInScope(q), `must still be answered: ${q}`);
+  }
+
+  // "Can I use it on Windows" names only their product, and is still a
+  // question about ours — the shape of the question carries the subject. The
+  // sales/compatibility check has to run before the foreign-product veto, or
+  // the one question a prospective customer always asks gets brushed off.
+  for (const q of [
+    'can i use it on windows',
+    'does it work on a chromebook',
+    'will it run on windows 11',
+    'is a chromecast supported',
+  ]) {
+    assert.equal(isLikelyInScope(q), true, `compatibility question: ${q}`);
+    assert.equal(hasScopeSignal(q), true, `compatibility question: ${q}`);
+  }
+});

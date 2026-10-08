@@ -181,7 +181,7 @@ const STRONG_SCOPE_TERMS = new Set([
 // Phrases, not words, because that is how the gap shows up: "how much" is two
 // words that mean nothing apart and only one thing together.
 const PRESALES_RE =
-  /\bhow many\b[^.?!\n]{0,20}\b(?:cost|a month|per month)\b|\bwhat(?:'?s| is| are)?\b[^.?!\n]{0,15}\b(?:the )?(?:price|prices|cost|costs|charge|charges|damage|rate|rates)\b|\bdo (?:you|u|yous|yas)\b[^.?!\n]{0,15}\b(?:charge|cost)\b|\bhow (?:do|can|would) (?:i|we|you)\b[^.?!\n]{0,20}\b(?:sign ?up|signup|join|subscribe|get (?:it|this|started|set ?up|on ?board)|become a member)\b|\b(?:sign ?me ?up|signing up|sign ?up)\b|\bfree trial\b|\btrial\b[^.?!\n]{0,20}\b(?:available|first|before)\b|\b(?:monthly|yearly|annual|3 month|6 month|12 month)\b[^.?!\n]{0,20}\b(?:price|cost|plan|package|sub|subscription|option)\b|\bwhat (?:do|does) (?:it|this|yous?) cost\b|\bhow (?:do|can) (?:i|we) (?:pay|order|buy)\b|\b(?:want|like) to (?:join|subscribe|sign ?up|get (?:a )?(?:sub|subscription|account))\b|\bwhat (?:packages?|plans?|options?|deals?)\b|\bwhat channels (?:do|have) (?:you|yous|u)\b|\bwhat(?:'?s| is)? included\b|\bwhat do (?:you|u|yous|yas|ye) (?:offer|do|provide|sell)\b|\bwhat(?:'?s| is| was)?\s+(?:this|that|it|all this)\b[^.?!\n]{0,20}\b(?:exactly|about|then|service|all about)?\s*$|\bwhat(?:'?s| is)\s+(?:this|the)\s+(?:service|thing|all about)\b|\bwhats this\b|\bwho are (?:you|yous|ye)\b[^.?!\n]{0,15}\b(?:lot|then|exactly)?\s*$|\bwhat (?:devices?|boxes?)\b[^.?!\n]{0,25}\b(?:work|support|use|run|on)\b/i;
+  /\bhow many\b[^.?!\n]{0,20}\b(?:cost|a month|per month)\b|\bwhat(?:'?s| is| are)?\b[^.?!\n]{0,15}\b(?:the )?(?:price|prices|cost|costs|charge|charges|damage|rate|rates)\b|\bdo (?:you|u|yous|yas)\b[^.?!\n]{0,15}\b(?:charge|cost)\b|\bhow (?:do|can|would) (?:i|we|you)\b[^.?!\n]{0,20}\b(?:sign ?up|signup|join|subscribe|get (?:it|this|started|set ?up|on ?board)|become a member)\b|\b(?:sign ?me ?up|signing up|sign ?up)\b|\bfree trial\b|\btrial\b[^.?!\n]{0,20}\b(?:available|first|before)\b|\b(?:monthly|yearly|annual|3 month|6 month|12 month)\b[^.?!\n]{0,20}\b(?:price|cost|plan|package|sub|subscription|option)\b|\bwhat (?:do|does) (?:it|this|yous?) cost\b|\bhow (?:do|can) (?:i|we) (?:pay|order|buy)\b|\b(?:want|like) to (?:join|subscribe|sign ?up|get (?:a )?(?:sub|subscription|account))\b|\bwhat (?:packages?|plans?|options?|deals?)\b|\bwhat channels (?:do|have) (?:you|yous|u)\b|\bwhat(?:'?s| is)? included\b|\bwhat do (?:you|u|yous|yas|ye) (?:offer|do|provide|sell)\b|\bwhat(?:'?s| is| was)?\s+(?:this|that|it|all this)\b[^.?!\n]{0,20}\b(?:exactly|about|then|service|all about)?\s*$|\bwhat(?:'?s| is)\s+(?:this|the)\s+(?:service|thing|all about)\b|\bwhats this\b|\bwho are (?:you|yous|ye)\b[^.?!\n]{0,15}\b(?:lot|then|exactly)?\s*$|\bwhat (?:devices?|boxes?)\b[^.?!\n]{0,25}\b(?:work|support|use|run|on)\b|\b(?:can|could|will)\s+(?:i|we|you)\s+(?:watch|view|use|run|get|stream)\b[^.?!\n]{0,30}\b(?:on|with)\b|\b(?:does|do|will|would|can|could)\s+(?:it|this|that|they|the app|your app|yours)\s+(?:work|works|run|runs|play|stream)\s+(?:on|with)\b|\bis\s+(?:a|an|the)?\s*[\w ]{2,20}\s+supported\b|(?<!\bto\s)(?<!\bworking\s)\bwork\s+on\s+(?:a|an|my)\b/i;
 
 // "How much" is how most people ask the price, and it is also how they ask
 // the price of a pint. It only counts when the message is short enough to be
@@ -202,10 +202,37 @@ export function looksLikePreSales(text) {
   return false;
 }
 
+// Somebody else's product. "Install", "reinstall" and "update" are strong
+// service vocabulary because they are how people ask about OUR app — which
+// meant "How do I reinstall Windows 10" was forced in scope and answered with
+// a five-step guide to the Media Creation Tool and BIOS boot order. We sell
+// streaming, and a customer who follows that advice and wipes their laptop
+// did it on our say-so.
+const FOREIGN_PRODUCT =
+  /\bwindows\s*(?:10|11|7|8|xp|vista)?\b|\bwin\s*(?:10|11)\b|\bmicrosoft\b|\bmac\s?os\b|\bosx\b|\bmacbook\b|\blinux\b|\bubuntu\b|\bchrome\s?os\b|\bchromebook\b|\btelegram\b|\bwhatsapp\b|\bsignal\b|\bfacebook\b|\binstagram\b|\btiktok\b|\bsnapchat\b|\btwitter\b|\bgmail\b|\boutlook\b|\bmicrosoft office\b|\bexcel\b|\bpowerpoint\b|\bphotoshop\b|\bxbox\b|\bplaystation\b|\bps[45]\b|\bnintendo\b|\bsteam\b|\bspotify\b|\bminecraft\b|\broblox\b|\bprinter\b|\bscanner\b|\bbios\b|\buefi\b|\bantivirus\b|\bmcafee\b|\bnorton\b/i;
+
+// Ours. Naming one of these alongside a foreign product means the question is
+// still about us — "my Firestick won't talk to my Windows PC" is our problem,
+// "how do I reinstall Windows" is not. The watching verbs matter as much as
+// the nouns: "can I watch it on my MacBook" is a question about our service
+// that happens to name their laptop, and my first version called it foreign.
+const OUR_SUBJECT =
+  /\bapps?\b|\bpurple\b|\bsmarters\b|\bsky ?glass\b|\bdownloader\b|\bfirestick\b|\bfire ?stick\b|\bfire ?tv\b|\biptv\b|\bvod\b|\bchannels?\b|\bstreams?\b|\bepg\b|\bguide\b|\bbuffer\w*\b|\bplayback\b|\blog ?in\b|\blogin\b|\busername\b|\bsubscription\b|\bservice\b|\bm3u\b|\bplaylist\b|\bsubs(?:cription)?\b|\brenew\w*\b|\bwatch\w*\b|\bview\w*\b|\bcast\b|\bstreaming\b|\bwork(?:s|ing)? (?:on|with)\b|\bsupported\b/i;
+
+export function namesForeignProduct(text) {
+  const t = String(text || '');
+  if (!FOREIGN_PRODUCT.test(t)) return false;
+  // Both named: ours wins, it is a question about using our thing on theirs.
+  return !OUR_SUBJECT.test(t);
+}
+
 export function isLikelyInScope(text) {
   // A sales question is in scope by definition — it is about buying the thing
-  // this bot exists to support.
+  // this bot exists to support. It is checked BEFORE the foreign-product veto
+  // because "can I use it on Windows" names only their product and is still a
+  // question about ours: the shape of the question carries the subject.
   if (looksLikePreSales(text)) return true;
+  if (namesForeignProduct(text)) return false;
   const vocab = scopeVocab();
   let hits = 0;
   for (const t of new Set(tokens(text))) {
@@ -223,6 +250,7 @@ export function isLikelyInScope(text) {
 // conversation context gives the model nothing on-topic to work with.
 export function hasScopeSignal(text) {
   if (looksLikePreSales(text)) return true;
+  if (namesForeignProduct(text)) return false;
   const vocab = scopeVocab();
   const toks = new Set(tokens(text));
   for (const t of toks) if (vocab.has(t)) return true;
