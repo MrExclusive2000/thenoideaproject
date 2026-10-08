@@ -446,6 +446,29 @@ async function handleServiceReply(ctx, text, logId, replyParams) {
 // Questions whose answer differs between the two services. Both of these read
 // from per-service data, so answering without knowing which one is a coin
 // flip dressed up as an answer.
+// Someone telling us they have MOVED. A renewal that switches a customer
+// across is the one event that makes everything the bot remembers wrong —
+// wrong channels, wrong library, wrong outage notices — and the memory is
+// held for 120 days, so being unable to correct it is not a small thing.
+// There was no way to: "I've switched to Exclusive now" got banter, and
+// "im on exclusive now" got the off-topic brush-off.
+//
+// A STATEMENT about themselves, never a question. "Is Big Bang Theory on
+// Exclusive?" must not move anybody — that distinction is the whole reason
+// serviceNamedIn() deliberately does not store what it finds.
+const SERVICE_STATEMENT =
+  /\b(?:i'?m|i am|im|i'?ve|i have|ive)\b[^.?!\n]{0,30}\b(?:on|with|switched to|swapped to|moved to|changed to|now on|gone to|signed up (?:to|for)|renewed (?:on|to|with))\b|\b(?:switched|swapped|moved|changed|upgraded|downgraded)\s+(?:over\s+)?to\b|\bmy (?:account|sub|subscription|line) is (?:on|with)?\b|\bi use\b/i;
+
+function looksLikeServiceStatement(text) {
+  const t = String(text || '').trim();
+  if (!t || t.length > 140) return false;
+  if (t.includes('?')) return false;              // a question is not a statement
+  if (looksLikeQuestion(t)) return false;
+  return SERVICE_STATEMENT.test(t);
+}
+
+export const _looksLikeServiceStatement = (t) => looksLikeServiceStatement(t);
+
 function isServiceSpecific(question) {
   return looksLikeChannelQuestion(question) || looksLikeFixtureQuestion(question);
 }
@@ -1806,6 +1829,27 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
       setLogSource(logId, 'greeting');
       await ctx.api.sendMessage(ctx.chat.id, hello, replyParams);
       return 'greeting';
+    }
+  }
+
+  // "I've moved to Exclusive." Stored as what it is — them telling us — and
+  // confirmed back, so they know it took. Weighted the same as answering the
+  // which-service question, because it is the same act.
+  if (twoServicesNamed() && looksLikeServiceStatement(question)) {
+    const named = serviceNamedIn(question);
+    if (named) {
+      const s = serviceConfig();
+      const label = named === 1 ? s.one.name : s.two.name;
+      const before = recallService(ctx.from?.id)?.service ?? null;
+      rememberService(ctx.from.id, named, 'told');
+      rememberVodService(ctx.from.id, label, named);
+      setLogSource(logId, 'service-set');
+      await ctx.api.sendMessage(ctx.chat.id,
+        before && before !== named
+          ? `👍 Got it — you're on ${label} now. I'll use that lineup and library from here on.`
+          : `👍 Noted — you're on ${label}. Channel, guide and VOD answers will use that lineup.`,
+        replyParams).catch(() => {});
+      return 'service-set';
     }
   }
 

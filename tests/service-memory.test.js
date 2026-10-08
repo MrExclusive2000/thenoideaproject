@@ -64,3 +64,43 @@ test('a nonsense service number is never stored', () => {
   assert.equal(m.rememberService(null, 1, 'told'), false);
   assert.equal(m.recallServiceNumber(1007), null);
 });
+
+test('the service is still known days and months later, and after a restart', async () => {
+  // It lives in a table, not in memory, and nothing prunes it — the retention
+  // sweep only touches messages_log and link_codes.
+  const { db, now } = await import('../src/db/db.js');
+  const { recallService, rememberService } = await import('../src/service-memory.js');
+  const DAY = 86400;
+
+  const aged = (uid, days, service) => {
+    rememberService(uid, service, 'told');
+    db.prepare('UPDATE tg_service SET updated_at = ? WHERE tg_user_id = ?').run(now() - days * DAY, uid);
+  };
+  aged(80001, 3, 2);
+  aged(80002, 30, 1);
+  aged(80003, 200, 2);
+
+  assert.equal(recallService(80001)?.service, 2, 'three days later');
+  assert.equal(recallService(80002)?.service, 1, 'a month later');
+  // Never expires on READ. The 120-day line only decides whether weaker
+  // evidence is allowed to overwrite it.
+  assert.equal(recallService(80003)?.service, 2, 'two hundred days later');
+});
+
+test('a weak signal corrects a stale record but not a fresh one', async () => {
+  const { db, now } = await import('../src/db/db.js');
+  const { recallService, rememberService } = await import('../src/service-memory.js');
+
+  rememberService(80010, 1, 'told');
+  rememberService(80010, 2, 'guess');
+  assert.equal(recallService(80010).service, 1, 'a fresh answer is not overruled by a guess');
+
+  db.prepare('UPDATE tg_service SET updated_at = ? WHERE tg_user_id = ?').run(now() - 200 * 86400, 80010);
+  rememberService(80010, 2, 'guess');
+  assert.equal(recallService(80010).service, 2, 'a two-hundred-day-old one is');
+
+  // Stronger evidence wins whatever its age — this is how an admin fixes it.
+  rememberService(80011, 2, 'told');
+  rememberService(80011, 1, 'admin');
+  assert.equal(recallService(80011).service, 1);
+});

@@ -4998,3 +4998,37 @@ test('the service a customer gives is remembered and used for everything after',
 
   db.prepare("DELETE FROM xc_vod WHERE name LIKE 'Onlyon%'").run();
 });
+
+test('a customer who switches services can say so in plain English', async () => {
+  // The gap behind "how would you swap it if they renewed onto Exclusive?":
+  // there was no way. "I've switched to Exclusive now" got banter and "im on
+  // exclusive now" got the off-topic brush-off, so every answer for the next
+  // 120 days used the wrong lineup, the wrong library and the wrong outage.
+  const { setSetting } = await import('../src/settings.js');
+  const { recallService, forgetService } = await import('../src/service-memory.js');
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+  _resetProblemTriage();
+
+  for (const phrase of ["I've switched to Exclusive now", 'im on exclusive now', 'I moved to Exclusive']) {
+    forgetService(98001);
+    const { rememberService } = await import('../src/service-memory.js');
+    rememberService(98001, 2, 'told'); // on Flix to begin with
+    const ctx = fakeCtx(phrase, { userId: 98001 });
+    const result = await answer(ctx, phrase, { isDm: true, logId: null });
+    assert.equal(result, 'service-set', `should take it: ${phrase}`);
+    assert.equal(recallService(98001).service, 1, `should switch them: ${phrase}`);
+    assert.match(ctx.sent[0].msg, /Exclusive/, 'and confirm it back so they know it stuck');
+  }
+
+  // A QUESTION that names a service must never move anybody. Someone on Flix
+  // asking "is Mobland on Exclusive?" is asking about a title, not telling us
+  // who they are — that distinction is the whole point.
+  forgetService(98002);
+  const { rememberService } = await import('../src/service-memory.js');
+  rememberService(98002, 2, 'told');
+  const asking = fakeCtx('is big bang theory on exclusive', { userId: 98002 });
+  await handleDirectMessage(asking, 'is big bang theory on exclusive');
+  assert.equal(recallService(98002).service, 2, 'still on Flix — they asked, they did not tell');
+});
