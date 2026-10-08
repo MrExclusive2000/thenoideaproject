@@ -1217,6 +1217,9 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
             try {
               reply = await askAi(question, {
                 history, assumeOnTopic, playback, grounding, secondRound: deepen, channels,
+                // Their service, so a note that is only true for the OTHER
+                // one never reaches them as if it were their problem.
+                service: serviceNumber,
                 // The banner above already said "we know". Walking someone
                 // through restarting their box cannot fix a fault on our side,
                 // and asking them to is a waste of their evening.

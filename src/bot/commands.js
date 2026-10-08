@@ -3,7 +3,7 @@ import path from 'node:path';
 import { InlineKeyboard, InputFile } from 'grammy';
 import { db, now } from '../db/db.js';
 import { config } from '../config.js';
-import { getSetting, setSetting, redactServiceUrls } from '../settings.js';
+import { getSetting, setSetting, redactServiceUrls, serviceNotesFor } from '../settings.js';
 import { audit } from '../util.js';
 import { sendChunked, isAdminUser, chatAllowed, linkedCustomer, latestFile, withAdminContact } from './helpers.js';
 import { sendDigest, buildStatsText } from './reports.js';
@@ -19,10 +19,12 @@ const isPrivate = (ctx) => ctx.chat?.type === 'private';
 
 function statusText() {
   const status = getSetting('service.status');
-  const note = getSetting('service.note');
   const emoji = { operational: '✅', degraded: '⚠️', maintenance: '🛠' }[status] || '';
   const file = latestFile();
-  const lines = [`${emoji} Service status: ${status}${note ? ` — ${note}` : ''}`];
+  // Labelled, so nobody reads someone else's outage as their own.
+  const notes = serviceNotesFor(null);
+  const lines = [`${emoji} Service status: ${status}`];
+  for (const n of notes) lines.push(`• ${n}`);
   if (file) lines.push(`Latest version: ${file.display_name}${file.version ? ` v${file.version}` : ''}`);
   return lines.join('\n');
 }
@@ -340,21 +342,49 @@ export function registerCommands(bot) {
   // Written into an entry it just rots there and keeps being told to customers.
   bot.command('note', async (ctx) => {
     if (!isAdminUser(ctx.from.id)) return;
-    const text = String(ctx.match || '').trim();
+    let text = String(ctx.match || '').trim();
+
+    // A note can be aimed at ONE service: "/note exclusive Purple is down".
+    // Without that, a problem affecting half the customers was being read out
+    // to the other half as though it were theirs.
+    const names = { 1: String(getSetting('services.name1') || '').trim(), 2: String(getSetting('services.name2') || '').trim() };
+    let target = 0;
+    const first = text.split(/\s+/)[0] || '';
+    for (const n of [1, 2]) {
+      if (names[n] && first.toLowerCase() === names[n].toLowerCase()) {
+        target = n;
+        text = text.slice(first.length).trim();
+        break;
+      }
+    }
+    const key = target ? `service.note${target}` : 'service.note';
+    const who = target ? names[target] : 'both services';
+
     if (!text) {
-      const current = getSetting('service.note');
-      return ctx.reply(current
-        ? `Current service note:\n"${current}"\n\nChange it: /note <text>  ·  Remove it: /note clear`
-        : 'No service note set. Add one with: /note Purple is down for Exclusive customers, use Sky Glass');
+      const lines = [];
+      for (const [k, label] of [['service.note', 'Both services'], ['service.note1', names[1] || 'service 1'], ['service.note2', names[2] || 'service 2']]) {
+        const v = getSetting(k);
+        if (v) lines.push(`${label}: "${v}"`);
+      }
+      const usage = names[1] && names[2]
+        ? `\n\n/note <text> — affects everyone\n/note ${names[1]} <text> — only ${names[1]} customers\n/note ${names[2]} <text> — only ${names[2]} customers\n/note clear (or /note ${names[1]} clear)`
+        : '\n\n/note <text> to set one · /note clear to remove it';
+      return ctx.reply((lines.length ? `Current notes:\n${lines.join('\n')}` : 'No service note set.') + usage);
     }
+
     if (/^(clear|none|off|remove)$/i.test(text)) {
-      setSetting('service.note', '');
-      audit('admin', `tg:${ctx.from.id}`, 'service.note', 'cleared');
-      return ctx.reply('✅ Service note cleared — customers stop being told about it.');
+      setSetting(key, '');
+      audit('admin', `tg:${ctx.from.id}`, key, 'cleared');
+      return ctx.reply(`✅ Note cleared for ${who} — customers stop being told about it.`);
     }
-    setSetting('service.note', text.slice(0, 500));
-    audit('admin', `tg:${ctx.from.id}`, 'service.note', text.slice(0, 120));
-    await ctx.reply(`✅ Service note set:\n"${text}"\n\nThe AI now mentions this, /status shows it, and problem answers lead with it. Clear it with /note clear when it's fixed.`);
+    setSetting(key, text.slice(0, 500));
+    audit('admin', `tg:${ctx.from.id}`, key, text.slice(0, 120));
+    await ctx.reply(
+      `✅ Note set for ${who}:\n"${text}"\n\n` +
+      (target
+        ? `Only ${who} customers are told this. Clear it with /note ${names[target]} clear.`
+        : 'Everyone is told this. Clear it with /note clear when it is fixed.')
+    );
   });
 
   // Teach the bot something without opening the panel.

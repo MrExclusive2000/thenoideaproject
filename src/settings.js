@@ -170,7 +170,13 @@ const DEFAULTS = {
   'faq.threshold': 0.5,
 
   'service.status': 'operational', // operational | degraded | maintenance
+  // Affects BOTH services. A note that is only true for one of them belongs
+  // in the per-service fields below, or a customer on the other service gets
+  // told about a problem that is not theirs — which is how "Purple is down
+  // for Exclusive customers" reached a Flix customer.
   'service.note': '',
+  'service.note1': '',
+  'service.note2': '',
   // Set (to a timestamp) when the status was flipped by auto-degradation —
   // lets the recovery sweep clear it without ever touching an admin-set one.
   'service.autoDegradedAt': 0,
@@ -366,6 +372,29 @@ export function withAdminContact(text) {
 // URL the admin pasted into an FAQ would leak to the other service's
 // customers. Replace any occurrence with a pointer to the flow. (The URL
 // flow itself sends the real value on purpose and does not use this.)
+// The notes that actually apply to this customer. With a known service that
+// is the shared note plus theirs; with an unknown one, every note, each
+// labelled with whose it is, so nothing is ever quietly attributed to the
+// wrong service.
+export function serviceNotesFor(service = null) {
+  const shared = String(getSetting('service.note') || '').trim();
+  const per = {
+    1: String(getSetting('service.note1') || '').trim(),
+    2: String(getSetting('service.note2') || '').trim(),
+  };
+  const label = (n) => String(getSetting(`services.name${n}`) || '').trim() || `service ${n}`;
+  const out = [];
+  if (shared) out.push(shared);
+  if (service === 1 || service === 2) {
+    if (per[service]) out.push(per[service]);
+  } else {
+    for (const n of [1, 2]) if (per[n]) out.push(`${label(n)}: ${per[n]}`);
+  }
+  return out;
+}
+
+export const serviceNoteText = (service = null) => serviceNotesFor(service).join('\n');
+
 export function redactServiceUrls(text) {
   let out = String(text ?? '');
   const needles = [];

@@ -3414,3 +3414,46 @@ test('the steer line goes out as written, not reworded into mush', async () => {
   }
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
+
+// --- a note for one service never reaches the other --------------------------
+
+test('a customer only hears the note for THEIR service', async () => {
+  const { serviceNotesFor } = await import('../src/settings.js');
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+  setSetting('service.note', '');
+  setSetting('service.note1', 'Purple is not working, please use Sky Glass instead.');
+  setSetting('service.note2', '');
+
+  // This is the live failure: a Flix customer asked for their status and was
+  // told about a problem affecting Exclusive customers.
+  assert.deepEqual(serviceNotesFor(2), [], 'nothing of ours is wrong, so nothing is said');
+  assert.deepEqual(serviceNotesFor(1), ['Purple is not working, please use Sky Glass instead.']);
+
+  const flix = buildSystemPrompt('what is the service status', null, { service: 2 });
+  assert.doesNotMatch(flix, /Purple is not working/, 'a Flix customer is never told Exclusive is broken');
+  const excl = buildSystemPrompt('what is the service status', null, { service: 1 });
+  assert.match(excl, /Purple is not working/, 'an Exclusive customer is');
+});
+
+test('a note for everyone still reaches everyone', async () => {
+  const { serviceNotesFor } = await import('../src/settings.js');
+  setSetting('service.note', 'Server move tonight at 20:00.');
+  try {
+    assert.ok(serviceNotesFor(1).includes('Server move tonight at 20:00.'));
+    assert.ok(serviceNotesFor(2).includes('Server move tonight at 20:00.'));
+  } finally {
+    setSetting('service.note', '');
+  }
+});
+
+test('when the service is unknown, a note says whose it is', async () => {
+  const { serviceNotesFor } = await import('../src/settings.js');
+  const notes = serviceNotesFor(null);
+  assert.deepEqual(notes, ['Exclusive: Purple is not working, please use Sky Glass instead.'],
+    'labelled, so it is never read as the asker\'s own problem');
+  const prompt = buildSystemPrompt('what is the service status', null, {});
+  assert.match(prompt, /applies ONLY to customers on that service/,
+    'and the model is told not to state it as theirs');
+  setSetting('service.note1', '');
+});

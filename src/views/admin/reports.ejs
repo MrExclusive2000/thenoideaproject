@@ -17,10 +17,21 @@
         </select>
       </div>
       <div>
-        <label for="note">Note (optional, e.g. "server move, back at 20:00 UTC")</label>
+        <label for="note">Note for <strong>everyone</strong> (e.g. "server move, back at 20:00 UTC")</label>
         <input id="note" name="note" type="text" maxlength="300" value="<%= s.serviceNote %>">
       </div>
     </div>
+    <div class="row">
+      <div>
+        <label for="note1">Note for <%= s.serviceName1 || 'service 1' %> only</label>
+        <input id="note1" name="note1" type="text" maxlength="300" value="<%= s.serviceNote1 %>">
+      </div>
+      <div>
+        <label for="note2">Note for <%= s.serviceName2 || 'service 2' %> only</label>
+        <input id="note2" name="note2" type="text" maxlength="300" value="<%= s.serviceNote2 %>">
+      </div>
+    </div>
+    <p class="hint">A problem that only affects one service belongs in that service's box. The note for everyone goes to everyone — put <em>"Purple isn't working, use Sky Glass"</em> in the <%= s.serviceName1 || 'service 1' %> box and only those customers hear it. A customer the bot cannot place is told which service a note applies to rather than having it stated as their problem. In Telegram: <code>/note &lt;text&gt;</code> for everyone, <code>/note <%= s.serviceName1 || 'Exclusive' %> &lt;text&gt;</code> for one.</p>
     <div class="checkline">
       <input type="checkbox" id="announceChanges" name="announceChanges" value="1" <%= s.announceChanges ? 'checked' : '' %>>
       <label for="announceChanges">Auto-announce status changes to the group</label>

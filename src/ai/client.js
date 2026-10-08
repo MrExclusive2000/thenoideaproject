@@ -1,5 +1,5 @@
 import { db, now } from '../db/db.js';
-import { getSetting, redactServiceUrls, withAdminContact } from '../settings.js';
+import { getSetting, redactServiceUrls, withAdminContact, serviceNotesFor } from '../settings.js';
 import { scoreFaq, tokens } from '../faq/matcher.js';
 import { scoreGuide } from '../guides.js';
 import { redactWalletAddresses } from '../payments.js';
@@ -112,10 +112,10 @@ function capFaqs(faqs) {
   return out;
 }
 
-export function buildSystemPrompt(question = '', providedFaqs = null) {
+export function buildSystemPrompt(question = '', providedFaqs = null, { service = null } = {}) {
   const instructions = getSetting('bot.instructions');
   const status = getSetting('service.status');
-  const note = getSetting('service.note');
+  const notes = serviceNotesFor(service);
 
   const allFaqs = db.prepare('SELECT question, answer, keywords, priority FROM faqs WHERE enabled = 1 ORDER BY priority DESC, id').all();
   const allGuides = db.prepare('SELECT title, body_md FROM guides WHERE visible = 1 ORDER BY sort, id').all();
@@ -151,8 +151,16 @@ export function buildSystemPrompt(question = '', providedFaqs = null) {
   for (const g of guides) {
     knowledge.push(`## Guide: ${g.title}\n${g.body}`);
   }
-  if (status !== 'operational' || note) {
-    knowledge.push(`## Current service status\n${status}${note ? ` — ${note}` : ''}`);
+  if (status !== 'operational' || notes.length) {
+    const lines = [`## Current service status`, status];
+    for (const n of notes) lines.push(`- ${n}`);
+    // With a known service only that service's notes are here at all. Without
+    // one they are labelled, and a note must never be repeated to a customer
+    // it does not apply to.
+    if (!service && notes.some((n) => /^[^:]{1,40}: /.test(n))) {
+      lines.push('(A note prefixed with a service name applies ONLY to customers on that service. If you do not know which one they are on, say which service it affects rather than stating it as their problem.)');
+    }
+    knowledge.push(lines.join('\n'));
   }
 
   // Redacted at the very end: even a URL the admin pasted into an FAQ or
@@ -474,7 +482,7 @@ export function _aiQueueState() {
 // `smallTalk`: the caller is spending the user's one off-topic free pass —
 // permit ONE brief friendly answer to an off-topic message. Replies that are
 // (or end as) a question are suppressed: banter must never fish for more chat.
-export async function askAi(question, { history = [], assumeOnTopic = false, smallTalk = false, playback = null, grounding = null, secondRound = false, knowledgeFaqs = null, knownOutage = false, channels = null } = {}) {
+export async function askAi(question, { history = [], assumeOnTopic = false, smallTalk = false, playback = null, grounding = null, secondRound = false, knowledgeFaqs = null, knownOutage = false, channels = null, service = null } = {}) {
   if (!getSetting('ai.enabled')) return null;
   if (aiBudgetExceeded()) {
     const err = new Error('Daily AI budget reached');
@@ -482,7 +490,7 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
     throw err;
   }
 
-  const systemPrompt = buildSystemPrompt(question, knowledgeFaqs);
+  const systemPrompt = buildSystemPrompt(question, knowledgeFaqs, { service });
   const messages = [
     { role: 'system', content: systemPrompt },
     ...(assumeOnTopic

@@ -15,6 +15,10 @@ reportsRouter.get('/reports', (req, res) => {
     s: {
       serviceStatus: getSetting('service.status'),
       serviceNote: getSetting('service.note'),
+      serviceNote1: getSetting('service.note1'),
+      serviceNote2: getSetting('service.note2'),
+      serviceName1: getSetting('services.name1'),
+      serviceName2: getSetting('services.name2'),
       announceChanges: getSetting('service.announceChanges'),
       adminTelegramIds: (getSetting('reports.adminTelegramIds') || []).join(', '),
       alertErrors: getSetting('reports.alertErrors'),
@@ -48,6 +52,8 @@ reportsRouter.post('/reports/service', async (req, res) => {
   setSettings({
     'service.status': status,
     'service.note': note,
+    'service.note1': String(req.body.note1 || '').trim().slice(0, 300),
+    'service.note2': String(req.body.note2 || '').trim().slice(0, 300),
     'service.announceChanges': req.body.announceChanges === '1',
     // An admin-set status is authoritative — stop the auto-degradation
     // recovery sweep from touching it.
