@@ -77,12 +77,26 @@ const fillTopic = (text, topic) => topic
   ? text.replace(/\{topic\}/g, topic)
   : text.replace(/\{topic\}\s+issue/g, 'issue').replace(/\{topic\}\s*/g, '');
 
+// A short human label for a case. The topic is extracted where it can be, but
+// it is often empty — a login failure produced none — and "the issue you
+// reported" means nothing to someone who has reported three things. Their own
+// words always exist, so they are the fallback.
+export function caseLabel(report, max = 60) {
+  const topic = String(report?.topic || '').trim();
+  if (topic) return topic;
+  const text = String(report?.text || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
+}
+
 export async function notifyResolved(report) {
   const template = String(getSetting('bot.problemResolvedByAdminMessage') || '').trim();
   if (!template || !hub.online || !report?.tg_user_id) return false;
 
   const mention = `<a href="tg://user?id=${report.tg_user_id}">${escHtml(report.tg_user || 'there')}</a>`;
   const body = fillTopic(escHtml(template), report.topic ? escHtml(report.topic) : null)
+    .replace(/\{case\}/g, String(report.id ?? ''))
+    .replace(/\{report\}/g, escHtml(caseLabel(report)))
     .replace(/\{name\}/g, mention)
     .replace(/\s+,/g, ',')
     .replace(/ {2,}/g, ' ')
@@ -309,9 +323,13 @@ export async function closeCaseAsAdmin(id, by) {
   db.prepare("UPDATE problem_reports SET resolved = 1, resolved_by = 'admin' WHERE id = ?").run(id);
   audit('admin', by, 'problems.resolve', `#${id} via telegram`);
   const notified = await notifyResolved(r).catch(() => false);
+  // Say WHAT was closed. Closing three in a row, "#1 closed" tells you
+  // nothing about which of them you just signed off.
+  const label = caseLabel(r);
+  const what = label ? ` — "${label}"` : '';
   return notified
-    ? `✅ #${id} closed — ${r.tg_user ? '@' + r.tg_user : 'the reporter'} has been told it's fixed.`
-    : `✅ #${id} closed. (Reporter not told — the resolved message is empty in Bot settings.)`;
+    ? `✅ #${id} closed${what}\n${r.tg_user ? '@' + r.tg_user : 'The reporter'} has been told it's fixed.`
+    : `✅ #${id} closed${what}\n(Reporter not told — the resolved message is empty in Bot settings.)`;
 }
 
 export function openCasesList(limit = 15) {

@@ -106,7 +106,10 @@ const DEFAULTS = {
   'bot.problemResolvedNote': "Great — glad it's sorted! 👍",
   // Sent to the reporter when the ADMIN presses Resolve in the panel.
   // {name} tags the user, {topic} is the detected symptom. Empty = silent.
-  'bot.problemResolvedByAdminMessage': '✅ {name} — good news: the {topic} issue you reported has been fixed by the team. Give it another go, and shout here if anything is still off!',
+  // {name}, {topic}, {case} (their reference number) and {report} (a short
+  // echo of what they actually said) are filled in. "The issue you reported"
+  // means nothing to someone who has reported more than one thing.
+  'bot.problemResolvedByAdminMessage': '✅ {name} — good news: #{case} ("{report}") has been fixed by the team. Give it another go, and shout here if anything is still off!',
   // Reports answered but never confirmed auto-close after this many minutes
   // (0 = off). Escalated reports are never auto-closed.
   'bot.problemAutoCloseMinutes': 60,

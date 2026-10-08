@@ -187,8 +187,39 @@ test('notifyResolved tags the reporter in the group with the filled template', a
   assert.equal(sent[0].chatId, -100999, 'sent to the group the report came from');
   assert.match(sent[0].text, /tg:\/\/user\?id=4242/, 'real mention that pings without an @username');
   assert.match(sent[0].text, /doctor/);
-  assert.match(sent[0].text, /buffering issue/, '{topic} filled in');
+  assert.match(sent[0].text, /buffering/, 'says what the case was about');
+  assert.match(sent[0].text, /#1\b/, 'and their reference number');
   assert.equal(sent[0].extra.parse_mode, 'HTML');
+  hub.api = null;
+});
+
+test('the resolved message says which report it is about', async () => {
+  // "The issue you reported has been fixed" means nothing to someone who has
+  // reported three things. {case} is their reference and {report} echoes what
+  // they actually said — the topic when one was extracted, their own words
+  // when it was not, which is most of the time.
+  const sent = [];
+  hub.api = { sendMessage: async (chatId, text) => { sent.push(text); return { message_id: 1 }; } };
+  setSetting('bot.problemResolvedByAdminMessage', '✅ {name} — #{case} ("{report}") is fixed.');
+  await notifyResolved({
+    id: 7, chat_id: -100999, tg_user_id: 4242, tg_user: 'doctor', topic: null,
+    text: "I've got a login issue on sky glass saying invalid", resolved: 0,
+  });
+  assert.match(sent[0], /#7\b/);
+  assert.match(sent[0], /login issue on sky glass/, 'their own words, since no topic was extracted');
+  hub.api = null;
+});
+
+test('{topic} still works for anyone whose wording uses it', async () => {
+  const sent = [];
+  hub.api = { sendMessage: async (chatId, text) => { sent.push(text); return { message_id: 1 }; } };
+  setSetting('bot.problemResolvedByAdminMessage', '✅ {name} — the {topic} issue is fixed.');
+  await notifyResolved({ id: 8, chat_id: -100999, tg_user_id: 4242, tg_user: 'doctor', topic: 'buffering', resolved: 0 });
+  assert.match(sent[0], /buffering issue/);
+  // And it still reads properly when no topic was extracted.
+  sent.length = 0;
+  await notifyResolved({ id: 9, chat_id: -100999, tg_user_id: 4242, tg_user: 'doctor', topic: null, resolved: 0 });
+  assert.match(sent[0], /the issue is fixed/, 'no dangling placeholder');
   hub.api = null;
 });
 
@@ -262,4 +293,32 @@ test('wrong-copy reports get a real topic; missing topics collapse cleanly', asy
   const { extractProblemTopic } = await import('../src/bot/helpers.js');
   assert.equal(extractProblemTopic('SHAMELESS UK is the wrong version'), 'wrong version');
   assert.equal(extractProblemTopic('the wrong copy is on there'), 'wrong copy');
+});
+
+test('closing a case tells the admin which one they just closed', async () => {
+  // "#1 closed" on its own tells you nothing when you are signing off three
+  // in a row.
+  const { closeCaseAsAdmin, caseLabel } = await import('../src/bot/problems.js');
+  hub.api = { sendMessage: async () => ({ message_id: 1 }) };
+  setSetting('bot.problemResolvedByAdminMessage', '✅ {name} — #{case} is fixed.');
+  db.prepare('DELETE FROM problem_reports').run();
+  db.prepare("INSERT INTO problem_reports (tg_user_id, tg_user, chat_id, text, topic, ts, resolved) VALUES (4242, 'doctor', -100999, ?, NULL, 0, 0)")
+    .run("I've got a login issue on sky glass saying invalid");
+  const id = db.prepare('SELECT id FROM problem_reports ORDER BY id DESC LIMIT 1').get().id;
+
+  const out = await closeCaseAsAdmin(id, 'tg:1');
+  assert.ok(out.includes(`#${id} closed`), `did not name the case: ${out}`);
+  assert.match(out, /login issue on sky glass/, 'and what it was about');
+  assert.match(out, /has been told/, 'and that the reporter knows');
+  hub.api = null;
+});
+
+test('a case label prefers the topic, falls back to their words, and is trimmed', async () => {
+  const { caseLabel } = await import('../src/bot/problems.js');
+  assert.equal(caseLabel({ topic: 'buffering', text: 'everything keeps freezing' }), 'buffering');
+  assert.equal(caseLabel({ topic: null, text: 'my login says invalid' }), 'my login says invalid');
+  assert.equal(caseLabel({ topic: '', text: '' }), '', 'nothing to say rather than empty quotes');
+  const long = caseLabel({ topic: null, text: 'a'.repeat(200) });
+  assert.ok(long.length <= 60, `label was ${long.length} characters`);
+  assert.ok(long.endsWith('…'), 'and says it was cut');
 });
