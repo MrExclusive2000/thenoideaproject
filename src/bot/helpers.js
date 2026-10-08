@@ -280,7 +280,7 @@ export function extractProblemTopic(text) {
 // appended to it, so the panel shows the whole story in one entry.
 const MERGE_WINDOW_S = 2 * 3600;
 
-export function recordProblem(ctx, text, { answered = false } = {}) {
+export function recordProblem(ctx, text, { answered = false, service = null } = {}) {
   const userId = ctx.from?.id ?? null;
   const t = String(text).slice(0, 500);
   if (userId != null) {
@@ -302,7 +302,7 @@ export function recordProblem(ctx, text, { answered = false } = {}) {
     }
   }
   const info = db.prepare(
-    'INSERT INTO problem_reports (chat_id, chat_title, tg_user_id, tg_user, text, topic, answered, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO problem_reports (chat_id, chat_title, tg_user_id, tg_user, text, topic, answered, ts, service_num) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     ctx.chat?.id ?? null,
     ctx.chat?.title ?? null,
@@ -311,7 +311,11 @@ export function recordProblem(ctx, text, { answered = false } = {}) {
     t,
     extractProblemTopic(text),
     answered ? 1 : 0,
-    now()
+    now(),
+    // Which service they are on, when the bot already knows. Null means
+    // unattributed, and an unattributed report never flips one service's
+    // status on its own.
+    service === 1 || service === 2 ? service : null
   );
   return info.lastInsertRowid;
 }

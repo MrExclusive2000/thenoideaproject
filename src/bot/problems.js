@@ -129,34 +129,65 @@ export async function notifyResolved(report) {
 export function maybeAutoDegrade() {
   const threshold = Number(getSetting('problems.degradeThreshold')) || 0;
   if (!threshold) return false;
-  if (getSetting('service.status') !== 'operational') return false;
 
   const windowMin = Number(getSetting('problems.degradeWindowMinutes')) || 15;
-  const wide = db.prepare('SELECT tg_user_id, text, topic FROM problem_reports WHERE ts > ?')
+  const recent = db.prepare('SELECT tg_user_id, text, topic, service_num FROM problem_reports WHERE ts > ?')
     .all(now() - windowMin * 60)
     .filter((r) => !isContentIssue(r.text));
-  const users = new Set(wide.map((r) => r.tg_user_id));
-  if (users.size < threshold) return false;
+  if (!recent.length) return false;
 
-  const counts = {};
-  for (const r of wide) if (r.topic) counts[r.topic] = (counts[r.topic] || 0) + 1;
-  const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
-  const label = top ? `${top} problems` : 'playback problems';
+  const describe = (rows) => {
+    const counts = {};
+    for (const r of rows) if (r.topic) counts[r.topic] = (counts[r.topic] || 0) + 1;
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
+    return top ? `${top} problems` : 'playback problems';
+  };
   const recoverMin = Number(getSetting('problems.degradeRecoverMinutes')) || 30;
+  const label2 = (n) => String(getSetting(`services.name${n}`) || '').trim() || `service ${n}`;
 
-  setSettings({
-    'service.status': 'degraded',
-    'service.note': `We're seeing several reports of ${label} and are looking into it.`,
-    'service.autoDegradedAt': now(),
-  });
-  const note = `We're seeing several reports of ${label} and are looking into it.`;
-  hub.notifyAdmins(
-    `🔴 Service marked DEGRADED automatically: ${users.size} different people reported ${label} in the last ${windowMin} minutes.\n` +
-    'Reporters now see the known-issue banner, and /status + the portal show it.\n' +
-    `It clears itself after ${recoverMin} quiet minutes — or set the status yourself in the panel → Reports.\n\n` +
-    'Nobody else has been told. Tap below to post it to the group:',
-    { reply_markup: announceKeyboard('outage') }
-  ).catch(() => {});
+  const announce = (scope, rows, people) => {
+    const label = describe(rows);
+    const note = `We're seeing several reports of ${label} and are looking into it.`;
+    const who = scope === 'all' ? 'Service' : label2(scope);
+    setSettings(scope === 'all'
+      ? { 'service.status': 'degraded', 'service.note': note, 'service.autoDegradedAt': now() }
+      : { [`service.status${scope}`]: 'degraded', [`service.note${scope}`]: note, [`service.autoDegradedAt${scope}`]: now() });
+    hub.notifyAdmins(
+      `🔴 ${who} marked DEGRADED automatically: ${people} different people reported ${label} in the last ${windowMin} minutes.\n` +
+      (scope === 'all'
+        ? 'Reporters now see the known-issue banner, and /status + the portal show it.\n'
+        : `Only ${label2(scope)} customers see the known-issue banner — the other service is untouched.\n`) +
+      `It clears itself after ${recoverMin} quiet minutes — or set the status yourself in the panel → Reports.\n\n` +
+      'Nobody else has been told. Tap below to post it to the group:',
+      { reply_markup: announceKeyboard('outage') }
+    ).catch(() => {});
+  };
+
+  // Per service first. A fault is usually on ONE of the two panels, and
+  // flipping the global status told the other service's customers "we're
+  // aware of a service issue" when theirs was fine — sending them hunting for
+  // a problem they did not have, and burying the real one.
+  let fired = false;
+  for (const n of [1, 2]) {
+    if (getSetting(`service.status${n}`) !== 'operational') continue;
+    const rows = recent.filter((r) => r.service_num === n);
+    const people = new Set(rows.map((r) => r.tg_user_id));
+    if (people.size < threshold) continue;
+    announce(n, rows, people.size);
+    fired = true;
+  }
+  if (fired) return true;
+
+  // Reports we could not pin to a service. Counted on their OWN — a Flix
+  // customer reporting alongside four Exclusive ones is not evidence that
+  // both services are down, and treating it that way put the banner in front
+  // of Flix customers whose service was fine. If both services really do have
+  // a problem, each trips its own check above and each gets its own notice.
+  if (getSetting('service.status') !== 'operational') return false;
+  const unattributed = recent.filter((r) => r.service_num !== 1 && r.service_num !== 2);
+  const people = new Set(unattributed.map((r) => r.tg_user_id));
+  if (people.size < threshold) return false;
+  announce('all', unattributed, people.size);
   return true;
 }
 
@@ -207,28 +238,54 @@ export function registerOutageAnnounce(bot) {
 // Runs on the scheduler: once reports stop, put the status back — but only
 // if it was set automatically and the admin hasn't changed it meanwhile.
 export async function degradeRecoverySweep() {
+  const recoverMin = Number(getSetting('problems.degradeRecoverMinutes')) || 30;
+  const since = now() - recoverMin * 60;
+  const recent = db.prepare('SELECT text, service_num FROM problem_reports WHERE ts > ?')
+    .all(since)
+    .filter((r) => !isContentIssue(r.text));
+  const label2 = (n) => String(getSetting(`services.name${n}`) || '').trim() || `service ${n}`;
+
+  const clear = async (scope) => {
+    setSettings(scope === 'all'
+      ? { 'service.status': 'operational', 'service.note': '', 'service.autoDegradedAt': 0 }
+      : { [`service.status${scope}`]: 'operational', [`service.note${scope}`]: '', [`service.autoDegradedAt${scope}`]: 0 });
+    try {
+      await hub.notifyAdmins(
+        `🟢 ${scope === 'all' ? 'Service status' : `${label2(scope)} status`} back to operational — `
+        + `no service-wide problem reports for ${recoverMin} minutes (auto-degradation cleared).\n\n`
+        + 'If you announced the problem, the group is still waiting to hear it is fixed:',
+        { reply_markup: announceKeyboard('recovered') }
+      );
+    } catch {
+      // bot offline — status is reset either way
+    }
+  };
+
+  // Each service clears on its OWN quiet period. Without this a service the
+  // bot degraded on its own would stay degraded forever, because the global
+  // recovery check never looked at it.
+  for (const n of [1, 2]) {
+    const at = Number(getSetting(`service.autoDegradedAt${n}`)) || 0;
+    if (!at) continue;
+    if (getSetting(`service.status${n}`) !== 'degraded') {
+      setSettings({ [`service.autoDegradedAt${n}`]: 0 }); // admin took over
+      continue;
+    }
+    // Only reports from THAT service keep it degraded. An unattributed one
+    // counts too — it may well be theirs, and clearing early is the worse
+    // mistake of the two.
+    if (recent.some((r) => r.service_num === n || r.service_num == null)) continue;
+    await clear(n);
+  }
+
   const at = Number(getSetting('service.autoDegradedAt')) || 0;
   if (!at) return;
   if (getSetting('service.status') !== 'degraded') {
     setSettings({ 'service.autoDegradedAt': 0 }); // admin took over
     return;
   }
-  const recoverMin = Number(getSetting('problems.degradeRecoverMinutes')) || 30;
-  const recent = db.prepare('SELECT text FROM problem_reports WHERE ts > ?')
-    .all(now() - recoverMin * 60)
-    .filter((r) => !isContentIssue(r.text));
   if (recent.length) return;
-
-  setSettings({ 'service.status': 'operational', 'service.note': '', 'service.autoDegradedAt': 0 });
-  try {
-    await hub.notifyAdmins(
-      `🟢 Service status back to operational — no service-wide problem reports for ${recoverMin} minutes (auto-degradation cleared).\n\n` +
-      'If you announced the problem, the group is still waiting to hear it is fixed:',
-      { reply_markup: announceKeyboard('recovered') }
-    );
-  } catch {
-    // bot offline — status is reset either way
-  }
+  await clear('all');
 }
 
 // ---- Auto-close ------------------------------------------------------------

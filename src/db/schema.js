@@ -645,13 +645,34 @@ const migrations = [
   );
   CREATE INDEX IF NOT EXISTS idx_sports_cache_at ON sports_cache(fetched_at);
   `,
+
+  // v31 — which service a problem was reported ON, resolved at report time.
+  // The existing `service` column is free text the customer typed when asked
+  // after an escalation; this is the number the bot already knew. Without it,
+  // automatic degradation pooled reporters across both services: three
+  // Exclusive customers reporting buffering flipped the status for everybody,
+  // and Flix customers — whose service was fine — were told "we're aware of a
+  // service issue right now".
+  //
+  // A FUNCTION rather than a string, because SQLite has no "ADD COLUMN IF NOT
+  // EXISTS" and a migration has to be safe to run twice — a half-applied
+  // upgrade that throws on the retry is a bricked boot.
+  (database) => {
+    const has = database.pragma('table_info(problem_reports)')
+      .some((c) => c.name === 'service_num');
+    if (!has) database.exec('ALTER TABLE problem_reports ADD COLUMN service_num INTEGER;');
+    database.exec('CREATE INDEX IF NOT EXISTS idx_problem_reports_service ON problem_reports(service_num, ts);');
+  },
 ];
 
 export function migrate(db) {
   const current = db.pragma('user_version', { simple: true });
   for (let v = current; v < migrations.length; v++) {
     db.transaction(() => {
-      db.exec(migrations[v]);
+      const step = migrations[v];
+      // Plain SQL, or a function for the ones SQLite cannot express safely.
+      if (typeof step === 'function') step(db);
+      else db.exec(step);
       db.pragma(`user_version = ${v + 1}`);
     })();
   }

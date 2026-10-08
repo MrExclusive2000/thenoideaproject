@@ -200,6 +200,13 @@ const DEFAULTS = {
   'faq.threshold': 0.5,
 
   'service.status': 'operational', // operational | degraded | maintenance
+  // Per-service status. A fault is usually on ONE of the two panels, and
+  // telling the other service's customers "we're aware of a service issue"
+  // when theirs is fine sends them looking for a problem they do not have.
+  // The global one above still applies to everybody — use it when both are
+  // down, or when you do not know which.
+  'service.status1': 'operational',
+  'service.status2': 'operational',
   // Affects BOTH services. A note that is only true for one of them belongs
   // in the per-service fields below, or a customer on the other service gets
   // told about a problem that is not theirs — which is how "Purple is down
@@ -432,6 +439,21 @@ export function withAdminContact(text) {
 // is the shared note plus theirs; with an unknown one, every note, each
 // labelled with whose it is, so nothing is ever quietly attributed to the
 // wrong service.
+// The status that applies to THIS customer: their own service's, or the
+// global one when it is set. Returns 'operational' when neither is.
+export function serviceStatusFor(service = null) {
+  const global = String(getSetting('service.status') || 'operational');
+  if (global !== 'operational') return global;
+  if (service === 1 || service === 2) {
+    return String(getSetting(`service.status${service}`) || 'operational');
+  }
+  // Service unknown: only speak up if BOTH are down, or nobody would know
+  // whether the warning was meant for them.
+  const a = String(getSetting('service.status1') || 'operational');
+  const b = String(getSetting('service.status2') || 'operational');
+  return a !== 'operational' && a === b ? a : 'operational';
+}
+
 export function serviceNotesFor(service = null) {
   const shared = String(getSetting('service.note') || '').trim();
   const per = {

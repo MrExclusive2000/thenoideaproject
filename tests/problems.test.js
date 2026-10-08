@@ -322,3 +322,72 @@ test('a case label prefers the topic, falls back to their words, and is trimmed'
   assert.ok(long.length <= 60, `label was ${long.length} characters`);
   assert.ok(long.endsWith('…'), 'and says it was cut');
 });
+
+test('an outage on one service is not announced to the other', async () => {
+  // Live question: "is it service specific?" It was not. service.status was a
+  // single global setting and degradation pooled reporters across both
+  // panels, so three Exclusive customers reporting buffering put "we're aware
+  // of a service issue" in front of Flix customers whose service was fine.
+  const { db, now } = await import('../src/db/db.js');
+  const { setSetting, getSetting, serviceStatusFor } = await import('../src/settings.js');
+  const { maybeAutoDegrade } = await import('../src/bot/problems.js');
+
+  db.prepare('DELETE FROM problem_reports').run();
+  setSetting('problems.degradeThreshold', 3);
+  setSetting('service.status', 'operational');
+  setSetting('service.status1', 'operational');
+  setSetting('service.status2', 'operational');
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+
+  const report = (uid, service) => db.prepare(
+    'INSERT INTO problem_reports (tg_user_id, tg_user, chat_id, text, topic, answered, resolved, ts, service_num) VALUES (?,?,?,?,?,0,0,?,?)'
+  ).run(uid, `u${uid}`, uid, 'bbc1 keeps buffering', 'buffering', now(), service);
+
+  for (const uid of [70101, 70102, 70103]) report(uid, 1);
+  assert.equal(maybeAutoDegrade(), true, 'three on one service is an outage');
+
+  assert.equal(getSetting('service.status1'), 'degraded', 'their service is degraded');
+  assert.equal(getSetting('service.status2'), 'operational', 'the other one is untouched');
+  assert.equal(getSetting('service.status'), 'operational', 'and so is everybody-status');
+
+  assert.notEqual(serviceStatusFor(1), 'operational', 'an Exclusive customer is warned');
+  assert.equal(serviceStatusFor(2), 'operational', 'a Flix customer is not');
+  // Service unknown: only warn when BOTH are down, or nobody knows whether it
+  // was meant for them.
+  assert.equal(serviceStatusFor(null), 'operational');
+
+  // One report from the other service is not evidence that both are down.
+  report(70104, 2);
+  maybeAutoDegrade();
+  assert.equal(getSetting('service.status2'), 'operational', 'one report does not degrade the second service');
+  assert.equal(getSetting('service.status'), 'operational', 'nor everybody');
+
+  db.prepare('DELETE FROM problem_reports').run();
+  setSetting('service.status1', 'operational');
+});
+
+test('reports that name no service still degrade everybody', async () => {
+  // The fallback has to keep working: with nothing to attribute reports to,
+  // enough distinct people is still an outage.
+  const { db, now } = await import('../src/db/db.js');
+  const { setSetting, getSetting } = await import('../src/settings.js');
+  const { maybeAutoDegrade } = await import('../src/bot/problems.js');
+
+  db.prepare('DELETE FROM problem_reports').run();
+  setSetting('problems.degradeThreshold', 3);
+  setSetting('service.status', 'operational');
+  setSetting('service.status1', 'operational');
+  setSetting('service.status2', 'operational');
+
+  for (const uid of [70201, 70202, 70203]) {
+    db.prepare(
+      'INSERT INTO problem_reports (tg_user_id, tg_user, chat_id, text, topic, answered, resolved, ts, service_num) VALUES (?,?,?,?,?,0,0,?,NULL)'
+    ).run(uid, `u${uid}`, uid, 'nothing is loading', 'loading', now());
+  }
+  assert.equal(maybeAutoDegrade(), true);
+  assert.equal(getSetting('service.status'), 'degraded', 'unattributed reports degrade everybody');
+
+  db.prepare('DELETE FROM problem_reports').run();
+  setSetting('service.status', 'operational');
+});

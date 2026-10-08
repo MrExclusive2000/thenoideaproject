@@ -14,6 +14,8 @@ reportsRouter.get('/reports', (req, res) => {
     title: 'Reports & status',
     s: {
       serviceStatus: getSetting('service.status'),
+      serviceStatus1: getSetting('service.status1'),
+      serviceStatus2: getSetting('service.status2'),
       serviceNote: getSetting('service.note'),
       serviceNote1: getSetting('service.note1'),
       serviceNote2: getSetting('service.note2'),
@@ -55,6 +57,12 @@ reportsRouter.post('/reports/service', async (req, res) => {
     'service.note': note,
     'service.note1': String(req.body.note1 || '').trim().slice(0, 300),
     'service.note2': String(req.body.note2 || '').trim().slice(0, 300),
+    'service.status1': ['operational', 'degraded', 'maintenance'].includes(req.body.status1) ? req.body.status1 : 'operational',
+    'service.status2': ['operational', 'degraded', 'maintenance'].includes(req.body.status2) ? req.body.status2 : 'operational',
+    // An admin-set per-service status is authoritative too — stop the
+    // recovery sweep clearing what a person deliberately put there.
+    'service.autoDegradedAt1': 0,
+    'service.autoDegradedAt2': 0,
     'service.announceChanges': req.body.announceChanges === '1',
     // An admin-set status is authoritative — stop the auto-degradation
     // recovery sweep from touching it.

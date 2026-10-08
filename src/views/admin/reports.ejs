@@ -23,6 +23,26 @@
     </div>
     <div class="row">
       <div>
+        <label for="status1"><%= s.serviceName1 || 'Service 1' %> status</label>
+        <select id="status1" name="status1">
+          <option value="operational" <%= s.serviceStatus1 === 'operational' ? 'selected' : '' %>>✅ Operational</option>
+          <option value="degraded" <%= s.serviceStatus1 === 'degraded' ? 'selected' : '' %>>⚠️ Degraded / issues</option>
+          <option value="maintenance" <%= s.serviceStatus1 === 'maintenance' ? 'selected' : '' %>>🛠 Maintenance</option>
+        </select>
+      </div>
+      <div>
+        <label for="status2"><%= s.serviceName2 || 'Service 2' %> status</label>
+        <select id="status2" name="status2">
+          <option value="operational" <%= s.serviceStatus2 === 'operational' ? 'selected' : '' %>>✅ Operational</option>
+          <option value="degraded" <%= s.serviceStatus2 === 'degraded' ? 'selected' : '' %>>⚠️ Degraded / issues</option>
+          <option value="maintenance" <%= s.serviceStatus2 === 'maintenance' ? 'selected' : '' %>>🛠 Maintenance</option>
+        </select>
+      </div>
+    </div>
+    <p class="hint">A fault is usually on one panel, not both. Set the service that is actually down and only those customers get the known-issue banner — the status for <strong>everyone</strong> above is for when both are down, or when you do not know which. The bot sets these itself too: three different people on one service reporting the same thing degrades <em>that</em> service, and it clears on its own quiet period.</p>
+
+    <div class="row">
+      <div>
         <label for="note1">Note for <%= s.serviceName1 || 'service 1' %> only</label>
         <input id="note1" name="note1" type="text" maxlength="300" value="<%= s.serviceNote1 %>">
       </div>

@@ -1,6 +1,6 @@
 import { InlineKeyboard } from 'grammy';
 import { db, now } from '../db/db.js';
-import { getSetting, redactServiceUrls } from '../settings.js';
+import { getSetting, redactServiceUrls, serviceStatusFor, serviceNotesFor } from '../settings.js';
 import { matchFaq } from '../faq/matcher.js';
 import { askAi, aiBudgetExceeded, rephraseCanned } from '../ai/client.js';
 import { containsBannedWord, endsWithQuestion, offersNoNewHelp, repeatsPreviousAnswer } from '../ai/guardrails.js';
@@ -1086,10 +1086,10 @@ function looksLikeProblem(text) {
 // Lead problem answers with the known-issue banner when the admin has set a
 // non-operational service status — "invalid user" during a login outage is
 // almost certainly the outage, not the user's typo.
-function serviceStatusLine() {
-  const status = getSetting('service.status');
-  if (status === 'operational') return null;
-  const note = getSetting('service.note');
+function serviceStatusLine(service = null) {
+  if (serviceStatusFor(service) === 'operational') return null;
+  // Their service's note, not the other one's.
+  const note = serviceNotesFor(service).join(' ');
   return `⚠️ We're aware of a service issue right now${note ? ` — ${note}` : ''}. This may be what you're seeing.`;
 }
 
@@ -1101,8 +1101,8 @@ function serviceStatusLine() {
 // helping a lot of people right now, give me a minute", because the AI queue
 // is 8 deep and everything past it is turned away. Answering from code costs
 // nothing, cannot queue, and says more than the model would.
-function knownOutageReply() {
-  const banner = serviceStatusLine();
+function knownOutageReply(service = null) {
+  const banner = serviceStatusLine(service);
   if (!banner) return null;
   return `${banner}\n\nNo need to reinstall anything or change your settings — it is not something on your end. `
     + 'We are on it and will say here when it is back. Shout if it is still playing up once we have given the all-clear.';
@@ -2449,6 +2449,7 @@ export async function handleGroupMessage(ctx) {
   // repeat problem message escalates. Questions keep the conversation going.
   let problemId = null;
   let problemSuffix = null;
+  let reporterService = null;
   let st = getProblemState(ctx.from.id);
   // A reply to the AUTO-CLOSE message re-enters triage no matter how much
   // later it arrives: the message promised "reply here and I'll flag it
@@ -2654,13 +2655,17 @@ export async function handleGroupMessage(ctx) {
     // fromAutoClose: false — a FRESH report re-enters normal triage even if
     // an old auto-close flag is still merged into this user's state.
     setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: null, firstText: text.slice(0, 200), fromAutoClose: false });
-    problemId = recordProblem(ctx, text, { answered: false });
+    // Which service they are on, resolved the same way every other
+    // service-specific answer resolves it. Stored with the report so
+    // degradation is judged per service instead of pooling both.
+    reporterService = serviceNumberFor(ctx, text);
+    problemId = recordProblem(ctx, text, { answered: false, service: reporterService });
     setProblemState(ctx.from.id, { caseId: problemId, topic: extractProblemTopic(text) });
     problemSuffix = followupNoteForRound(1);
     // Outage/degradation check BEFORE building the banner: the report that
     // tips the threshold gets the known-issue banner on its own answer.
     checkOutage();
-    problemPrefix = serviceStatusLine();
+    problemPrefix = serviceStatusLine(reporterService);
   }
 
   if (!shouldAnswer) return;
@@ -2689,7 +2694,7 @@ export async function handleGroupMessage(ctx) {
   // be brushed off as OFFTOPIC.
   // A known outage is answered from code, not the model: it is the better
   // answer AND it is the moment the queue is under most pressure.
-  const outageNow = problemId && knownOutageReply();
+  const outageNow = problemId && knownOutageReply(reporterService);
   if (outageNow) {
     setLogSource(logId, 'known-outage', outageNow);
     await ctx.api.sendMessage(ctx.chat.id, outageNow, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
@@ -2959,16 +2964,21 @@ export async function handleDirectMessage(ctx) {
   let problemId = null;
   let problemSuffix = null;
   let problemPrefix = null;
+  let reporterService = null;
   if (looksLikeProblem(text) && !getProblemState(ctx.from.id)) {
     setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: null, firstText: text.slice(0, 200), fromAutoClose: false });
-    problemId = recordProblem(ctx, text, { answered: false });
+    // Which service they are on, resolved the same way every other
+    // service-specific answer resolves it. Stored with the report so
+    // degradation is judged per service instead of pooling both.
+    reporterService = serviceNumberFor(ctx, text);
+    problemId = recordProblem(ctx, text, { answered: false, service: reporterService });
     setProblemState(ctx.from.id, { caseId: problemId, topic: extractProblemTopic(text) });
     problemSuffix = followupNoteForRound(1);
     checkOutage();
-    problemPrefix = serviceStatusLine();
+    problemPrefix = serviceStatusLine(reporterService);
   }
   // Same as the group: a known outage is answered from code.
-  const dmOutage = problemId && knownOutageReply();
+  const dmOutage = problemId && knownOutageReply(reporterService);
   if (dmOutage) {
     setLogSource(logId, 'known-outage', dmOutage);
     await ctx.reply(dmOutage).catch(() => {});
