@@ -164,6 +164,22 @@ export function leaksSystemPrompt(reply, systemPrompt) {
   return false;
 }
 
+// A reply that reads like the brief rather than the answer. A small model
+// handed "say we do not have that listing and point them at the guide" will
+// sometimes repeat it at the customer instead of doing it — which happened:
+// "We do not have it listed. Say we do not have that listing and point them
+// at the guide in the app."
+//
+// Verbatim matching misses this because the model paraphrases, and because
+// some of the brief lives in other system messages (the channel facts block)
+// that were never compared against. What gives it away is the shape: a reply
+// to a customer never instructs someone about what to tell them.
+const INSTRUCTION_ECHO = /\b(?:say|tell|inform|remind|point|direct|refer|advise)\s+(?:them|him|her|the\s+(?:user|customer|member))\b|\b(?:say|reply|respond|answer)\s+(?:with\s+)?(?:exactly|only|plainly|just)\b|\bdo\s+not\s+(?:mention|invent|guess|offer|state)\b|\buse\s+(?:those|these)\s+exact\b|\brather\s+than\s+(?:offering|guessing)\s+the\s+(?:nearest|closest)\b/i;
+
+export function echoesInstructions(reply) {
+  return INSTRUCTION_ECHO.test(String(reply || ''));
+}
+
 export function containsBannedWord(text, bannedWords) {
   if (!text || !bannedWords?.length) return false;
   const lower = text.toLowerCase();

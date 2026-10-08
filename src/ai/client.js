@@ -4,7 +4,7 @@ import { scoreFaq, tokens } from '../faq/matcher.js';
 import { scoreGuide } from '../guides.js';
 import { redactWalletAddresses } from '../payments.js';
 import { circuitOpen, circuitError, recordFailure, recordSuccess } from './breaker.js';
-import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail } from './guardrails.js';
+import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, echoesInstructions, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail } from './guardrails.js';
 
 const usageStmt = db.prepare(
   'INSERT INTO ai_usage (day, calls, tokens) VALUES (?, 1, ?) ' +
@@ -585,6 +585,9 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
   // would kill correct answers that quote the knowledge.
   const protectedInstructions = systemPrompt.split('# KNOWLEDGE')[0];
   if (leaksSystemPrompt(reply, protectedInstructions)) return null;
+  // Reciting the brief at the customer is worse than not answering: it reads
+  // as a broken machine and tells them nothing.
+  if (echoesInstructions(reply)) return null;
 
   const bannedWords = db.prepare('SELECT word FROM banned_words').all().map((r) => r.word);
   if (containsBannedWord(reply, bannedWords)) return null;

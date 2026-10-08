@@ -711,3 +711,28 @@ test('"ITV 2" finds ITV2, not whichever ITV has the shortest name', async () => 
   assert.equal(xc.findChannels('what channel is the knitting on 4', { service: 8 }).length, 0);
   db.prepare('DELETE FROM xc_channels WHERE service = 8').run();
 });
+
+test('a channel number matches however it is written', () => {
+  db.prepare('DELETE FROM xc_channels WHERE service = 7').run();
+  const ins = db.prepare('INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (7,?,?,NULL,?,1)');
+  ['UK: BBC One HD', 'UK: BBC Two HD', 'UK: BBC Three', 'UK: BBC Four', 'UK: BBC News',
+   'UK: ITV1 HD', 'UK: ITV2 HD', 'UK: Channel 4 HD', 'UK: Channel 5'].forEach((n, i) => ins.run(i + 1, n, `c${i}`));
+
+  // Lineups write it "BBC One", customers type "bbc 1" — and "bbc" alone
+  // matches six channels, with the shortest name winning the tiebreak.
+  const cases = [
+    ["what's on bbc 1 now", /BBC One/],
+    ['whats on bbc one', /BBC One/],
+    ['what channel is bbc1', /BBC One|BBC1/],
+    ['whats on bbc 2', /BBC Two/],
+    ['whats on itv 2', /ITV2/],
+    ['whats on itv2', /ITV2/],
+    ['whats on channel 4', /Channel 4/],
+  ];
+  for (const [q, expected] of cases) {
+    const hit = xc.findChannels(q, { service: 7 })[0];
+    assert.ok(hit, `no match for: ${q}`);
+    assert.match(hit.name, expected, `"${q}" matched ${hit?.name}`);
+  }
+  db.prepare('DELETE FROM xc_channels WHERE service = 7').run();
+});

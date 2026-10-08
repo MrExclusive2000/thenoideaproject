@@ -3513,3 +3513,34 @@ test('a greeting wrapped around a real request is still the request', async () =
   const r = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
   assert.equal(r, 'wallet');
 });
+
+test('the bot never recites its own brief at a customer', async () => {
+  const { echoesInstructions } = await import('../src/ai/guardrails.js');
+  // Live reply: "We do not have it listed. Say we do not have that listing
+  // and point them at the guide in the app." The model repeated the
+  // instruction instead of following it.
+  for (const bad of [
+    'We do not have it listed. Say we do not have that listing and point them at the guide in the app.',
+    'Tell them to restart the app and clear the cache.',
+    'Reply with exactly the code from the knowledge.',
+    'Do not mention the service URL.',
+  ]) assert.equal(echoesInstructions(bad), true, bad);
+
+  // Ordinary answers, including ones that talk about the guide, are untouched.
+  for (const good of [
+    "I don't have listings for BBC One at the moment — check the TV guide in your app.",
+    'Restart the app and clear its cache, then try the channel again.',
+    'Sky Glass is the app we recommend now — enter code 3793766 in Downloader.',
+    'Say Yes and I will put the request in for you.',
+  ]) assert.equal(echoesInstructions(good), false, good);
+});
+
+test('a reply that recites the brief is suppressed, not sent', async () => {
+  aiResponse = 'We do not have it listed. Say we do not have that listing and point them at the guide in the app.';
+  setSetting('bot.cooldownSeconds', 0);
+  const ctx = fakeCtx('my app keeps freezing on sky sports', { userId: 99901 });
+  await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  const msg = ctx.sent.map((s) => s.msg).join('\n');
+  assert.doesNotMatch(msg, /Say we do not have that listing/, 'the brief never reaches the customer');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});

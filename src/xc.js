@@ -125,28 +125,47 @@ const NOISE = new Set(['uk', 'hd', 'fhd', 'sd', '4k', 'tv', 'channel', 'the', 'o
 // Find channels whose NAME matches the words in a question. Deliberately
 // name-only and capped: the result is injected into the prompt, and a prompt
 // carrying 200 channel names is both slow and useless.
+// Lineups write the same channel as "BBC 1", "BBC1" and "BBC One", and
+// customers use all three. The number is the entire point of the question —
+// "bbc" on its own matches BBC One, Two, News, Scotland and fifty others, and
+// the tiebreak then picks whichever has the shortest name.
+const NUMBER_WORD = { 1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: 'five' };
+const squash = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
+
 export function findChannels(query, { service = 1, limit = 8 } = {}) {
   const raw = String(query || '').toLowerCase().match(/[a-z0-9+]+/g) || [];
-  // "ITV 2" and "BBC 1" are written "ITV2" and "BBC One HD" in a lineup, and
-  // the NUMBER is the entire point of the question. Dropping it as too short
-  // left "itv" matching ITV1, ITV2, ITV3 and ITVBe equally, and the shortest
-  // name won — so the customer was told about the wrong channel.
-  const terms = [];
+  const terms = [];   // matched against the name as written
+  const joined = [];  // matched against the name with punctuation squeezed out
   for (let i = 0; i < raw.length; i++) {
     const w = raw[i];
     const next = raw[i + 1];
-    if (next && /^[a-z]+$/.test(w) && /^\d{1,2}$/.test(next)) terms.push(w + next);
+    if (next && /^[a-z]{2,}$/.test(w) && /^\d{1,2}$/.test(next)) {
+      joined.push(w + next);                                  // "bbc 1" -> bbc1
+      if (NUMBER_WORD[next]) joined.push(w + NUMBER_WORD[next]); // and bbcone
+    }
+    // Already written as one word ("bbc1", "itv2"): same two forms.
+    const together = w.match(/^([a-z]{2,})(\d{1,2})$/);
+    if (together) {
+      joined.push(w);
+      if (NUMBER_WORD[together[2]]) joined.push(together[1] + NUMBER_WORD[together[2]]);
+    }
     if (w.length >= 2 && !NOISE.has(w)) terms.push(w);
   }
-  if (!terms.length) return [];
+  if (!terms.length && !joined.length) return [];
 
   const rows = db.prepare('SELECT stream_id, name, category FROM xc_channels WHERE service = ?').all(service);
   const scored = [];
   for (const r of rows) {
     const name = String(r.name).toLowerCase();
+    const flat = squash(name);
     let score = 0;
     for (const t of terms) {
       if (name.includes(t)) score += t.length >= 4 ? 2 : 1;
+    }
+    // A joined hit is the strong signal: it is the one that tells BBC One
+    // apart from BBC Two, so it has to outweigh every loose word match.
+    for (const j of joined) {
+      if (flat.includes(j)) score += 6;
     }
     if (score) scored.push({ ...r, score });
   }
@@ -323,7 +342,7 @@ export async function channelGrounding(question, { service = 1 } = {}) {
     for (const p of programmes) {
       lines.push(`- ${timeOfDay(p.start_ts)} ${p.title} — on ${p.channel}`);
     }
-    lines.push('(Straight from the guide. If none of these is what they asked about, say we do not have it listed rather than offering the nearest one.)');
+    lines.push('(These come from the guide and are the only listings available.)');
   }
 
   const hits = findChannels(question, { service, limit: 6 });
@@ -342,7 +361,7 @@ export async function channelGrounding(question, { service = 1 } = {}) {
       for (const e of epg) lines.push(`- ${hhmm(e.start)} ${e.title}`.trim());
     }
     if (lines.some((l) => l.startsWith('What the guide shows next'))) {
-      lines.push('(These times come straight from the channel guide.)');
+      lines.push('(These times come from the channel guide.)');
     }
   }
 
