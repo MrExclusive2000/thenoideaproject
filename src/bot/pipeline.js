@@ -1379,7 +1379,14 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
   // A bare "okay" closes the conversation. It is not thanks and it is not a
   // question, so the bot acknowledges it briefly and stops — rather than
   // filling the silence with an offer nobody asked for.
-  if (looksLikeAcknowledgement(question) && !getProblemState(ctx.from?.id)) {
+  // The problem-state guard that used to be here was the same mistake as the
+  // one on the help-ask branch below: triage has already been offered this
+  // message and passed on it, so suppressing the quiet acknowledgement did
+  // not hand "ok" to the case thread — it handed it to the model, which
+  // answered a one-word "ok" with waffle or the off-topic brush-off. A bare
+  // "ok" mid-case means "ok, I'll try that", and silence is the right answer
+  // to it; the auto-close sweep follows the case up on its own schedule.
+  if (looksLikeAcknowledgement(question)) {
     setLogSource(logId, 'acknowledged');
     return 'acknowledged';
   }
@@ -1419,12 +1426,27 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
   // wrong. Before the FAQ matcher and before the scope gate, both of which
   // got this badly wrong: the matcher fuzzy-hit whichever entry shared the
   // word "help", and the scope gate had it down as off-topic banter.
-  // Suppressed mid-triage: a case is open, the triage thread owns the reply.
-  if (looksLikeHelpRequest(question) && !getProblemState(ctx.from?.id)) {
+  //
+  // Deliberately NOT suppressed when a case is open. It was, copied from the
+  // greeting and acknowledgement branches above without checking whether the
+  // reasoning carried over — and it does not. Those two mean something
+  // specific mid-triage ("ok" = it's sorted), which is why the triage handler
+  // wants them. This does not: by the time anything reaches here the triage
+  // handler has ALREADY been offered this message and passed on it, so the
+  // guard did not hand the reply to the case thread, it handed it to the
+  // off-topic brush-off. Live, with a case open from testing, "I need
+  // assistance" got "Can't help with that one 😂".
+  if (looksLikeHelpRequest(question)) {
     const ask = await spoken('bot.helpAskMessage');
     if (ask) {
       setLogSource(logId, 'help-ask');
-      await ctx.api.sendMessage(ctx.chat.id, ask, replyParams);
+      // With a case already open, "I need assistance" is ambiguous — same
+      // problem or a new one? Name the open one so their answer lands in the
+      // right place instead of starting a second thread about the same fault.
+      const open = getProblemState(ctx.from?.id);
+      const about = String(open?.firstText || '').trim().slice(0, 70);
+      const msg = about ? `${ask}\n\n(If it's still about "${about}", just say so and I'll pick that back up.)` : ask;
+      await ctx.api.sendMessage(ctx.chat.id, msg, replyParams);
       return 'help-ask';
     }
   }
@@ -1985,7 +2007,10 @@ export async function handleGroupMessage(ctx) {
   // ("why do you need that?") flows through normal answering, and a repeat
   // complaint stays in the quiet already-escalated path — the ask stays
   // armed either way; "that fixed it" was already handled above.
-  if (st?.awaitingService && !looksLikeQuestion(text) && !isProblem) {
+  // !upset, as in the DM path: this branch takes ANY reply that is not a
+  // question or a problem, so "fuck this" was being recorded as the service
+  // the fault is on.
+  if (st?.awaitingService && !looksLikeQuestion(text) && !isProblem && !looksLikeFrustration(text)) {
     setProblemState(ctx.from.id, { awaitingService: false, at: Date.now() });
     const info = text.slice(0, 100);
     db.prepare('UPDATE problem_reports SET service = ? WHERE tg_user_id = ? AND escalated = 1 AND resolved = 0')
@@ -2214,8 +2239,21 @@ async function handleDmProblemReply(ctx, text, logId) {
     return true;
   }
 
+  // Giving up, or swearing at the bot, with a case already open. More
+  // troubleshooting is the one thing they have just told us they do not want,
+  // so this skips the "have you actually tried it yet?" pushback AND the
+  // second round of fixes and goes straight to a human — and the admin is
+  // told at once rather than in the next batch, because this is the customer
+  // who cancels tonight.
+  //
+  // Above the which-service question on purpose: that branch takes ANY reply
+  // that is not a question or a problem, so "fuck this" was being filed as
+  // the service the fault is on and DMed to the admin as "says the escalated
+  // problem is on: fuck this".
+  const upset = looksLikeFrustration(text);
+
   // Which-service answer for an escalated report.
-  if (st.awaitingService && !looksLikeQuestion(text) && !isProblem) {
+  if (st.awaitingService && !looksLikeQuestion(text) && !isProblem && !upset) {
     setProblemState(ctx.from.id, { awaitingService: false, at: Date.now() });
     const info = text.slice(0, 100);
     db.prepare('UPDATE problem_reports SET service = ? WHERE tg_user_id = ? AND escalated = 1 AND resolved = 0')
@@ -2228,13 +2266,6 @@ async function handleDmProblemReply(ctx, text, logId) {
     return true;
   }
 
-  // Giving up, or swearing at the bot, with a case already open. More
-  // troubleshooting is the one thing they have just told us they do not want,
-  // so this skips the "have you actually tried it yet?" pushback AND the
-  // second round of fixes and goes straight to a human — and the admin is
-  // told at once rather than in the next batch, because this is the customer
-  // who cancels tonight.
-  const upset = looksLikeFrustration(text);
   if (upset && !alreadyEscalated) {
     const who = ctx.from?.username ? `@${ctx.from.username}` : ctx.from?.first_name || `id ${ctx.from.id}`;
     const ref = caseNumberFor(ctx, st);

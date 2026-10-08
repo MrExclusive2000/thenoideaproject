@@ -4470,3 +4470,70 @@ test('an ordinary two-word reply is not mistaken for a password', async () => {
   }
   assert.equal(looksLikeCredentialDump('my password is Hunter2x'), true);
 });
+
+// --- an open case must not swallow the next message --------------------------
+// Live bug: with a case open from testing, "I need assistance" got "Can't help
+// with that one 😂 I'm strictly service support". The help-ask branch carried
+// a `&& !getProblemState(...)` guard copied from the greeting branch, where it
+// belongs. It does not belong here: by the time anything reaches answer(), the
+// triage handler has already been offered the message and passed on it, so the
+// guard handed the reply to the off-topic brush-off, not to the case thread.
+
+test('"I need assistance" still works with a case already open', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.helpAskMessage', "Course 👍 What's up?");
+  _resetProblemTriage();
+  db.prepare(`INSERT INTO problem_state (tg_user_id, case_id, at, escalated_at, answered_at,
+    nudged_at, awaiting_service, from_auto_close, fix_rounds, first_text, topic)
+    VALUES (99940, NULL, ?, NULL, ?, NULL, 0, 0, 1, 'bbc1 keeps buffering', 'buffering')`)
+    .run(Date.now(), Date.now());
+
+  const ctx = fakeCtx('I need assistance', { userId: 99940 });
+  await handleDirectMessage(ctx, 'I need assistance');
+  const msg = ctx.sent.map((s) => s.msg).join('\n');
+  assert.match(msg, /What's up/, 'asks what is wrong');
+  assert.doesNotMatch(msg, /strictly service support/i, 'never the brush-off');
+  // And it names the open case, so their answer lands on the right thread
+  // instead of opening a second one about the same fault.
+  assert.match(msg, /bbc1 keeps buffering/, 'offers to pick the open case back up');
+});
+
+test('a bare "ok" mid-case is left alone, not handed to the model', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  _resetProblemTriage();
+  db.prepare(`INSERT INTO problem_state (tg_user_id, case_id, at, escalated_at, answered_at,
+    nudged_at, awaiting_service, from_auto_close, fix_rounds, first_text, topic)
+    VALUES (99941, NULL, ?, NULL, ?, NULL, 0, 0, 1, 'bbc1 keeps buffering', 'buffering')`)
+    .run(Date.now(), Date.now());
+
+  const ctx = fakeCtx('ok', { userId: 99941 });
+  await handleDirectMessage(ctx, 'ok');
+  assert.equal(ctx.sent.length, 0, '"ok, I\'ll try that" deserves silence, not waffle');
+});
+
+test('"fuck this" while we are asking which service is not filed as the service', async () => {
+  // The which-service branch takes ANY reply that is not a question or a
+  // problem, so frustration was being recorded as the service the fault is on
+  // and DMed to the admin as "says the escalated problem is on: fuck this".
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.frustrationMessage', "Sorry it's been a pain.");
+  setSetting('reports.alertProblems', true);
+  setSetting('reports.adminTelegramIds', [777]);
+  _resetProblemTriage();
+  _resetProblemQueue();
+  db.prepare("INSERT INTO problem_reports (tg_user_id, tg_user, chat_id, text, topic, escalated, resolved, answered, ts) VALUES (99942, 'tester', 99942, 'bbc1 buffering', 'buffering', 1, 0, 1, 0)").run();
+  db.prepare(`INSERT INTO problem_state (tg_user_id, case_id, at, escalated_at, answered_at,
+    nudged_at, awaiting_service, from_auto_close, fix_rounds, first_text, topic)
+    VALUES (99942, NULL, ?, NULL, ?, NULL, 1, 0, 1, 'bbc1 keeps buffering', 'buffering')`)
+    .run(Date.now(), Date.now());
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
+
+  const ctx = fakeCtx('fuck this', { userId: 99942 });
+  await handleDirectMessage(ctx, 'fuck this');
+
+  const service = db.prepare('SELECT service FROM problem_reports WHERE tg_user_id = 99942').get().service;
+  assert.notEqual(service, 'fuck this', 'not recorded as the service');
+  assert.ok(!adminDms.some((d) => /problem is on: "fuck this"/.test(d.text)), 'and not reported as one');
+  hub.api = null;
+});
