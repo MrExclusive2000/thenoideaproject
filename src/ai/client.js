@@ -682,8 +682,12 @@ export async function rephraseCanned(message) {
     ));
     const out = cleanReply(text, { maxChars: 500 });
     if (!out) return message;
-    // Commands and placeholders are load-bearing — all must survive.
-    for (const t of String(message).match(/\{[a-z0-9]+\}|\/[a-z]+\b/gi) || []) {
+    // Commands, placeholders and @handles are load-bearing — all must
+    // survive. The handle matters because {admin} is substituted BEFORE the
+    // rewrite, so by the time the model sees it there is no placeholder left
+    // to protect and "message @TheAdmin" came back as "give the team a shout"
+    // — the one piece of the sentence the customer actually needed.
+    for (const t of String(message).match(/\{[a-z0-9]+\}|\/[a-z]+\b|@[a-z0-9_]{3,}/gi) || []) {
       if (!out.includes(t)) return message;
     }
     if (!endsWithQuestion(message) && endsWithQuestion(out)) return message;

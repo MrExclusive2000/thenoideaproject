@@ -4199,6 +4199,146 @@ test('a soft close only takes a message that answers "is it sorted?"', async () 
   ]) assert.equal(answersIsItSorted(other), false, `should never be a soft close: ${other}`);
 });
 
+// --- a bare ask for help, and a customer losing patience --------------------
+
+test('"I need assistance" asks what is wrong instead of brushing them off', async () => {
+  // It carries no service vocabulary, so the scope gate had it down as
+  // off-script banter and the one person who had actually asked for help got
+  // "Can't help with that one 😂 — I'm strictly service support".
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.helpAskMessage', "Course 👍 What's up? Tell me what's happening.");
+  _resetProblemTriage();
+
+  for (const ask of ['I need assistance', 'i need help', 'can someone help me', 'need a hand']) {
+    const ctx = fakeCtx(ask, { userId: 99920 });
+    const result = await answer(ctx, ask, { isDm: true, logId: null });
+    assert.equal(result, 'help-ask', `should ask what's up: ${ask}`);
+    assert.match(ctx.sent[0].msg, /What's up/);
+  }
+});
+
+test('a help request that says WHAT it needs help with still reaches the AI', async () => {
+  // The canned "what's up?" must never swallow a question that already told
+  // us — "help me install purple" has an answer and deserves it.
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.helpAskMessage', "Course 👍 What's up?");
+  _resetProblemTriage();
+  aiResponse = 'Open Downloader and enter the code to install it.';
+
+  const ctx = fakeCtx('help me install purple', { userId: 99921 });
+  const result = await answer(ctx, 'help me install purple', { isDm: true, logId: null });
+  assert.notEqual(result, 'help-ask', 'a real question is not a bare ask for help');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('swearing at the bot gets one warm line and DMs the admin, not banter', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.frustrationMessage', "Sorry — I'm clearly not getting this right. Tell me what's not working.");
+  setSetting('reports.alertFrustrated', true);
+  setSetting('reports.adminTelegramIds', [777]);
+  setSetting('bot.offtopicBehavior', 'redirect');
+  _resetProblemTriage();
+  _resetSmallTalk();
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
+
+  const ctx = fakeCtx('Cunt', { userId: 99922 });
+  const result = await answer(ctx, 'Cunt', { isDm: true, logId: null });
+  assert.equal(result, 'frustrated');
+  assert.match(ctx.sent[0].msg, /not getting this right/);
+  assert.equal(adminDms.length, 1, 'the admin is told who it was');
+  assert.match(adminDms[0].text, /@tester/);
+  hub.api = null;
+});
+
+test('giving up is never throttled — the second customer is the one you need', async () => {
+  // alertAdmins batches by type with a 15-minute cooldown. Two different
+  // people walking out inside that window must both get through.
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.frustrationMessage', "Sorry it's been a pain.");
+  setSetting('reports.alertFrustrated', true);
+  setSetting('reports.adminTelegramIds', [777]);
+  _resetProblemTriage();
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
+
+  await answer(fakeCtx('Balls to it', { userId: 99923 }), 'Balls to it', { isDm: true, logId: null });
+  await answer(fakeCtx('fuck this', { userId: 99924 }), 'fuck this', { isDm: true, logId: null });
+  assert.equal(adminDms.length, 2, 'both alerts delivered');
+  assert.match(adminDms[0].text, /giving up/);
+  hub.api = null;
+});
+
+test('a complaint with a symptom in it is answered, not de-escalated', async () => {
+  // "Purple is shit on Firestick" is a problem report wearing a swear word.
+  // Answering it with "sorry, tell me what's not working" throws away the
+  // only useful part of the message.
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.frustrationMessage', "Sorry — I'm not getting this right.");
+  _resetProblemTriage();
+  const { _looksLikeFrustration: upset } = await import('../src/bot/pipeline.js');
+
+  for (const t of [
+    'purple is shit on firestick',
+    'balls to it, purple wont install',
+    'wtf is wrong with bbc1',
+    'im done trying to log in',
+    'cancel my subscription please',
+  ]) assert.equal(upset(t), null, `has content to answer: ${t}`);
+
+  for (const t of ['Cunt', 'Balls to it', 'this is shit', 'waste of time', 'ffs']) {
+    assert.ok(upset(t), `content-free frustration: ${t}`);
+  }
+});
+
+test('giving up mid-case goes straight to a human, skipping more fixes', async () => {
+  // The whole point: a customer who says "balls to it" does not want a second
+  // round of troubleshooting. Escalate, apologise, and tell the admin.
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.problemFixRounds', 2);
+  setSetting('bot.problemNudgeMinutes', 10);
+  setSetting('bot.problemFlaggedNote', '✅ Flagged to the team.');
+  setSetting('bot.problemServiceQuestion', '');
+  setSetting('reports.alertFrustrated', true);
+  setSetting('reports.alertProblems', true);
+  setSetting('reports.adminTelegramIds', [777]);
+  setSetting('service.status', 'operational');
+  _resetProblemTriage();
+  _resetProblemQueue();
+  db.prepare('DELETE FROM problem_reports').run();
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
+  aiResponse = 'Try a different link for the channel, then restart the app.';
+
+  const first = fakeCtx('bbc1 keeps buffering', { userId: 99925 });
+  await handleDirectMessage(first, 'bbc1 keeps buffering');
+  assert.match(first.sent.map((s) => s.msg).join('\n'), /different link/, 'first round of fixes');
+
+  const giveUp = fakeCtx('balls to it', { userId: 99925 });
+  await handleDirectMessage(giveUp, 'balls to it');
+  const reply = giveUp.sent.map((s) => s.msg).join('\n');
+  assert.match(reply, /Sorry it's been a pain/, 'apology leads, not a tick');
+  assert.match(reply, /Flagged to the team/, 'and it IS flagged');
+  assert.doesNotMatch(reply, /different link/, 'no second round of the same advice');
+  assert.ok(adminDms.some((d) => /giving up/.test(d.text)), 'admin told at once');
+
+  const row = db.prepare('SELECT * FROM problem_reports WHERE tg_user_id = 99925 ORDER BY id DESC LIMIT 1').get();
+  assert.equal(row.escalated, 1, 'case escalated');
+  hub.api = null;
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('the bot stays out of two members swearing at each other in the group', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.frustrationMessage', "Sorry — I'm not getting this right.");
+  _resetProblemTriage();
+
+  const ctx = fakeCtx('cunt', { chatType: 'group', userId: 99926 });
+  const result = await answer(ctx, 'cunt', { isDm: false, logId: null, directed: false });
+  assert.notEqual(result, 'frustrated', 'not aimed at the bot');
+  assert.equal(ctx.sent.length, 0, 'and nothing sent');
+});
+
 test('"Hello" after a case closes gets a greeting, not a problem reply', async () => {
   setSetting('bot.cooldownSeconds', 0);
   setSetting('bot.greetingMessage', 'Hey! What can I help with?');

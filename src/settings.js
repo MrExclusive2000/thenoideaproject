@@ -136,6 +136,15 @@ const DEFAULTS = {
   // off-topic brush-off. Empty = silent.
   'bot.greetingMessage': "Hey! 👋 I'm the team's support bot — ask me anything about the service: installs, buffering fixes, logins, what to watch it on. /help shows all my tricks. What can I sort for you?",
   'bot.thanksMessage': 'Anytime! 👍 Shout if you need anything else.',
+  // "I need help" with nothing else in it. No service vocabulary, so the
+  // scope gate used to call it off-topic and brush off the one person who had
+  // actually asked for help. Sent from code, so it still works with the AI
+  // down — which is exactly when people start asking this. Empty = silent.
+  'bot.helpAskMessage': "Course 👍 What's up? Tell me what's happening — which app you're using and what you're seeing — and I'll sort it.",
+  // Swearing at the bot, or giving up on it. Content-free, so the model has
+  // nothing to work with and banter is the worst possible reply. One warm,
+  // self-deprecating line that offers a human instead. Empty = silent.
+  'bot.frustrationMessage': "Sorry — I'm clearly not getting this right 😅 Tell me what's not working and I'll have another go, or {admin} and they'll take it from here personally.",
   // Sent when someone shows the bot a photo/video/voice note it can't read —
   // in a DM always, in a group only when the media replies to the bot.
   // Empty = stay silent.
@@ -296,6 +305,10 @@ const DEFAULTS = {
   'reports.alertBudget': true,
   'reports.alertBannedWords': false,
   'reports.alertProblems': true, // DM admins when users report problems (buffering, channels down…)
+  // A customer swearing at the bot or giving up on it. Never throttled: each
+  // one is a different person about to cancel, and losing the second because
+  // the first was 10 minutes ago defeats the point of telling you at all.
+  'reports.alertFrustrated': true,
   'reports.digest': 'off', // off | daily | weekly
   'reports.digestHour': 9,
 

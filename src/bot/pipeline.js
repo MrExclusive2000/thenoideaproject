@@ -678,6 +678,104 @@ function looksLikeAcknowledgement(text) {
   return w.every((x) => ACK_WORDS.has(x));
 }
 
+// "I need assistance", "can someone help me", "need a hand" — a request for
+// help that hasn't said what's wrong yet. It carries NO vocabulary from the
+// service, so the scope gate read it as off-script and the customer asking
+// for help was told "can't help with that one 😂, I'm strictly service
+// support". That is the single worst reply in the bot. The right answer is to
+// ask what's up, from code, so it still works with the AI unreachable.
+const HELP_WORDS = new Set([
+  'help', 'helps', 'helping', 'assistance', 'assist', 'support', 'hand', 'advice',
+]);
+// Everything allowed to surround the ask. A message with ANY word outside
+// these two sets has content of its own ("help me install purple") and
+// belongs to the model, not here.
+const HELP_FILLER = new Set([
+  'i', 'im', 'a', 'an', 'the', 'some', 'any', 'bit', 'of', 'my', 'me', 'us', 'we',
+  'need', 'needs', 'needed', 'want', 'wanted', 'require', 'required', 'looking',
+  'for', 'with', 'please', 'pls', 'plz', 'can', 'could', 'would', 'you', 'u',
+  'someone', 'somebody', 'anyone', 'any1', 'anybody', 'give', 'got', 'have',
+  'here', 'there', 'mate', 'bro', 'sir', 'pal', 'urgent', 'urgently', 'asap',
+  'quick', 'quickly', 'bud', 'buddy', 'hi', 'hey', 'hello', 'yo', 'to', 'is',
+  'bit', 'able', 'free', 'spare', 'minute', 'sec', 'second', 'there',
+  'm', 's', 're', 'd', 'll',
+]);
+
+function looksLikeHelpRequest(text) {
+  const w = plainWords(text);
+  if (!w.length || w.length > 7) return false;
+  if (!w.some((x) => HELP_WORDS.has(x))) return false;
+  // Said what's wrong — the model answers that far better than "what's up?".
+  // Deliberately NOT gated on a scope signal: the every() test below already
+  // guarantees nothing but help words and filler, so the only thing that can
+  // raise a scope signal here is the word "support" itself — and "need
+  // support" is precisely the message this exists to catch.
+  if (looksLikeProblem(text)) return false;
+  return w.every((x) => HELP_WORDS.has(x) || HELP_FILLER.has(x));
+}
+
+// Abuse and giving up. Both arrived as content-free messages with no scope
+// signal, so both got banter or the brush-off: the bot answered "Cunt" with
+// a cheery line about where it shines, and "Balls to it" — a customer walking
+// out — with the same. Neither is recoverable by a model that has nothing to
+// work with, and a customer swearing at the bot is the moment a human is
+// worth most. Deliberately strict: anything with content of its own ("fuck
+// this purple app won't load") is a problem report and must reach the model.
+const ABUSE_WORDS = new Set([
+  'cunt', 'cunts', 'prick', 'pricks', 'dickhead', 'dickheads', 'wanker',
+  'wankers', 'knob', 'knobhead', 'bellend', 'twat', 'twats', 'tosser',
+  'arsehole', 'asshole', 'bastard', 'bastards', 'idiot', 'idiots', 'moron',
+  'morons', 'muppet', 'clown', 'useless', 'garbage', 'rubbish', 'crap',
+  'shit', 'shite', 'shat', 'stupid', 'thick', 'dumb', 'pathetic', 'joke',
+  // A bare "ffs" or "wtf" is the whole message and means the same thing.
+  // Carrying content ("wtf is wrong with bbc1") fails the strict test below
+  // and reaches the model as the question it is.
+  'ffs', 'wtf', 'fs',
+]);
+// Walking away. Scored separately from abuse only so the admin alert can say
+// which it was — they get the same reply.
+// "Cancel my subscription" is deliberately NOT here. It is a real request
+// with a real answer, and answering it with "sorry, I'm not getting this
+// right — tell me what's not working" would be gibberish.
+const GIVING_UP_RE = /\b(?:balls to (?:it|this|that)|(?:fuck|fuk|fck|screw|sack) (?:it|this|that)|forget (?:it|this|that)|can'?t be (?:arsed|bothered)|cba\b|waste of (?:time|money)|wasting my time|i'?m done|im done|done with (?:this|it)|giv(?:e|ing) up|had enough|packing (?:it|this) in|not worth it)\b/i;
+const ABUSE_FILLER = new Set([
+  'you', 'youre', 'your', 'ur', 'u', 'this', 'that', 'it', 'its', 'is', 'are',
+  'am', 'a', 'an', 'the', 'what', 'whats', 'bloody', 'absolute', 'absolutely',
+  'fucking', 'fuckin', 'fking', 'effing', 'total', 'totally', 'complete',
+  'completely', 'right', 'proper', 'so', 'such', 'bit', 'of', 'load', 'bot',
+  'thing', 'ai', 'robot', 'piece', 'junk', 'and', 'off', 'me', 'my', 'for',
+  'fuck', 'fck', 'fuk', 'jesus', 'christ', 'god', 'sake', 'mate', 'm8',
+  'lads', 'man', 'then', 'all', 'im', 'i', 'to', 'with', 'at', 'now',
+  // "you're" / "it's" split on the apostrophe, so the orphan letters count
+  // as filler or the strict test fails on punctuation alone.
+  'm', 's', 're', 't', 've', 'll',
+]);
+
+function looksLikeFrustration(text) {
+  const t = String(text || '');
+  if (!t.trim()) return null;
+  // Carries a symptom: "purple is shit on firestick" is a complaint with
+  // something to answer in it. It goes to the model; a canned de-escalation
+  // would throw the only useful part of the message away. Anything else with
+  // content of its own is caught by the strict word-set tests below — NOT by
+  // hasScopeSignal, which is a deliberately loose one-fuzzy-hit test and
+  // scored "waste of time" as service vocabulary on the strength of "time".
+  if (looksLikeProblem(t)) return null;
+  const givingUp = GIVING_UP_RE.test(t);
+  // The giving-up phrase itself is removed before the strictness test — what
+  // is LEFT has to be filler, or the message has content of its own.
+  const w = plainWords(givingUp ? t.replace(GIVING_UP_RE, ' ') : t);
+  if (givingUp) {
+    return w.every((x) => ABUSE_WORDS.has(x) || ABUSE_FILLER.has(x)) ? 'giving-up' : null;
+  }
+  if (!w.length || w.length > 6) return null;
+  if (!w.some((x) => ABUSE_WORDS.has(x))) return null;
+  return w.every((x) => ABUSE_WORDS.has(x) || ABUSE_FILLER.has(x)) ? 'abuse' : null;
+}
+
+export const _looksLikeHelpRequest = (t) => looksLikeHelpRequest(t);
+export const _looksLikeFrustration = (t) => looksLikeFrustration(t);
+
 function looksLikeThanks(text) {
   const w = plainWords(text);
   if (!w.length || w.length > 6) return false;
@@ -1284,6 +1382,41 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
     }
   }
 
+  // "I need assistance." Asked for help and nothing more — so ask what's
+  // wrong. Before the FAQ matcher and before the scope gate, both of which
+  // got this badly wrong: the matcher fuzzy-hit whichever entry shared the
+  // word "help", and the scope gate had it down as off-topic banter.
+  // Suppressed mid-triage: a case is open, the triage thread owns the reply.
+  if (looksLikeHelpRequest(question) && !getProblemState(ctx.from?.id)) {
+    const ask = await spoken('bot.helpAskMessage');
+    if (ask) {
+      setLogSource(logId, 'help-ask');
+      await ctx.api.sendMessage(ctx.chat.id, ask, replyParams);
+      return 'help-ask';
+    }
+  }
+
+  // Swearing at the bot, or giving up on it. There is nothing here for the
+  // model to answer, and the two replies it used to get — banter, or "can't
+  // help with that one 😂" — are the worst available. One warm line that
+  // offers a human, and the admin is told, because this is a customer with
+  // one foot out of the door and no case number to find them by.
+  // Only when the bot is being spoken to: two members swearing at each other
+  // in the group is not the bot's business.
+  const upset = looksLikeFrustration(question);
+  if (upset && (isDm || directed)) {
+    const who = ctx.from?.username ? `@${ctx.from.username}`
+      : [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(' ') || `id ${ctx.from?.id}`;
+    alertAdmins('frustrated', `${upset === 'giving-up' ? '🚪' : '😤'} ${who} ${upset === 'giving-up' ? 'is giving up' : 'is not happy'} in ${isDm ? 'a DM' : 'the group'}: "${String(question).slice(0, 200)}" — worth a personal message.`);
+    const msg = await spoken('bot.frustrationMessage');
+    if (msg) {
+      setLogSource(logId, 'frustrated', msg);
+      await ctx.api.sendMessage(ctx.chat.id, msg, replyParams).catch(() => {});
+      return 'frustrated';
+    }
+    return 'frustrated';
+  }
+
   // Before the FAQ matcher: "which service is best" would otherwise fuzzy-hit
   // the which-service FAQ (username classification) or reach the AI.
   if (isBestServiceQuestion(question)) {
@@ -1832,6 +1965,15 @@ export async function handleGroupMessage(ctx) {
     return;
   }
 
+  // Same as the DM path: a customer giving up mid-case goes to a human
+  // immediately, not through another round of fixes.
+  const upset = st ? looksLikeFrustration(text) : null;
+  if (upset && !alreadyEscalated) {
+    const who = ctx.from?.username ? `@${ctx.from.username}` : ctx.from?.first_name || `id ${ctx.from.id}`;
+    const ref = caseNumberFor(ctx, st);
+    alertAdmins('frustrated', `${upset === 'giving-up' ? '🚪' : '😤'} ${who} ${upset === 'giving-up' ? 'is giving up on' : 'is fed up with'} an open problem${ref ? ` (#${ref})` : ''} in the group: "${String(text).slice(0, 200)}" — about: "${String(st.firstText || '').slice(0, 160)}". Worth a personal message.`);
+  }
+
   let isConfirmation = false;
   if (!alreadyEscalated) {
     if (st) {
@@ -1840,6 +1982,7 @@ export async function handleGroupMessage(ctx) {
         saysStillBroken(text) ||
         negatesFixes(text) ||
         hasTimeDetail(text) ||
+        Boolean(upset) ||
         // After an auto-close ("assuming it's sorted?") the default flips:
         // only explicit still-broken signals above escalate — a neutral
         // update is a soft yes, handled below.
@@ -1859,7 +2002,7 @@ export async function handleGroupMessage(ctx) {
     const sinceAnswer = st?.answeredAt ? Date.now() - st.answeredAt : null;
     const tooQuick = nudgeMinutes > 0 && sinceAnswer !== null && sinceAnswer < nudgeMinutes * 60000;
     if (
-      tooQuick && !st.nudgedAt &&
+      tooQuick && !st.nudgedAt && !upset &&
       !negatesFixes(text) && !hasTimeDetail(text) &&
       // A wrong/faulty copy has no fixes that "take minutes to try" — the
       // quick-confirm pushback would be nonsense there.
@@ -1881,7 +2024,7 @@ export async function handleGroupMessage(ctx) {
     // skip this — those users were promised an immediate flag — and so do
     // known outages.
     const maxRounds = Math.max(1, Math.min(4, Number(getSetting('bot.problemFixRounds')) || 1));
-    if ((st?.fixRounds || 1) < maxRounds && !st?.fromAutoClose && getSetting('service.status') === 'operational'
+    if ((st?.fixRounds || 1) < maxRounds && !st?.fromAutoClose && !upset && getSetting('service.status') === 'operational'
         && !isContentIssue(st?.firstText || text)) {
       // (Content issues — a faulty copy of a title — skip extra rounds:
       // no device fix can change the file, the admin has to.)
@@ -1918,7 +2061,9 @@ export async function handleGroupMessage(ctx) {
     // Ask which service it's on — the answer goes to the admins too.
     // (Kept verbatim: it's an instruction, and it must stay a question.)
     const serviceQ = getSetting('bot.problemServiceQuestion');
-    const ackFull = [ack, serviceQ].filter(Boolean).join('\n');
+    // Leading a fed-up customer with "✅ Flagged to the team" is tone-deaf.
+    const sorry = upset ? "Sorry it's been a pain 😔" : '';
+    const ackFull = [sorry, ack, serviceQ].filter(Boolean).join('\n');
     if (ackFull) {
       await ctx.api.sendMessage(ctx.chat.id, ackFull, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
     }
@@ -2050,6 +2195,19 @@ async function handleDmProblemReply(ctx, text, logId) {
     return true;
   }
 
+  // Giving up, or swearing at the bot, with a case already open. More
+  // troubleshooting is the one thing they have just told us they do not want,
+  // so this skips the "have you actually tried it yet?" pushback AND the
+  // second round of fixes and goes straight to a human — and the admin is
+  // told at once rather than in the next batch, because this is the customer
+  // who cancels tonight.
+  const upset = looksLikeFrustration(text);
+  if (upset && !alreadyEscalated) {
+    const who = ctx.from?.username ? `@${ctx.from.username}` : ctx.from?.first_name || `id ${ctx.from.id}`;
+    const ref = caseNumberFor(ctx, st);
+    alertAdmins('frustrated', `${upset === 'giving-up' ? '🚪' : '😤'} ${who} ${upset === 'giving-up' ? 'is giving up on' : 'is fed up with'} an open problem${ref ? ` (#${ref})` : ''}: "${String(text).slice(0, 200)}" — about: "${String(st.firstText || '').slice(0, 160)}". Worth a personal message.`);
+  }
+
   let isConfirmation = false;
   if (!alreadyEscalated) {
     const shortAffirm =
@@ -2057,6 +2215,7 @@ async function handleDmProblemReply(ctx, text, logId) {
       text.trim().split(/\s+/).length <= 8;
     isConfirmation =
       isProblem || saysStillBroken(text) || negatesFixes(text) || hasTimeDetail(text) ||
+      Boolean(upset) ||
       (shortAffirm && !st.fromAutoClose);
   }
 
@@ -2066,7 +2225,7 @@ async function handleDmProblemReply(ctx, text, logId) {
     const sinceAnswer = st.answeredAt ? Date.now() - st.answeredAt : null;
     const tooQuick = nudgeMinutes > 0 && sinceAnswer !== null && sinceAnswer < nudgeMinutes * 60000;
     if (
-      tooQuick && !st.nudgedAt &&
+      tooQuick && !st.nudgedAt && !upset &&
       !negatesFixes(text) && !hasTimeDetail(text) &&
       // A wrong/faulty copy has no fixes that "take minutes to try" — the
       // quick-confirm pushback would be nonsense there.
@@ -2083,7 +2242,7 @@ async function handleDmProblemReply(ctx, text, logId) {
     // Same second-round triage as the group before flagging (DM history
     // gives the model the earlier fixes, so round two is genuinely new).
     const maxRounds = Math.max(1, Math.min(4, Number(getSetting('bot.problemFixRounds')) || 1));
-    if ((st.fixRounds || 1) < maxRounds && !st.fromAutoClose && getSetting('service.status') === 'operational'
+    if ((st.fixRounds || 1) < maxRounds && !st.fromAutoClose && !upset && getSetting('service.status') === 'operational'
         && !isContentIssue(st.firstText || text)) {
       // (Faulty-copy content issues skip extra rounds — only the admin can
       // repair or replace the file.)
@@ -2113,7 +2272,10 @@ async function handleDmProblemReply(ctx, text, logId) {
     setLogSource(logId, 'escalated');
     const ack = withCaseNumber(await spoken('bot.problemFlaggedNote'), caseNumberFor(ctx, st), { append: true });
     const serviceQ = getSetting('bot.problemServiceQuestion');
-    const ackFull = [ack, serviceQ].filter(Boolean).join('\n');
+    // Leading a fed-up customer with "✅ Flagged to the team" is tone-deaf.
+    // The apology goes first; the status line still follows intact.
+    const sorry = upset ? "Sorry it's been a pain 😔" : '';
+    const ackFull = [sorry, ack, serviceQ].filter(Boolean).join('\n');
     if (ackFull) await send(ackFull);
     if (serviceQ) setProblemState(ctx.from.id, { awaitingService: true });
     return true;

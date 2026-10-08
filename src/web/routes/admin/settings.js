@@ -70,6 +70,8 @@ settingsRouter.get('/bot', (req, res) => {
       xmltvRefreshHours: getSetting('services.xmltvRefreshHours'),
       epgWindowHours: getSetting('services.epgWindowHours'),
       thanksMessage: getSetting('bot.thanksMessage'),
+      helpAskMessage: getSetting('bot.helpAskMessage'),
+      frustrationMessage: getSetting('bot.frustrationMessage'),
       photoMessage: getSetting('bot.photoMessage'),
       problemFollowupNote: getSetting('bot.problemFollowupNote'),
       problemMoreFixesNote: getSetting('bot.problemMoreFixesNote'),
@@ -148,6 +150,8 @@ settingsRouter.post('/bot', (req, res) => {
       Math.min(168, Number(b.epgWindowHours) || 48)
     ),
     'bot.thanksMessage': String(b.thanksMessage || '').slice(0, 500),
+    'bot.helpAskMessage': String(b.helpAskMessage || '').slice(0, 500),
+    'bot.frustrationMessage': String(b.frustrationMessage || '').slice(0, 500),
     'bot.photoMessage': String(b.photoMessage || '').slice(0, 500),
     'bot.problemFollowupNote': String(b.problemFollowupNote || '').slice(0, 500),
     'bot.problemMoreFixesNote': String(b.problemMoreFixesNote || '').slice(0, 500),

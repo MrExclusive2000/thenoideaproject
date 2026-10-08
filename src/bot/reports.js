@@ -18,12 +18,16 @@ export async function alertAdmins(type, text) {
     bannedWord: 'reports.alertBannedWords',
     problem: 'reports.alertProblems',
     vod: 'reports.alertVod',
+    frustrated: 'reports.alertFrustrated',
   };
   const settingKey = toggles[type];
   if (settingKey && !getSetting(settingKey)) return;
   const last = lastAlert.get(type) || 0;
-  // VOD requests are individually meaningful — never throttled.
-  if (type !== 'vod' && Date.now() - last < ALERT_COOLDOWN_MS) return;
+  // VOD requests are individually meaningful — never throttled. Nor is an
+  // upset customer: each alert is a different person on the way out, and
+  // swallowing the second because the first was 10 minutes ago loses exactly
+  // the one you needed to see.
+  if (type !== 'vod' && type !== 'frustrated' && Date.now() - last < ALERT_COOLDOWN_MS) return;
   lastAlert.set(type, Date.now());
   try {
     await hub.notifyAdmins(text);

@@ -54,6 +54,8 @@
     <div class="checkline"><input type="checkbox" id="alertProblems" name="alertProblems" value="1" <%= s.alertProblems ? 'checked' : '' %>><label for="alertProblems">Problem reports in the group (buffering, channels down…) — batched, with outage detection</label></div>
     <div class="checkline"><input type="checkbox" id="alertBannedWords" name="alertBannedWords" value="1" <%= s.alertBannedWords ? 'checked' : '' %>><label for="alertBannedWords">Banned-word triggers</label></div>
     <div class="checkline"><input type="checkbox" id="alertVod" name="alertVod" value="1" <%= s.alertVod ? 'checked' : '' %>><label for="alertVod">VOD requests ("Request: Title") — also listed in <a href="/admin/requests">VOD requests</a></label></div>
+    <div class="checkline"><input type="checkbox" id="alertFrustrated" name="alertFrustrated" value="1" <%= s.alertFrustrated ? 'checked' : '' %>><label for="alertFrustrated">Someone swearing at the bot or giving up ("balls to it") — never batched</label></div>
+    <p class="hint">The bot replies warmly and points them at you; this DM tells you who, so you can reach out before they cancel. Not throttled like the others: each one is a different customer on the way out.</p>
 
     <h2>Automatic degradation</h2>
     <p class="hint">When this many <strong>different people</strong> report service-wide problems (buffering, streams not loading, login failures) within the window, the service status flips to <em>degraded</em> automatically. Reporters then get told it's a known issue rather than being walked through fixes that can't help, and you get a DM. Complaints about a single episode or movie never count. The status clears itself once reports stop; a status you set by hand is never touched.</p>

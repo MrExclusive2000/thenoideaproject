@@ -251,3 +251,19 @@ test('reusing a Telegram ID already linked elsewhere is refused, not a 500', asy
     'the original owner keeps the link'
   );
 });
+
+// Nothing else in the suite renders the bot-settings or reports pages, so a
+// typo'd template variable in either would only show up as a 500 in front of
+// the admin. These two fetch them and round-trip the new fields.
+test('the bot settings and reports pages render, and the new replies save', async () => {
+  const jar = await adminSession();
+
+  const bot = await getWithCsrf(`${base}/admin/bot`, jar);
+  assert.equal(bot.res.status, 200, 'bot settings page renders');
+  assert.ok(bot.html.includes('helpAskMessage'), 'the bare-ask-for-help reply is editable');
+  assert.ok(bot.html.includes('frustrationMessage'), 'the frustration reply is editable');
+
+  const reports = await getWithCsrf(`${base}/admin/reports`, jar);
+  assert.equal(reports.res.status, 200, 'reports page renders');
+  assert.ok(reports.html.includes('alertFrustrated'), 'the upset-customer alert has a toggle');
+});
