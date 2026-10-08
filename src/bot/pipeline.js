@@ -561,6 +561,11 @@ const GREETING_WORDS = new Set([
   'hey', 'hi', 'hiya', 'hello', 'yo', 'howdy', 'hola', 'alright', 'alrite', 'ayup',
   'sup', 'wassup', 'whats', 'up', 'good', 'morning', 'afternoon', 'evening', 'day',
   'there', 'mate', 'guys', 'lads', 'all', 'everyone', 'bot', 'm8', 'bud', 'buddy', 'pal', 'again',
+  // Ways people address the bot. "sir" was missing, so "good morning sir" was
+  // not a greeting, went to the model, and came back off-topic — a customer
+  // saying hello got told it was not our area.
+  'sir', 'madam', 'maam', 'boss', 'chief', 'bro', 'bruv', 'fella', 'fellas',
+  'gents', 'dude', 'folks', 'team', 'everybody', 'big', 'man', 'people',
 ]);
 const THANKS_CORE = new Set(['thanks', 'thank', 'cheers', 'ta', 'ty', 'tysm', 'appreciated', 'appreciate', 'legend', 'lifesaver']);
 const THANKS_EXTRA = new Set([
@@ -589,6 +594,27 @@ function looksLikeCapabilityQuestion(text) {
 function looksLikeGreeting(text) {
   const w = plainWords(text);
   return w.length > 0 && w.length <= 5 && w.every((x) => GREETING_WORDS.has(x));
+}
+
+// Words that mean hello and nothing else. The full list above includes
+// contextual ones like "whats" (for "whats up") and "good", which are no use
+// as evidence on their own — "whats the ltc wallet address" is five words
+// containing "whats" and is plainly not a greeting.
+const CORE_GREETING = new Set([
+  'hey', 'hi', 'hiya', 'hello', 'yo', 'howdy', 'hola', 'alright', 'alrite',
+  'ayup', 'sup', 'wassup', 'morning', 'afternoon', 'evening', 'greetings',
+]);
+
+// A short pleasantry that is MOSTLY a greeting. The strict test above needs
+// EVERY word to be known, so one unlisted word ("sir") turned "good morning
+// sir" into an off-topic message and the customer was brushed off for saying
+// hello. No word list is ever complete, so this is the backstop: brief, says
+// hello, asks nothing.
+function mostlyGreeting(text) {
+  const w = plainWords(text);
+  if (!w.length || w.length > 5) return false;
+  if (String(text).includes('?')) return false;
+  return w.some((x) => CORE_GREETING.has(x));
 }
 
 function looksLikeThanks(text) {
@@ -1081,6 +1107,21 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
       setLogSource(logId, 'guide');
       await ctx.api.sendMessage(ctx.chat.id, 'Which one do you need?', { ...replyParams, reply_markup: kb });
       return 'guide';
+    }
+  }
+
+  // Someone saying hello is the first thing a new customer ever does, and
+  // brushing that off is the one reply that actually costs money. A greeting
+  // carries no "scope signal", so it never reached the model at all — it was
+  // filtered out as off-script and got the brush-off on the way past. Checked
+  // AFTER the shortcuts above, because "morning, whats the wallet address" is
+  // a wallet request wearing a greeting.
+  if (mostlyGreeting(question) && !getProblemState(ctx.from?.id)) {
+    const hello = await spoken('bot.greetingMessage');
+    if (hello) {
+      setLogSource(logId, 'greeting');
+      await ctx.api.sendMessage(ctx.chat.id, hello, replyParams);
+      return 'greeting';
     }
   }
 

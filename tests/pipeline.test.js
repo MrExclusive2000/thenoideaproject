@@ -3457,3 +3457,59 @@ test('when the service is unknown, a note says whose it is', async () => {
     'and the model is told not to state it as theirs');
   setSetting('service.note1', '');
 });
+
+// --- saying hello is never "not my area" -------------------------------------
+
+test('"Good morning sir" gets a greeting, not the off-topic brush-off', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.greetingMessage', 'Morning! What can I help with?');
+  setSetting('bot.offtopicMessage', 'Not my area, sorry — I handle installs, logins, streams and payments.');
+  lastAiRequest = null;
+
+  const ctx = fakeCtx('Good morning sir', { userId: 99801 });
+  const r = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.equal(r, 'greeting');
+  assert.match(ctx.sent[0].msg, /Morning!/);
+  assert.equal(lastAiRequest, null, 'and a hello costs no AI call');
+});
+
+test('however someone says hello, they are never brushed off', async () => {
+  // No word list is ever complete, so the backstop catches the ones it misses
+  // rather than telling a customer that saying hello is not our area.
+  setSetting('bot.greetingMessage', 'Morning! What can I help with?');
+  aiResponse = 'OFFTOPIC';
+  setSetting('bot.offtopicBehavior', 'redirect');
+  try {
+    for (const hello of ['Good morning sir', 'alright boss', 'hello there chief', 'yo big man', 'morning folks']) {
+      const ctx = fakeCtx(hello, { userId: 99810 + hello.length });
+      const r = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+      assert.equal(r, 'greeting', `brushed off: ${hello}`);
+    }
+    // A real off-topic message still gets the brush-off.
+    const off = fakeCtx('what do you reckon to the football results', { userId: 99899 });
+    await answer(off, off.message.text, { isDm: true, logId: null });
+    assert.match(off.sent.map((s) => s.msg).join('\n'), /Not my area|shine|installs/i);
+  } finally {
+    aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+    setSetting('bot.offtopicBehavior', 'silent');
+  }
+});
+
+test('a greeting carrying a real question is not swallowed as a greeting', async () => {
+  // "morning mate hows the wifi" must still reach the normal pipeline.
+  aiResponse = 'Restart the router and try again.';
+  const ctx = fakeCtx('morning mate, my app keeps buffering', { userId: 99820 });
+  const r = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.notEqual(r, 'greeting');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('a greeting wrapped around a real request is still the request', async () => {
+  // "morning, whats the wallet address" is a wallet request wearing a
+  // greeting — answering "hello!" and nothing else would be useless.
+  setSetting('payments.ltcAddress', 'LbTpcL1qLMoCDbcZ4oVVnzZDNnFC5Y8PLJ');
+  setSetting('bot.greetingMessage', 'Morning! What can I help with?');
+  const ctx = fakeCtx('morning, whats the ltc wallet address', { userId: 99830 });
+  const r = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.equal(r, 'wallet');
+});
