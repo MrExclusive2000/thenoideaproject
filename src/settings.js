@@ -311,6 +311,10 @@ const DEFAULTS = {
   // it works the moment the bot starts. Football needs a free API key from
   // football-data.org — without one that half simply stays off and the bot
   // says it has no scores rather than guessing at one.
+  // Send the film or series poster with an availability answer. IMDb supplies
+  // it; nothing else is ever sent as an image.
+  'vod.posters': true,
+
   'sports.f1Enabled': true,
   'sports.footballApiKey': '',
   // football-data competition codes. PL Premier League, ELC Championship,

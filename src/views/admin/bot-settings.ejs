@@ -51,6 +51,11 @@
       <input type="checkbox" id="imdbCheck" name="imdbCheck" value="1" <%= s.imdbCheck ? 'checked' : '' %>>
       <label for="imdbCheck">Check requests against IMDb — exact hits get the proper title &amp; year, near-misses ask "did you mean …? (yes/no)"</label>
     </div>
+    <div class="checkline">
+      <input type="checkbox" id="vodPosters" name="vodPosters" value="1" <%= s.vodPosters ? 'checked' : '' %>>
+      <label for="vodPosters">Send the poster with film and series answers</label>
+    </div>
+    <p class="hint">IMDb supplies the image; nothing else is ever sent as a picture. If Telegram refuses it the text still goes out on its own. Needs the IMDb check above switched on.</p>
 
     <label for="requestServiceQuestion">Ask which service a request is for (empty = don't ask; only when two services are named)</label>
     <input id="requestServiceQuestion" name="requestServiceQuestion" type="text" maxlength="500" value="<%= s.requestServiceQuestion %>">

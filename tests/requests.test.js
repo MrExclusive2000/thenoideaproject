@@ -141,3 +141,28 @@ test('"Hey bot" on its own line does not hide the question under it', async () =
     null,
   );
 });
+
+test('IMDb tells a series from a film of nearly the same name', async () => {
+  // "MobLand" is a 2025 Tom Hardy series; "Mob Land" is a 2023 Travolta film.
+  // The library only holds strings and matched one to the other.
+  const { lookupImdb } = await import('../src/bot/requests.js');
+  const { setSetting } = await import('../src/settings.js');
+  setSetting('vod.imdbCheck', true);
+
+  const hit = await lookupImdb('mobland').catch(() => null);
+  if (!hit) return; // offline — the feature degrades to the old behaviour
+
+  assert.equal(hit.kind, 'series', 'the thing they meant is a series');
+  assert.ok(/^https:\/\/m\.media-amazon\.com\//.test(hit.poster || ''), 'poster only ever from the one host');
+  assert.ok(hit.cast, 'cast is what makes it recognisable to a customer');
+});
+
+test('a poster is only ever taken from the one host', async () => {
+  // A URL from a third party is not something to put in front of customers.
+  const { lookupImdb } = await import('../src/bot/requests.js');
+  const { setSetting } = await import('../src/settings.js');
+  setSetting('vod.imdbCheck', true);
+  const hit = await lookupImdb('severance').catch(() => null);
+  if (!hit?.poster) return;
+  assert.match(hit.poster, /^https:\/\/m\.media-amazon\.com\//);
+});

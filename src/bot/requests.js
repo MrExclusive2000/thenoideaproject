@@ -189,8 +189,33 @@ export async function lookupImdb(title) {
     });
     if (!res.ok) return null;
     const data = await res.json();
-    const hit = (data?.d || []).find((x) => /^tt/.test(x?.id || '') && x.l && x.y && x.q !== 'video game');
-    return hit ? { title: hit.l, year: hit.y, canonical: `${hit.l} (${hit.y})` } : null;
+    const hits = (data?.d || []).filter((x) => /^tt/.test(x?.id || '') && x.l && x.q !== 'video game');
+    const hit = hits.find((x) => x.y) || hits[0];
+    if (!hit) return null;
+    return {
+      title: hit.l,
+      year: hit.y || null,
+      canonical: hit.y ? `${hit.l} (${hit.y})` : hit.l,
+      // A film and a series can share a name — "MobLand" is a 2025 Tom Hardy
+      // series AND a 2023 Travolta film called "Mob Land". Knowing which is
+      // which is the difference between "yes we have it" and sending somebody
+      // hunting for a show we do not carry.
+      kind: /series|mini/i.test(hit.q || '') || /tvSeries|tvMiniSeries/i.test(hit.qid || '') ? 'series' : 'movie',
+      cast: String(hit.s || '').trim() || null,
+      // Posters come from Amazon's media CDN. Nothing else is ever sent as an
+      // image — an arbitrary URL from a third party is not something to put in
+      // front of customers.
+      poster: /^https:\/\/m\.media-amazon\.com\//.test(String(hit.i?.imageUrl || ''))
+        ? hit.i.imageUrl
+        : null,
+      // Everything with the same name, so an availability answer can tell the
+      // customer which one we actually hold.
+      alternatives: hits.slice(0, 4).map((x) => ({
+        title: x.l,
+        year: x.y || null,
+        kind: /series|mini/i.test(x.q || '') || /tvSeries|tvMiniSeries/i.test(x.qid || '') ? 'series' : 'movie',
+      })),
+    };
   } catch {
     return null;
   }

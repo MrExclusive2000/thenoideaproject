@@ -504,11 +504,11 @@ function alreadyInLibrary(ctx, title, asked = '') {
     // Only answer outright when both services agree; otherwise it depends on
     // who they are, and the service ask below handles that.
     if (!hitsOne.length || !hitsTwo.length) return null;
-    return libraryHitText(hitsOne[0]);
+    return hitsOne[0];
   }
   for (const n of usable) {
     const hits = findVodTitle(title, { service: n });
-    if (hits.length) return libraryHitText(hits[0]);
+    if (hits.length) return hits[0];
   }
   return null;
 }
@@ -546,11 +546,14 @@ function alreadyInLineup(ctx, title, asked = '') {
   return null;
 }
 
-function libraryHitText(hit) {
+function libraryHitText(hit, meant = null) {
   const where = hit.kind === 'series' ? 'Series' : 'Movies';
+  // When IMDb confirmed the same thing, say its proper name — the library
+  // writes them as "Mob Land - 2023" and nobody calls it that.
+  const shown = meant?.canonical && hit.exact ? meant.canonical : hit.name;
   const kind = hit.kind === 'series' ? 'a series' : 'a film';
   if (hit.exact) {
-    return `✅ Good news — "${hit.name}" is already on the service. Open the ${where} section in your app and search for it. If it won't play, tell me and I'll get it looked at.`;
+    return `✅ Good news — "${shown}" is already on the service. Open the ${where} section in your app and search for it. If it won't play, tell me and I'll get it looked at.`;
   }
   // An unsure hit must say WHAT it found, not just that it found something.
   // "Mob Land - 2023" was offered for "MobLand" as a certainty: same letters
@@ -571,6 +574,44 @@ function libraryHitText(hit) {
 // carry. Only the library may answer this; when there is no library cached,
 // it becomes a request, because a duplicate request is cheap and a wrong
 // "yes we have it" is not.
+// Does what the LIBRARY holds actually match what the customer meant? IMDb
+// knows "MobLand" is a 2025 Tom Hardy series and "Mob Land" a 2023 Travolta
+// film; the library only knows a string. Without this the bot matched one to
+// the other and called it good news.
+// Returns null when IMDb is off, unreachable, or has nothing useful — every
+// path here degrades to the previous behaviour rather than blocking an answer.
+async function imdbVerdict(title, hit) {
+  const meant = await lookupImdb(title).catch(() => null);
+  if (!meant) return null;
+  if (!hit) return { meant, mismatch: false };
+  const held = String(hit.name || '');
+  const heldYear = hit.year ? String(hit.year) : null;
+  const sameKind = hit.kind === meant.kind;
+  const sameYear = !heldYear || !meant.year || heldYear === String(meant.year);
+  // A different kind, or a different year, means the library is holding a
+  // different thing with a similar name.
+  return { meant, mismatch: !sameKind || !sameYear, held };
+}
+
+// The poster rides with the answer when there is one. Sent as a photo with
+// the text as its caption, so it is one message rather than two — and if
+// Telegram will not take the image (too big, host unreachable, caption over
+// its 1024-character limit) the text still goes out on its own. Being told
+// about a title without a picture is fine; not being told is not.
+async function sendAvailability(ctx, result, replyParams) {
+  const { text, poster } = typeof result === 'string' ? { text: result, poster: null } : (result || {});
+  if (!text) return;
+  if (poster && getSetting('vod.posters') !== false && text.length <= 1024) {
+    try {
+      await ctx.api.sendPhoto(ctx.chat.id, poster, { caption: text, ...replyParams });
+      return;
+    } catch {
+      // fall through to plain text
+    }
+  }
+  await ctx.api.sendMessage(ctx.chat.id, text, replyParams).catch(() => {});
+}
+
 async function answerAvailability(ctx, title, asked = '') {
   // A CHANNEL first. "Do you have Sky Sports" was being filed as a request for
   // a film while two Sky Sports channels sat in the lineup the bot owns — the
@@ -580,25 +621,60 @@ async function answerAvailability(ctx, title, asked = '') {
   const chan = alreadyInLineup(ctx, title, asked);
   if (chan) return chan;
 
-  const already = alreadyInLibrary(ctx, title, asked);
-  if (already) return already;
+  const hit = alreadyInLibrary(ctx, title, asked);
+  const verdict = await imdbVerdict(title, hit).catch(() => null);
+  const poster = verdict?.meant?.poster || null;
+
+  if (hit) {
+    // IMDb says the thing they meant is a different kind or a different year
+    // from the thing we hold. That is the MobLand case: they asked about the
+    // 2025 series, we have the 2023 film, and the bot called it good news.
+    if (verdict?.mismatch) {
+      const m = verdict.meant;
+      const meantKind = m.kind === 'series' ? 'series' : 'film';
+      const heldKind = hit.kind === 'series' ? 'series' : 'film';
+      const { ack, requestId, deduped } = recordVodRequest(ctx, m.canonical);
+      const body =
+        `You mean ${m.canonical}${m.cast ? ` — the ${meantKind} with ${m.cast}` : ` — the ${meantKind}`}. `
+        + `That one isn't on the service. What we do have is "${hit.name}", a different ${heldKind} with a similar name, `
+        + `in the ${hit.kind === 'series' ? 'Series' : 'Movies'} section.\n\n${ack}`;
+      return { text: deduped ? body : body + maybeArmServiceAsk(ctx, requestId), poster };
+    }
+    // IMDb agrees, or had nothing to say — the library answer stands, and a
+    // confirmed title can be named properly rather than as the panel wrote it.
+    return { text: libraryHitText(hit, verdict?.meant || null), poster };
+  }
 
   const service = serviceNumberFor(ctx, asked);
   const checked = service ? vodKnown(service) : (vodKnown(1) && vodKnown(2));
+  // Request the title IMDb recognised rather than whatever they typed — it
+  // dedupes properly and the admin gets something searchable.
+  const requestTitle = verdict?.meant?.canonical || title;
   if (checked) {
-    const { ack, requestId, deduped } = recordVodRequest(ctx, title);
-    const head = `Not in there at the moment — I've checked. ${ack}`;
-    return deduped ? head : head + maybeArmServiceAsk(ctx, requestId);
+    const { ack, requestId, deduped } = recordVodRequest(ctx, requestTitle);
+    const named = verdict?.meant
+      ? `${verdict.meant.canonical}${verdict.meant.cast ? ` (${verdict.meant.cast})` : ''} isn't in there at the moment — I've checked.`
+      : "Not in there at the moment — I've checked.";
+    const head = `${named} ${ack}`;
+    return { text: deduped ? head : head + maybeArmServiceAsk(ctx, requestId), poster };
   }
   // No library to check against. Say so rather than guessing either way.
-  const { ack, requestId, deduped } = recordVodRequest(ctx, title);
+  const { ack, requestId, deduped } = recordVodRequest(ctx, requestTitle);
   const head = `I can't check the library from here, so I've put it on the request list — if we already have it the admin will say so. ${ack}`;
-  return deduped ? head : head + maybeArmServiceAsk(ctx, requestId);
+  return { text: deduped ? head : head + maybeArmServiceAsk(ctx, requestId), poster };
 }
 
 async function captureVodRequest(ctx, title) {
+  // alreadyInLibrary returns the HIT now, so the availability path can check
+  // it against IMDb. This path only needs the sentence.
   const already = alreadyInLibrary(ctx, title);
-  if (already) return already;
+  if (already) {
+    const meant = await lookupImdb(title).catch(() => null);
+    // The same mismatch check as the availability path: a request for the
+    // 2025 series must not be closed off by the 2023 film of a similar name.
+    const differentThing = meant && already.kind !== meant.kind;
+    if (!differentThing) return libraryHitText(already, meant);
+  }
 
   const hit = await lookupImdb(title);
   let useTitle = title;
@@ -2256,7 +2332,7 @@ export async function handleGroupMessage(ctx) {
     const asking = parseAvailabilityQuestion(text);
     if (asking) {
       setLogSource(logId, 'vod-request');
-      await ctx.api.sendMessage(ctx.chat.id, await answerAvailability(ctx, asking, text), groupReplyParams).catch(() => {});
+      await sendAvailability(ctx, await answerAvailability(ctx, asking, text), groupReplyParams);
       return;
     }
     const vodTitle = anyVodRequest(text);
@@ -2793,7 +2869,7 @@ export async function handleDirectMessage(ctx) {
     const asking = parseAvailabilityQuestion(text);
     if (asking) {
       setLogSource(logId, 'vod-request');
-      await ctx.reply(await answerAvailability(ctx, asking, text)).catch(() => {});
+      await sendAvailability(ctx, await answerAvailability(ctx, asking, text), {});
       return;
     }
     const vodTitle = anyVodRequest(text);
