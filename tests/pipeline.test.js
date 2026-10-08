@@ -4168,3 +4168,46 @@ test('an unclear answer to the service question is re-asked, not dropped', async
   assert.match(msg, /didn't catch that/i, 'asked again');
   assert.doesNotMatch(msg, /stops working|flag it/i, 'and never answered as a problem');
 });
+
+// --- the soft close only claims replies that are ABOUT the problem ----------
+
+test('a soft close only takes a message that answers "is it sorted?"', async () => {
+  // It was a catch-all: anything that was not a question, a problem or a
+  // recognisably new topic got "shout here if it plays up again". So it took
+  // "Hello", "Now", and "I want to invite my friend to the service", and
+  // every fix was another exception bolted onto a rule that was backwards.
+  const { _answersIsItSorted: answersIsItSorted } = await import('../src/bot/pipeline.js');
+
+  for (const reply of [
+    'not tried it today',
+    'we watched the end and went to bed',
+    'all good now',
+    'yeah its fine',
+    'ok thanks',
+    'still the same',
+  ]) assert.equal(answersIsItSorted(reply), true, `should close softly: ${reply}`);
+
+  for (const other of [
+    'Hello',
+    'good morning',
+    'Now',
+    'I want to invite my friend to the service',
+    'what time is it',
+    'can i have the install guide',
+    'how much is it',
+    'whats the wallet address',
+  ]) assert.equal(answersIsItSorted(other), false, `should never be a soft close: ${other}`);
+});
+
+test('"Hello" after a case closes gets a greeting, not a problem reply', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.greetingMessage', 'Hey! What can I help with?');
+  setSetting('bot.problemSoftCloseMessage', '👍 No worries — shout here if it plays up again.');
+  _resetProblemTriage();
+
+  const ctx = fakeCtx('Hello', { userId: 99910 });
+  await handleDirectMessage(ctx, 'Hello');
+  const msg = ctx.sent.map((s) => s.msg).join('\n');
+  assert.match(msg, /What can I help with/, 'a greeting is a greeting');
+  assert.doesNotMatch(msg, /plays up again|stops working/i);
+});

@@ -398,6 +398,7 @@ function isServiceSpecific(question) {
 }
 
 export const _startsNewTopic = (t) => startsNewTopic(t);
+export const _answersIsItSorted = (t) => answersIsItSorted(t);
 
 export const _resetServiceAsk = () => {
   pendingServiceQuestion.clear();
@@ -751,6 +752,24 @@ function awaitingReplyFrom(ctx) {
 function bumpCooldown(userId) {
   cooldowns.set(userId, Date.now());
   if (cooldowns.size > 5000) cooldowns.clear();
+}
+
+// Does this message actually answer "is it sorted?"
+//
+// The soft close used to be a catch-all: anything that was not a question, a
+// problem report or a recognisably new topic got "shout here if it plays up
+// again". That is backwards — it claimed "Hello", "Now", "I want to invite my
+// friend", and every fix was another exception bolted onto a rule that was
+// wrong in the first place. It now has to look like a reply about the
+// problem, and everything else goes to normal answering.
+const PROBLEM_REPLY_WORDS = /\b(not|nope|no|havent|haven'?t|hasnt|hasn'?t|didnt|didn'?t|yet|tried|trying|checked|check|watched|watching|working|works|worked|fine|ok|okay|sorted|fixed|done|busy|later|today|tonight|tomorrow|morning|again|same|still|better|worse|good|great|cheers|thanks|ta)\b/i;
+
+function answersIsItSorted(text) {
+  const t = String(text || '');
+  if (!t.trim()) return false;
+  if (looksLikeGreeting(t) || mostlyGreeting(t)) return false;
+  if (startsNewTopic(t)) return false;
+  return looksLikeAcknowledgement(t) || looksLikeThanks(t) || PROBLEM_REPLY_WORDS.test(t);
 }
 
 // Has the customer moved on to something else entirely?
@@ -1911,7 +1930,7 @@ export async function handleGroupMessage(ctx) {
   // bed, not tried it today") — the notice asked "is it sorted?", so a reply
   // without still-broken phrasing leans yes: close softly, door left open.
   // (Clear resolutions got the warm close above; still-broken escalated.)
-  if (st?.fromAutoClose && isFollowUp && !looksLikeQuestion(text) && !startsNewTopic(text)) {
+  if (st?.fromAutoClose && isFollowUp && !looksLikeQuestion(text) && answersIsItSorted(text)) {
     setLogSource(logId, 'soft-close');
     const msg = await spoken('bot.problemSoftCloseMessage');
     if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
@@ -2105,7 +2124,7 @@ async function handleDmProblemReply(ctx, text, logId) {
   // message hours later: the re-armed state used to live indefinitely and
   // kept claiming unrelated one-word replies.
   const softCloseFresh = Date.now() - (st.at || 0) < problemWindowMs();
-  if (st.fromAutoClose && softCloseFresh && !looksLikeQuestion(text) && !isProblem && !startsNewTopic(text)) {
+  if (st.fromAutoClose && softCloseFresh && !looksLikeQuestion(text) && !isProblem && answersIsItSorted(text)) {
     setLogSource(logId, 'soft-close');
     const msg = await spoken('bot.problemSoftCloseMessage');
     if (msg) await send(msg);
