@@ -645,6 +645,23 @@ function mostlyGreeting(text) {
   return w.some((x) => CORE_GREETING.has(x));
 }
 
+// "Okay", "right", "cool" — the end of a conversation, not a new question.
+// Answering one with an offer of help ("just let me know the channel name and
+// I'll look it up") is noise: they did not ask for anything.
+const ACK_WORDS = new Set([
+  'ok', 'okay', 'okey', 'oki', 'k', 'kk', 'right', 'righto', 'cool', 'sound',
+  'sounds', 'good', 'great', 'fine', 'fair', 'enough', 'gotcha', 'got', 'it',
+  'understood', 'noted', 'alright', 'np', 'no', 'worries', 'problem', 'yep',
+  'yeah', 'yh', 'ah', 'oh', 'i', 'see', 'will', 'do',
+]);
+
+function looksLikeAcknowledgement(text) {
+  const w = plainWords(text);
+  if (!w.length || w.length > 3) return false;
+  if (String(text).includes('?')) return false;
+  return w.every((x) => ACK_WORDS.has(x));
+}
+
 function looksLikeThanks(text) {
   const w = plainWords(text);
   if (!w.length || w.length > 6) return false;
@@ -1138,6 +1155,14 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
     }
   }
 
+  // A bare "okay" closes the conversation. It is not thanks and it is not a
+  // question, so the bot acknowledges it briefly and stops — rather than
+  // filling the silence with an offer nobody asked for.
+  if (looksLikeAcknowledgement(question) && !getProblemState(ctx.from?.id)) {
+    setLogSource(logId, 'acknowledged');
+    return 'acknowledged';
+  }
+
   // Someone saying hello is the first thing a new customer ever does, and
   // brushing that off is the one reply that actually costs money. A greeting
   // carries no "scope signal", so it never reached the model at all — it was
@@ -1283,6 +1308,21 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
             const channels = isServiceSpecific(question)
               ? await channelGrounding(question, { service: serviceNumber || 1 }).catch(() => null)
               : null;
+            // Nothing cached matches what they asked. Answering that from code
+            // rather than asking the model to is the whole point: handed an
+            // empty block it either invents a channel or, as it did in the
+            // group, reads its own brief out at the customer.
+            // Only when we HAVE a lineup and nothing in it matches — that is
+            // a real "we do not carry that". With nothing cached at all the
+            // model still gets its go, as before.
+            if (isServiceSpecific(question) && !channels && channelCount(serviceNumber || 1) > 0) {
+              const noListing = withAdminContact(String(getSetting('bot.noListingMessage') || '').trim());
+              if (noListing) {
+                setLogSource(logId, 'no-listing', noListing);
+                await ctx.api.sendMessage(ctx.chat.id, withSuffix(noListing), replyParams).catch(() => {});
+                return 'no-listing';
+              }
+            }
             try {
               reply = await askAi(question, {
                 history, assumeOnTopic, playback, grounding, secondRound: deepen, channels,
@@ -1364,7 +1404,15 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
           setLogSource(logId, 'unsure');
           recordUnanswered(question, ctx, 'ai-refused', null);
           if (isDm || getSetting('bot.offtopicBehavior') === 'redirect') {
-            const msg = await spoken(aiUnavailable ? 'bot.aiDownMessage' : 'bot.unsureMessage');
+            // A channel question that produced nothing usable has a better
+            // answer than "I'm not sure": we know what the question was about
+            // and we know we have no listing for it. This is also where a
+            // reply gets to after being suppressed for reciting the brief —
+            // the customer must still get something that helps.
+            const noListing = !aiUnavailable && isServiceSpecific(question)
+              ? withAdminContact(String(getSetting('bot.noListingMessage') || '').trim())
+              : '';
+            const msg = noListing || await spoken(aiUnavailable ? 'bot.aiDownMessage' : 'bot.unsureMessage');
             if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, replyParams);
           }
           return aiUnavailable ? 'ai-down' : 'unsure';

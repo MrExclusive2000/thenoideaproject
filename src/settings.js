@@ -48,6 +48,11 @@ const DEFAULTS = {
     '• Buffering, freezing, channels or streams not working\n' +
     '• Requesting films and series\n\n' +
     'Just ask in your own words — no need for commands. Anything I can\'t do, {admin}.',
+  // Sent for a channel or fixture question we have nothing cached for. Code
+  // answers it rather than the model, which given an empty hand will either
+  // invent a channel or recite its own brief at the customer. Empty = let the
+  // model try anyway.
+  'bot.noListingMessage': "I don't have a listing for that at the moment. The TV guide inside the app shows what's on — or give me the channel name and I'll look it up.",
   'bot.aiDownMessage': "⚠️ I can't reach my AI right now, so I can only answer things in my FAQ list. Try me again in a minute — or {admin} if it's urgent.",
   'bot.adminContact': '',
   // The Downloader / aftv.news code for the current app build. The bot sends

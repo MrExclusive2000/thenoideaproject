@@ -3590,3 +3590,64 @@ test('naming a service in a question does not pin you to it', async () => {
   assert.match(ctx.sent.map((s) => s.msg).join('\n'), /already on the service/i, 'answered for Exclusive');
   assert.equal(recallServiceNumber(99951), null, 'but nothing was recorded about who they are');
 });
+
+test('a channel question with nothing to go on gets a real answer, not a shrug', async () => {
+  // "What channel is nba on tonight" came back reciting the brief. Suppressing
+  // that is right, but the customer still has to be told something useful.
+  const { _resetServiceAsk } = await import('../src/bot/pipeline.js');
+  const { rememberService } = await import('../src/service-memory.js');
+  _resetServiceAsk();
+  rememberService(99960, 1, 'told');
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.noListingMessage', "I don't have a listing for that at the moment. The TV guide inside the app shows what's on.");
+  db.prepare('DELETE FROM xc_channels').run();
+  db.prepare('DELETE FROM xc_programmes').run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (1, 101, 'UK: BBC One HD', NULL, 'b1', 1)").run();
+
+  const ctx = fakeCtx('What channel is nba on tonight', { userId: 99960 });
+  const r = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.equal(r, 'no-listing');
+  assert.match(ctx.sent[0].msg, /TV guide inside the app/);
+  assert.doesNotMatch(ctx.sent[0].msg, /Say we do not|point them/i, 'and never the brief');
+});
+
+test('with no lineup cached at all the model still gets its go', async () => {
+  // "We do not carry that" is only honest when we have a lineup to check.
+  const { _resetServiceAsk } = await import('../src/bot/pipeline.js');
+  _resetServiceAsk();
+  db.prepare('DELETE FROM xc_channels').run();
+  aiResponse = 'Check the TV guide in your app for tonight.';
+  const ctx = fakeCtx('What channel is the darts on', { userId: 99961 });
+  const r = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.notEqual(r, 'no-listing');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('a bare "Okay" is the end of the conversation, not a new question', async () => {
+  // It came back with "just let me know the channel name and I'll look it up"
+  // — an offer nobody asked for, after the customer had already moved on.
+  setSetting('bot.cooldownSeconds', 0);
+  lastAiRequest = null;
+  for (const ack of ['Okay', 'ok', 'right', 'cool', 'no worries', 'will do', 'gotcha']) {
+    const ctx = fakeCtx(ack, { userId: 99970 });
+    const r = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+    assert.equal(r, 'acknowledged', `replied to: ${ack}`);
+    assert.equal(ctx.sent.length, 0, `said something back to: ${ack}`);
+  }
+  assert.equal(lastAiRequest, null, 'and none of it cost an AI call');
+});
+
+test('an acknowledgement carrying a question is still answered', async () => {
+  aiResponse = 'Restart the app and clear its cache.';
+  const ctx = fakeCtx('ok but its still buffering', { userId: 99971 });
+  const r = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.notEqual(r, 'acknowledged');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('"yes" still belongs to a flow that asked a question', async () => {
+  // A confirmation inside problem triage or a VOD check must never be eaten
+  // as an acknowledgement — those flows run before this and own the reply.
+  const { parseAvailabilityQuestion } = await import('../src/bot/requests.js');
+  assert.equal(parseAvailabilityQuestion('yes'), null);
+});
