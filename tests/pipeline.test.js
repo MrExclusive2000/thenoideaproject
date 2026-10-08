@@ -3254,3 +3254,57 @@ test('"can I get X added" files X, not "X added"', async () => {
   assert.equal(row.title, 'big bang theory',
     '"added" says what to do with it, not what it is called — left on it matches no library entry and no other request');
 });
+
+test('a username reply is used even when the services have no names set', async () => {
+  // The bot asked for the username, got it, worked out the service — and then
+  // threw the whole thing away because the service had no NAME configured.
+  // Silently: no answer, no error, nothing for the customer to go on.
+  const { _resetServiceAsk } = await import('../src/bot/pipeline.js');
+  _resetServiceAsk();
+  const name1 = getSetting('services.name1');
+  const name2 = getSetting('services.name2');
+  setSetting('services.name1', '');
+  setSetting('services.name2', '');
+  setSetting('services.url2', 'http://127.0.0.1:1');
+  setSetting('services.prefix2', 'THM');
+  setSetting('services.xcUser2', 'lookup');
+  setSetting('services.xcPass2', 'pw');
+  db.prepare('DELETE FROM xc_channels').run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (2, 201, 'FLIX: Sky Sports F1', 'SPORTS', 'f1b.uk', 1)").run();
+  try {
+    const ask = fakeCtx('what channel is the f1 on', { userId: 99501 });
+    await handleDirectMessage(ask, ask.message.text);
+    assert.match(ask.sent[0].msg, /username you log in with/i);
+
+    aiResponse = 'It is on FLIX: Sky Sports F1.';
+    const reply = fakeCtx('THM4821', { userId: 99501 });
+    await handleDirectMessage(reply, 'THM4821');
+    assert.ok(reply.sent.length > 0, 'the username must not be silently dropped');
+    assert.match(JSON.stringify(lastAiRequest), /FLIX: Sky Sports F1/,
+      'and a THM username means service 2, so service 2 lineup');
+  } finally {
+    setSetting('services.name1', name1);
+    setSetting('services.name2', name2);
+    setSetting('services.xcUser2', '');
+    setSetting('services.xcPass2', '');
+    aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+  }
+});
+
+test('a named service resolves to the right NUMBER, not always service 1', async () => {
+  // serviceConfig() builds a fresh object each call, so an identity check
+  // against it is always false however obviously right it reads — which
+  // quietly labelled every customer service 1.
+  const { _resetServiceAsk } = await import('../src/bot/pipeline.js');
+  _resetServiceAsk();
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+  db.prepare('DELETE FROM xc_vod').run();
+  db.prepare('INSERT INTO xc_vod (service, kind, name, norm_name, category, updated_at) VALUES (2, ?, ?, ?, NULL, 1)')
+    .run('series', 'Only On Flix', 'onlyonflix');
+
+  const ctx = fakeCtx('do you have Only On Flix on flix', { userId: 99502 });
+  await handleDirectMessage(ctx, ctx.message.text);
+  assert.match(ctx.sent.map((s) => s.msg).join('\n'), /already on the service/i,
+    'service 2 was checked, not service 1');
+});

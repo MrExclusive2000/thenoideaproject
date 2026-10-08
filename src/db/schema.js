@@ -486,7 +486,7 @@ const migrations = [
   // epoch for the end of the cached run, which lets a finished run expire
   // early instead of waiting out the clock.
   `
-  CREATE TABLE xc_epg (
+  CREATE TABLE IF NOT EXISTS xc_epg (
     service    INTEGER NOT NULL,
     stream_id  INTEGER NOT NULL,
     listings   TEXT NOT NULL,
@@ -525,7 +525,7 @@ const migrations = [
   // week of listings for a few hundred channels makes the title scan slow
   // for no benefit.
   `
-  CREATE TABLE xc_programmes (
+  CREATE TABLE IF NOT EXISTS xc_programmes (
     id         INTEGER PRIMARY KEY,
     service    INTEGER NOT NULL,
     channel_id TEXT NOT NULL,
@@ -533,8 +533,8 @@ const migrations = [
     start_ts   INTEGER NOT NULL,
     stop_ts    INTEGER NOT NULL
   );
-  CREATE INDEX idx_xc_prog_when ON xc_programmes(service, start_ts);
-  CREATE INDEX idx_xc_prog_chan ON xc_programmes(service, channel_id, start_ts);
+  CREATE INDEX IF NOT EXISTS idx_xc_prog_when ON xc_programmes(service, start_ts);
+  CREATE INDEX IF NOT EXISTS idx_xc_prog_chan ON xc_programmes(service, channel_id, start_ts);
   `,
   // v23 — the VOD library, so "can we get Oppenheimer" can be checked against
   // what is actually on the service instead of being filed as a request for
@@ -545,7 +545,7 @@ const migrations = [
   // Per service, because the two libraries are NOT the same — which is why
   // answering this at all means knowing which service the person is on.
   `
-  CREATE TABLE xc_vod (
+  CREATE TABLE IF NOT EXISTS xc_vod (
     id        INTEGER PRIMARY KEY,
     service   INTEGER NOT NULL,
     kind      TEXT NOT NULL,
@@ -554,7 +554,7 @@ const migrations = [
     category  TEXT,
     updated_at INTEGER NOT NULL
   );
-  CREATE INDEX idx_xc_vod_norm ON xc_vod(service, norm_name);
+  CREATE INDEX IF NOT EXISTS idx_xc_vod_norm ON xc_vod(service, norm_name);
   `,
   // v24 — the full guide downloads once a day rather than four times.
   // It is tens of megabytes and the listings it carries do not change often
@@ -570,6 +570,29 @@ const migrations = [
   // Only moves a value still sitting on the old default.
   `
   UPDATE settings SET value = '1440' WHERE key = 'services.epgCacheMinutes' AND value = '30';
+  `,
+  // v26 — somewhere to build the new guide without holding it in memory.
+  //
+  // The first cut collected every kept programme into a JS array and wrote it
+  // in one transaction at the end. On a real panel (600 channels, a week of
+  // listings) that peaked at 300MB RSS and stalled the event loop for a
+  // second — so on a small container the process was OOM-killed, restarted,
+  // downloaded again and was killed again. The bot looked dead because it
+  // was, over and over.
+  //
+  // Rows now stream into here in small batches, and the swap into the live
+  // table is one short transaction of pure SQL. Memory stays flat and the
+  // readers still see either the old guide or the new one, never half of one.
+  `
+  CREATE TABLE IF NOT EXISTS xc_programmes_staging (
+    id         INTEGER PRIMARY KEY,
+    service    INTEGER NOT NULL,
+    channel_id TEXT NOT NULL,
+    title      TEXT NOT NULL,
+    start_ts   INTEGER NOT NULL,
+    stop_ts    INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_xc_prog_stage ON xc_programmes_staging(service);
   `,
 ];
 

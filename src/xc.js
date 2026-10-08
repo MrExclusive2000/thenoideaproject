@@ -354,6 +354,11 @@ export async function channelGrounding(question, { service = 1 } = {}) {
 
 const XMLTV_TIMEOUT_MS = 5 * 60 * 1000;
 const XMLTV_MAX_BYTES = 250 * 1024 * 1024;
+// Written to disk this many at a time, and refused outright beyond this many.
+// The cap is a safety valve, not a target: a feed that large means the window
+// is wrong, and filling the disk helps nobody.
+const BATCH_ROWS = 2000;
+const MAX_PROGRAMMES = 400_000;
 
 // Bytes from the response, gunzipped if the body is raw gzip. fetch already
 // decompresses a Content-Encoding: gzip response, but panels commonly serve
@@ -432,9 +437,30 @@ export async function refreshGuide(service = 1) {
   const t = now();
   const from = t - 3 * 3600;
   const to = t + windowHours * 3600;
-  const rows = [];
   let seen = 0;
   let total = 0;
+  let kept = 0;
+  let batch = [];
+
+  // Rows go to disk in small batches rather than piling up in memory. A real
+  // panel is hundreds of thousands of programmes; holding them all cost
+  // 300MB, which is an OOM kill on a small container — and a bot that dies,
+  // restarts, downloads again and dies again looks exactly like a bot that
+  // has stopped responding.
+  const stage = db.prepare('INSERT INTO xc_programmes_staging (service, channel_id, title, start_ts, stop_ts) VALUES (?, ?, ?, ?, ?)');
+  const writeBatch = db.transaction((rows) => {
+    for (const p of rows) stage.run(service, p.channelId, p.title, p.startTs, p.stopTs);
+  });
+  const flush = async () => {
+    if (!batch.length) return;
+    writeBatch(batch);
+    kept += batch.length;
+    batch = [];
+    // Hand the loop back between batches. better-sqlite3 is synchronous, so
+    // without this the bot cannot poll Telegram while the guide is written.
+    await new Promise((r) => setImmediate(r));
+  };
+  db.prepare('DELETE FROM xc_programmes_staging WHERE service = ?').run(service);
 
   try {
     const qs = new URLSearchParams({ username: a.username, password: a.password });
@@ -463,12 +489,17 @@ export async function refreshGuide(service = 1) {
         // Only the window around now is kept. These questions are about
         // tonight and tomorrow, and a week of listings for several hundred
         // channels makes the title scan slow for nothing.
-        if (p && p.startTs < to && (p.stopTs || p.startTs) > from) rows.push(p);
+        if (p && p.startTs < to && (p.stopTs || p.startTs) > from) batch.push(p);
+      }
+      if (batch.length >= BATCH_ROWS) await flush();
+      if (kept + batch.length > MAX_PROGRAMMES) {
+        return { ok: false, error: 'guide had more listings than we can hold — narrow the window' };
       }
       // A document with no </programme> at all must not grow the buffer
       // without limit — drop everything except a possible partial tag.
       if (buf.length > 1_000_000) buf = buf.slice(-64);
     }
+    await flush();
   } catch (err) {
     // SECURITY: the password is in the query string, so no fetch error text
     // and no URL may be passed through. These strings are written by hand.
@@ -480,17 +511,24 @@ export async function refreshGuide(service = 1) {
     guideRefreshing = false;
   }
 
-  if (!total) return { ok: false, error: 'the panel returned no guide data' };
+  if (!total) {
+    db.prepare('DELETE FROM xc_programmes_staging WHERE service = ?').run(service);
+    return { ok: false, error: 'the panel returned no guide data' };
+  }
 
-  // Replaced wholesale inside a transaction, like the lineup: readers see the
-  // old guide or the new one, never half of one.
-  const insert = db.prepare('INSERT INTO xc_programmes (service, channel_id, title, start_ts, stop_ts) VALUES (?, ?, ?, ?, ?)');
+  // The swap is one short transaction of pure SQL — no JS objects, nothing
+  // held in memory — so readers see the old guide or the new one, never half
+  // of one, and the loop is blocked for a moment rather than a second.
   db.transaction(() => {
     db.prepare('DELETE FROM xc_programmes WHERE service = ?').run(service);
-    for (const p of rows) insert.run(service, p.channelId, p.title, p.startTs, p.stopTs);
+    db.prepare(
+      'INSERT INTO xc_programmes (service, channel_id, title, start_ts, stop_ts) ' +
+      'SELECT service, channel_id, title, start_ts, stop_ts FROM xc_programmes_staging WHERE service = ?'
+    ).run(service);
+    db.prepare('DELETE FROM xc_programmes_staging WHERE service = ?').run(service);
   })();
   setSetting(`services.guideFetchedAt${service === 2 ? 2 : 1}`, now());
-  return { ok: true, count: rows.length, scanned: total };
+  return { ok: true, count: kept, scanned: total };
 }
 
 // Recorded on success only, so a panel that is refusing the guide is retried

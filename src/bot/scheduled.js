@@ -266,7 +266,14 @@ export async function suggestFaqsSweep() {
 // The lineup changes — channels added, renamed, dropped. A stale cache has the
 // bot sending someone to a channel that no longer exists, which is worse than
 // not answering, so it is refreshed on a schedule as well as on demand.
+// A recovery lever that works when the panel does not. Set XC_SYNC=off in the
+// egg's variables and every lookup pull — lineup, library, guide — stays shut
+// down for that boot, without needing the bot or the panel to be reachable to
+// turn it off. The bot itself still answers.
+const xcSyncDisabled = () => String(process.env.XC_SYNC || '').toLowerCase() === 'off';
+
 export async function xcChannelSweep() {
+  if (xcSyncDisabled()) return;
   const hours = Number(getSetting('services.xcRefreshHours')) || 0;
   if (!hours) return;
   for (const service of [1, 2]) {
@@ -285,6 +292,7 @@ export async function xcChannelSweep() {
 const lastGuideAttempt = new Map();
 
 export async function xcGuideSweep() {
+  if (xcSyncDisabled()) return;
   const hours = Number(getSetting('services.xmltvRefreshHours')) || 0;
   if (!hours) return;
   for (const service of [1, 2]) {

@@ -36,7 +36,11 @@ const serviceNames = () => ['services.name1', 'services.name2']
   .map((k) => String(getSetting(k) || '').trim())
   .filter((n) => n.length >= 3);
 
-const ON_WHAT = /^\s*(?:is|are|have\s+you\s+got|do\s+you\s+have|got|does\s+(?:it|he|she)\s+have)\s+(.{2,100}?)\s+on\s+([\w\s]{2,40}?)\s*[?!.]*$/i;
+// The title is GREEDY so the split happens at the LAST "on". Lazy, it took
+// the first one: "do you have Only On Flix on flix" split as title "Only",
+// tail "Flix on flix" — a whole match, so the engine never tried again, and
+// the tail was not a service name so the question went unrecognised.
+const ON_WHAT = /^\s*(?:is|are|have\s+you\s+got|do\s+you\s+have|got|does\s+(?:it|he|she)\s+have)\s+(.{2,100})\s+on\s+([\w\s]{2,40}?)\s*[?!.]*$/i;
 
 // The service someone named in their own message, so the bot does not ask
 // which service they are on when they just said.

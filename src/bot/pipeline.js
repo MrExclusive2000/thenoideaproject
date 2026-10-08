@@ -76,9 +76,12 @@ const URL_TTL_MS = 10 * 60 * 1000;
 const pendingUrl = new Map(); // chatId:userId -> { at, attempts }
 
 function serviceConfig() {
+  // Each service carries its own number. serviceConfig() builds a fresh
+  // object every call, so `svc === s.two` is always false however obviously
+  // correct it looks — which silently labelled everyone service 1.
   return {
-    one: { name: String(getSetting('services.name1') || '').trim(), url: String(getSetting('services.url1') || '').trim() },
-    two: { name: String(getSetting('services.name2') || '').trim(), url: String(getSetting('services.url2') || '').trim() },
+    one: { num: 1, name: String(getSetting('services.name1') || '').trim(), url: String(getSetting('services.url1') || '').trim() },
+    two: { num: 2, name: String(getSetting('services.name2') || '').trim(), url: String(getSetting('services.url2') || '').trim() },
     prefix: String(getSetting('services.prefix2') || 'THM').trim(),
   };
 }
@@ -231,14 +234,21 @@ function vodServiceAskText() {
   return `${q} ${s.one.name} or ${s.two.name}?`.trim();
 }
 
-function rememberVodService(userId, name) {
-  knownVodService.set(userId, { name, at: Date.now() });
+function rememberVodService(userId, name, num = null) {
+  knownVodService.set(userId, { name, num, at: Date.now() });
   if (knownVodService.size > 500) knownVodService.delete(knownVodService.keys().next().value);
 }
 
 function peekVodService(userId) {
   const k = knownVodService.get(userId);
   return k && Date.now() - k.at < URL_TTL_MS ? k.name : null;
+}
+
+// The NUMBER is what every per-service lookup actually needs, and unlike the
+// name it exists whether or not the admin has filled the names in.
+function peekServiceNumber(userId) {
+  const k = knownVodService.get(userId);
+  return k && Date.now() - k.at < URL_TTL_MS ? k.num : null;
 }
 
 // ---- which service is this person on? --------------------------------------
@@ -259,10 +269,10 @@ function serviceNumberFor(ctx, question = '') {
   // A linked customer is authoritative: their username is on file, and the
   // username is what decides the service.
   const customer = linkedCustomer(ctx.from?.id);
-  if (customer?.username) {
-    return serviceForUsername(customer.username) === s.two ? 2 : 1;
-  }
+  if (customer?.username) return serviceForUsername(customer.username).num;
   // Otherwise whatever they told us a few minutes ago, for anything.
+  const num = peekServiceNumber(ctx.from?.id);
+  if (num) return num;
   const remembered = peekVodService(ctx.from?.id);
   if (remembered) {
     if (s.two.name && remembered.toLowerCase() === s.two.name.toLowerCase()) return 2;
@@ -322,13 +332,18 @@ async function handleServiceReply(ctx, text, logId, replyParams) {
     const cand = plainWords(text).sort((a, b) => b.length - a.length)[0] || '';
     if (cand.length >= 4) svc = serviceForUsername(cand);
   }
-  if (!svc?.name) {
+  if (!svc) {
     pendingServiceQuestion.delete(key);
     return false; // unintelligible — normal handling, they can ask again
   }
 
+  // Requiring a NAME here threw the answer away on any install where the two
+  // services had not been named — the bot asked for the username, got it,
+  // worked out the service, and then silently dropped the whole thing. The
+  // number is what every per-service lookup needs, and it exists either way.
+  const num = svc.num;
   pendingServiceQuestion.delete(key);
-  rememberVodService(ctx.from.id, svc.name);
+  rememberVodService(ctx.from.id, svc.name || `service ${num}`, num);
   // Re-run the original question now that the answer will be right for them.
   await answer(ctx, st.question, { isDm: ctx.chat.type === 'private', logId, assumeOnTopic: true });
   return true;
@@ -524,9 +539,10 @@ async function handleVodServiceReply(ctx, text, logId, replyParams) {
   setLogSource(logId, 'vod-request');
   if (svc) {
     pendingVodService.delete(key);
-    const label = svc.name || (svc === serviceConfig().two ? 'service 2' : 'service 1');
+    const num = svc.num;
+    const label = svc.name || `service ${num}`;
     setRequestService(st.requestId, label);
-    rememberVodService(ctx.from.id, label);
+    rememberVodService(ctx.from.id, label, num);
     await send(`👍 Got it — noted for ${label}.`);
   } else if (st.attempts < 1) {
     st.attempts++;
