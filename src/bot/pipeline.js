@@ -767,6 +767,7 @@ function looksLikeHumanRequest(text) {
 
 export const _looksLikeHumanRequest = (t) => looksLikeHumanRequest(t);
 export const _alreadySteers = (t) => alreadySteers(t);
+export const _verbatimLines = () => VERBATIM_LINES;
 
 function looksLikeGreeting(text) {
   const w = plainWords(text);
@@ -816,6 +817,9 @@ const ACK_WORDS = new Set([
   // back with the banter line. During triage a short "yes" is caught earlier,
   // as a confirmation, so this only affects the quiet path.
   'yes', 'yea', 'aye', 'maybe', 'later', 'sure', 'nice', 'ta',
+  // Laughing along is the end of a joke, not a new question. "fair enough ha"
+  // was spending an AI call to reply to someone chuckling.
+  'ha', 'haha', 'hah', 'lol', 'lmao', 'heh', 'hehe', 'true', 'indeed', 'same',
 ]);
 
 // Noise: "???", "....", "hmmm", "ok so". Not a question, not an answer, not
@@ -1000,9 +1004,22 @@ function serviceStatusLine() {
   return `⚠️ We're aware of a service issue right now${note ? ` — ${note}` : ''}. This may be what you're seeing.`;
 }
 
+// Being spoken to by NAME counts as being spoken to. People do not type
+// @Exclusive_Manager_Bot in a group, they type "bot, what channel is it on" —
+// and that was landing as ordinary group chatter, so in the default
+// questions-only mode (no question mark, no question word, just "bot ...") the
+// bot sat there in silence while a customer addressed it directly.
+// Anchored to the start, so "I asked the bot earlier" is still just chatter.
+const ADDRESSED_BY_NAME = /^\s*(?:hey|hi|hello|oi|yo|ok|okay)?[\s,]*\b(?:bot|bots|robot|assistant)\b[\s,:;!?-]*/i;
+
 function mentionsBot(ctx, text) {
   const username = state.bot.username;
-  if (username && text.toLowerCase().includes(`@${username.toLowerCase()}`)) return true;
+  const t = String(text || '');
+  if (username && t.toLowerCase().includes(`@${username.toLowerCase()}`)) return true;
+  // The bot's own display name, if it has one worth matching.
+  const first = String(state.bot.firstName || '').trim();
+  if (first.length >= 4 && new RegExp(`^\\s*${first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(t)) return true;
+  if (ADDRESSED_BY_NAME.test(t)) return true;
   return ctx.message?.reply_to_message?.from?.id === ctx.me?.id;
 }
 
@@ -1388,7 +1405,18 @@ function withCaseNumber(text, caseId, { append = false } = {}) {
 // came back as "those service stuff bits I excel at". These lines are short,
 // deliberate and already in the house voice, so they go out as written.
 const VERBATIM_LINES = new Set([
-  'bot.smallTalkSteer', 'bot.capabilityMessage', 'bot.offtopicMessage',
+  // The capability message is a bulleted list of what the bot does. Rewording
+  // a list mangles it — "installs, logins, buffering fixes, requests" came
+  // back as "those service stuff bits I excel at" — and this one is read as a
+  // menu, so it stays exactly as written.
+  'bot.capabilityMessage',
+  // The off-topic brush-off and the steer used to be here too, and they are
+  // the two most repeated lines in the whole bot: a customer having a bit of
+  // banter got the SAME sentence word for word, twice in a row, which is the
+  // definition of sounding canned. They carry no facts and no list worth
+  // protecting — just tone — so they are personalised like everything else
+  // now. The saved text is still the meaning and the fallback.
+  //
   // "Flagged to the team" came back as "You're all set now" — which is not
   // true of a problem nobody has fixed yet. A status line is a statement of
   // fact and must survive intact.
@@ -2058,7 +2086,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
             // it. Two messages saying the same thing, the second one canned,
             // in front of everybody. If the answer already named what we do,
             // repeating it is not a steer, it is a stammer.
-            const steer = alreadySteers(banter) ? '' : await spoken('bot.smallTalkSteer');
+            const steer = alreadySteers(banter) ? '' : await spoken('bot.smallTalkSteer', question);
             await ctx.api.sendMessage(ctx.chat.id, steer ? `${banter}\n\n${steer}` : banter, replyParams);
             return 'smalltalk';
           }

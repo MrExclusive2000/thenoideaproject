@@ -122,6 +122,10 @@ export async function startBot() {
     onStart: (botInfo) => {
       state.bot.status = 'online';
       state.bot.username = botInfo.username;
+      // Its display name as well as its @handle: people address it by the
+      // name they can see ("Exclusive Manager, is bbc1 down?"), not by the
+      // handle they have to remember.
+      state.bot.firstName = botInfo.first_name || '';
       hub.api = bot.api;
       console.log(`Bot online as @${botInfo.username}`);
     },

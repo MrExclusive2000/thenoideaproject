@@ -4789,3 +4789,39 @@ test('the steer is not stapled onto an answer that already steers', async () => 
   );
   assert.equal(_alreadySteers('Ha, good one!'), false, 'plain banter still gets steered back');
 });
+
+test('being called "bot" in the group counts as being spoken to', async () => {
+  // "bot what channel is it on" has no question mark and no question word, so
+  // in the default questions-only mode it read as ordinary group chatter and
+  // the bot sat in silence while a customer addressed it directly.
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.responseMode', 'questions');
+  setSetting('bot.capabilityMessage', 'Here is what I can help with: installs, logins, buffering.');
+  db.prepare('INSERT OR REPLACE INTO allowed_chats (chat_id, title, enabled, added_at) VALUES (-100123, ?, 1, 0)').run('Test Group');
+  _resetProblemTriage();
+
+  const ctx = fakeCtx('bot give everyone a brief overview what you can do', { chatType: 'group', userId: 99990 });
+  await handleGroupMessage(ctx);
+  assert.ok(ctx.sent.length, 'answers when addressed by name');
+
+  // Talking ABOUT the bot is still just chatter.
+  const chatter = fakeCtx('I asked the bot earlier and it said no', { chatType: 'group', userId: 99991 });
+  await handleGroupMessage(chatter);
+  assert.equal(chatter.sent.length, 0, 'does not butt in');
+});
+
+test('the brush-off and the steer are personalised, the status lines are not', async () => {
+  // The two most repeated lines in the bot were on the never-reword list, so
+  // a customer having a bit of banter got the SAME sentence word for word,
+  // twice in a row. They carry tone, not facts. The status lines do carry
+  // facts — "Flagged to the team" must never become "You're all set now"
+  // about a problem nobody has fixed — so those stay exactly as written.
+  const { _verbatimLines } = await import('../src/bot/pipeline.js');
+  const lines = _verbatimLines();
+  for (const free of ['bot.offtopicMessage', 'bot.smallTalkSteer']) {
+    assert.equal(lines.has(free), false, `${free} should be personalised`);
+  }
+  for (const fixed of ['bot.capabilityMessage', 'bot.problemFlaggedNote', 'bot.problemFollowupNote', 'bot.problemMoreFixesNote']) {
+    assert.equal(lines.has(fixed), true, `${fixed} must stay verbatim`);
+  }
+});
