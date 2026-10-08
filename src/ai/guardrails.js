@@ -207,7 +207,14 @@ export function stripPrematureHandoff(reply) {
     if (candidate.replace(/[^a-z]/gi, '').length < 15) break;
     out = candidate;
   }
-  return out.replace(/\s*(?:still\s+no\s+luck\??|if\s+that\s+fails\??|otherwise\??)\s*$/i, '').trimEnd();
+  return out
+    // The lead-in that pointed at the handoff is now pointing at nothing.
+    .replace(/\s*(?:still\s+no\s+luck\??|if\s+that\s+fails\??|otherwise\??)\s*$/i, '')
+    // And the step number it was written as. Cutting "4. Message the admin"
+    // out of a numbered list leaves a bare "4." sitting on the end, which
+    // looks like the bot broke mid-sentence.
+    .replace(/\n\s*(?:\d{1,2}[.)]|[-•*])\s*$/, '')
+    .trimEnd();
 }
 
 // Things you can actually DO, and things you can do them to. A round of

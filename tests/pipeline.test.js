@@ -3779,10 +3779,18 @@ test('no round of troubleshooting ends by sending them to the admin', async () =
   // @ExclusiveDoctor for further assistance with your account issue." — while
   // the line underneath said "reply here and I'll flag it straight to the
   // team". The system owns escalation; the answer must not pre-empt it.
-  const live = '1. Restart your device.\n2. Try a different browser or device to log in.\n3. Verify your username and password for any extra spaces or capital letters.\n4. Message @ExclusiveDoctor for further assistance with your account issue.';
+  const live = '1. Restart your device (unplug a Firestick for 30 seconds).\n2. Try using a different browser or device to log in.\n3. Verify your username and password for any extra spaces or capital letters.\n4. Message @ExclusiveDoctor for further assistance with your account issue.';
   const out = stripPrematureHandoff(live);
   assert.doesNotMatch(out, /@ExclusiveDoctor/);
   assert.match(out, /extra spaces or capital letters/, 'the real steps survive');
+  // Cutting "4. Message the admin" out of a numbered list left a bare "4."
+  // on the end, which reads as the bot breaking off mid-sentence.
+  assert.doesNotMatch(out, /\n\s*\d{1,2}[.)]\s*$/, 'no orphaned step number');
+  assert.ok(out.trimEnd().endsWith('capital letters.'), `ended on: ${JSON.stringify(out.slice(-30))}`);
+
+  const bulleted = stripPrematureHandoff('- Restart the app and clear its cache.\n- Try a different link for that channel.\n- Message an admin for further help.');
+  assert.doesNotMatch(bulleted, /\n\s*[-•*]\s*$/, 'nor an orphaned bullet');
+  assert.ok(bulleted.trimEnd().endsWith('for that channel.'));
 });
 
 test('status lines are never reworded into something untrue', async () => {
