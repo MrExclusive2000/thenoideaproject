@@ -10,6 +10,10 @@ import { registerCommands } from './commands.js';
 import { registerFeedback } from './feedback.js';
 import { registerOutageAnnounce } from './problems.js';
 import { handleGroupMessage, handleDirectMessage } from './pipeline.js';
+
+// Above this, a single message has stopped being slow and started being a
+// fault worth reporting.
+const SLOW_HANDLER_MS = 10 * 1000;
 import { alertAdmins } from './reports.js';
 import { recordJoin, markLeft, registerVetActions } from './joiners.js';
 import { chatAllowed } from './helpers.js';
@@ -81,8 +85,22 @@ export async function startBot() {
   // All messages, not message:text — photos/captions need handling too (the
   // pipeline decides what deserves a reply and ignores the rest).
   bot.on('message', (ctx) => {
+    // A message that takes this long has stopped being slow and started being
+    // broken. Handlers run fire-and-forget so one of them cannot block the
+    // others, but synchronous work (a SQLite query that lost its index, say)
+    // blocks the whole process and the bot goes quiet with nothing in the log
+    // to say why. Timing every message means the next time it happens, it
+    // says so in the panel instead of looking like a dead bot.
+    const started = Date.now();
     const handled = ctx.chat.type === 'private' ? handleDirectMessage(ctx) : handleGroupMessage(ctx);
-    handled.catch((err) => {
+    handled.then(() => {
+      const ms = Date.now() - started;
+      if (ms < SLOW_HANDLER_MS) return;
+      const note = `A message took ${(ms / 1000).toFixed(1)}s to handle — something is running far slower than it should.`;
+      console.error(note);
+      state.bot.lastError = note;
+      state.bot.lastSlowAt = Date.now();
+    }).catch((err) => {
       console.error('handler error:', err.message);
       state.bot.lastError = String(err.message || err).slice(0, 300);
     });

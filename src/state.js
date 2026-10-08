@@ -5,6 +5,9 @@ export const state = {
     status: 'starting', // starting | online | disabled | error | conflict
     username: null,
     lastError: null,
+    // When a single message last took absurdly long to handle. A quiet bot
+    // with this set recently is a performance fault, not a connection one.
+    lastSlowAt: null,
     lastUpdateAt: null,
     groupMessagesSeen: 0, // stays 0 with privacy mode on → setup hint
   },

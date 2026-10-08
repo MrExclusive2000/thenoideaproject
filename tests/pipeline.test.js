@@ -3360,15 +3360,18 @@ test('a greeting on its own is still a greeting, not an empty request', async ()
   assert.equal(parseNaturalVodRequest('hey my app keeps buffering'), null);
 });
 
-test('the bot does not sign off by advertising itself', async () => {
+test('a friendly sign-off survives; a promise the bot cannot keep does not', async () => {
   const { stripInvitationTail } = await import('../src/ai/guardrails.js');
-  const real = "Reacher isn't on there yet, so I've put it on the request list.\n\nAnyway — service stuff is where I shine 😄 settings, sign-ins, buffer fixes, and requests. Give me a try!";
-  const out = stripInvitationTail(real);
-  assert.doesNotMatch(out, /where I shine|Give me a try/i);
-  assert.match(out, /request list/, 'the actual answer survives');
-  // A real answer that happens to end on a full stop is left alone.
-  assert.equal(
-    stripInvitationTail('Restart the app and clear its cache, then try the channel again.'),
-    'Restart the app and clear its cache, then try the channel again.'
-  );
+  // The bot is the front door of the service, so sounding like it wants the
+  // custom is the point. What it must not do is promise a follow-up: it gets
+  // no second message, so "let me know" is a dead end for the customer.
+  const warm = "Reacher isn't on there yet, so I've put it on the request list. Enjoy the rest of your evening!";
+  assert.equal(stripInvitationTail(warm), warm, 'warmth is left alone');
+  const promo = "That should sort you out. We're taking new customers on at the moment — send /invite to bring a mate in.";
+  assert.equal(stripInvitationTail(promo), promo, 'so is a plug for the service');
+
+  const deadEnd = "Restart the app and clear its cache, then try the channel again. Let me know if you need anything else!";
+  const out = stripInvitationTail(deadEnd);
+  assert.doesNotMatch(out, /let me know/i, 'a promise it cannot keep is cut');
+  assert.match(out, /clear its cache/, 'the actual answer survives');
 });
