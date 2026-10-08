@@ -4021,3 +4021,44 @@ test('an install still on the old flagged note is moved to one with a number', a
     'We are on it, give us an hour.', 'a note someone wrote is left alone'
   );
 });
+
+// --- a closed case must not swallow the next conversation -------------------
+
+test('a new request after a case closes is answered, not soft-closed', async () => {
+  // Live: "#1 fixed" closed the case, then "I want to invite my friend to the
+  // service" got "shout here if it stops working again so I can report it to
+  // the team" — nonsense, and it loses the sale.
+  const { setProblemState, _resetProblemTriage: reset } = await import('../src/bot/pipeline.js');
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.problemSoftCloseMessage', '👍 No problem — shout here if it plays up again.');
+  _resetProblemTriage();
+  db.prepare('DELETE FROM faqs').run();
+  db.prepare(`INSERT INTO faqs (question, answer, keywords, enabled, priority, created_at, updated_at)
+              VALUES ('How can my friend join the service?', 'Send me /invite and I will give you a one-use invite link.', 'friend, join, invite, signup', 1, 0, 0, 0)`).run();
+
+  // Re-armed exactly as closing a case leaves them.
+  aiResponse = 'Send me /invite and I will give you a one-use invite link.';
+  const ctx = fakeCtx('I want to invite my friend to the service', { userId: 99930 });
+  await handleDirectMessage(ctx, ctx.message.text);
+  const msg = ctx.sent.map((s) => s.msg).join('\n');
+  assert.doesNotMatch(msg, /plays up again|stops working/i, 'not a problem reply');
+  assert.match(msg, /invite/i, 'they get told how to invite someone');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('a genuinely neutral reply after auto-close still closes softly', async () => {
+  const { startsNewTopic } = await import('../src/bot/pipeline.js').then((m) => ({ startsNewTopic: m._startsNewTopic }));
+  // The replies the soft close exists for.
+  for (const neutral of ['not tried it today', 'we watched the end and went to bed', 'ok thanks', 'all good']) {
+    assert.equal(Boolean(startsNewTopic?.(neutral)), false, `treated as a new topic: ${neutral}`);
+  }
+  // And the ones that are plainly a fresh request.
+  for (const fresh of [
+    'I want to invite my friend to the service',
+    'can I have the install guide',
+    'how much does it cost',
+    'whats the wallet address',
+    'can we get Oppenheimer',
+    'what channel is the f1 on',
+  ]) assert.equal(Boolean(startsNewTopic?.(fresh)), true, `missed a new topic: ${fresh}`);
+});

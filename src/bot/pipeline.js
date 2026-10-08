@@ -384,6 +384,8 @@ function isServiceSpecific(question) {
   return looksLikeChannelQuestion(question) || looksLikeFixtureQuestion(question);
 }
 
+export const _startsNewTopic = (t) => startsNewTopic(t);
+
 export const _resetServiceAsk = () => {
   pendingServiceQuestion.clear();
   knownVodService.clear();
@@ -736,6 +738,30 @@ function awaitingReplyFrom(ctx) {
 function bumpCooldown(userId) {
   cooldowns.set(userId, Date.now());
   if (cooldowns.size > 5000) cooldowns.clear();
+}
+
+// Has the customer moved on to something else entirely?
+//
+// After a case closes, their triage state is re-armed so a late "actually
+// it's still broken" escalates straight away. But the check for that was only
+// "is it a question, is it a problem" — so "I want to invite my friend to the
+// service" was neither, and got answered with "shout here if it stops working
+// again", which is nonsense and loses the sale.
+//
+// Anything that is plainly a fresh request belongs to normal answering.
+const NEW_TOPIC_WORDS = /\b(invite|invites|inviting|sign\s?up|signup|join|joining|friend|mate|refer|referral|price|prices|pricing|cost|costs|renew|renewal|subscribe|subscription|buy|order|upgrade|install|download|code)\b/i;
+
+function startsNewTopic(text) {
+  return Boolean(
+    anyVodRequest(text) ||
+    parseAvailabilityQuestion(text) ||
+    looksLikeGuideRequest(text) ||
+    looksLikeWalletRequest(text) ||
+    isUrlRequest(text) ||
+    looksLikeChannelQuestion(text) ||
+    looksLikeFixtureQuestion(text) ||
+    NEW_TOPIC_WORDS.test(String(text || ''))
+  );
 }
 
 // Two-stage problem triage: the FIRST report from a user gets the fixes and an
@@ -1846,7 +1872,7 @@ export async function handleGroupMessage(ctx) {
   // bed, not tried it today") — the notice asked "is it sorted?", so a reply
   // without still-broken phrasing leans yes: close softly, door left open.
   // (Clear resolutions got the warm close above; still-broken escalated.)
-  if (st?.fromAutoClose && isFollowUp && !looksLikeQuestion(text)) {
+  if (st?.fromAutoClose && isFollowUp && !looksLikeQuestion(text) && !startsNewTopic(text)) {
     setLogSource(logId, 'soft-close');
     const msg = await spoken('bot.problemSoftCloseMessage');
     if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
@@ -2035,8 +2061,9 @@ async function handleDmProblemReply(ctx, text, logId) {
     return true;
   }
 
-  // Neutral reply to the auto-close notice — soft close, door open.
-  if (st.fromAutoClose && !looksLikeQuestion(text) && !isProblem) {
+  // Neutral reply to the auto-close notice — soft close, door open. A fresh
+  // request is not that, however neutrally it is phrased.
+  if (st.fromAutoClose && !looksLikeQuestion(text) && !isProblem && !startsNewTopic(text)) {
     setLogSource(logId, 'soft-close');
     const msg = await spoken('bot.problemSoftCloseMessage');
     if (msg) await send(msg);
