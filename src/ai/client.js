@@ -603,7 +603,12 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
   // says so in its own line underneath. A handoff written into the answer
   // contradicts it: the reply ends "message the admin" and the next line says
   // "reply here and I'll flag it straight to the team".
-  if (grounding) reply = stripPrematureHandoff(reply);
+  // Every reply, not just ones with a playbook attached: the six-step lists
+  // that ended "6. Message @ExclusiveDoctor for further assistance" had no
+  // grounding, so the strip never saw them. It only cuts when what remains
+  // still tells the customer something to do, so an answer whose whole point
+  // IS the handoff keeps it.
+  reply = stripPrematureHandoff(reply);
 
   const bannedWords = db.prepare('SELECT word FROM banned_words').all().map((r) => r.word);
   if (containsBannedWord(reply, bannedWords)) return null;

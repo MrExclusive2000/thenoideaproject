@@ -332,6 +332,11 @@ export async function closeCaseAsAdmin(id, by) {
     : `✅ #${id} closed${what}\n(Reporter not told — the resolved message is empty in Bot settings.)`;
 }
 
+export function openCaseIds(limit = 20) {
+  return db.prepare('SELECT id FROM problem_reports WHERE resolved = 0 ORDER BY id DESC LIMIT ?')
+    .all(limit).map((r) => r.id);
+}
+
 export function openCasesList(limit = 15) {
   const rows = db.prepare(
     'SELECT * FROM problem_reports WHERE resolved = 0 ORDER BY escalated DESC, id DESC LIMIT ?'

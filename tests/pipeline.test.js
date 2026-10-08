@@ -4062,3 +4062,85 @@ test('a genuinely neutral reply after auto-close still closes softly', async () 
     'what channel is the f1 on',
   ]) assert.equal(Boolean(startsNewTopic?.(fresh)), true, `missed a new topic: ${fresh}`);
 });
+
+// --- it must not say the same thing twice ------------------------------------
+
+test('a reworded repeat of the last answer is not sent', async () => {
+  const { repeatsPreviousAnswer } = await import('../src/ai/guardrails.js');
+  // Asked "are you being dumb?", it replied with the same six steps it had
+  // just given, lightly reworded. That is the one behaviour the service was
+  // announced to customers as having fixed.
+  const first = '1. Restart your device: Unplug your Firestick for about 30 seconds.\n2. Clear app cache: Settings > Applications > Manage Applications > Sky Glass > Clear Cache.\n3. Verify your credentials: double-check username and password for extra spaces.';
+  const again = 'Let us try these steps to resolve the login issue with Sky Glass:\n1. Restart your device: Unplug your Firestick for about 30 seconds and plug it back in.\n2. Clear app cache: Go to Settings > Applications > Manage Applications > Sky Glass > Clear Cache.\n3. Verify your credentials: Double-check your username and password for any extra spaces or capital letters.';
+  assert.equal(repeatsPreviousAnswer(again, first), true, 'rewording is still repeating');
+
+  for (const fresh of [
+    'Try the same login in XC or Smarters — their players handle it differently. If that works, reinstall Sky Glass.',
+    'Sky Glass is on code 3793766 in Downloader, or aftv.news/3793766 in a browser.',
+  ]) assert.equal(repeatsPreviousAnswer(fresh, first), false, `blocked real advice: ${fresh.slice(0, 40)}`);
+
+  // Two short replies are not enough to judge, so they are left alone.
+  assert.equal(repeatsPreviousAnswer('Yes.', 'Yes.'), false);
+});
+
+test('a handoff is cut from any answer, not only a playbook one', async () => {
+  const { stripPrematureHandoff } = await import('../src/ai/guardrails.js');
+  // These lists had no playbook attached, so the strip never saw them and
+  // "6. Message @ExclusiveDoctor for further assistance" went out twice.
+  const live = '1. Restart your device: Unplug your Firestick for about 30 seconds and then plug it back in.\n2. Clear app cache: Go to Settings > Applications > Manage Applications > Sky Glass > Clear Cache.\n3. Verify your credentials: Double-check your username and password for any extra spaces or capital letters.\n4. If the issue still persists, message @ExclusiveDoctor for further assistance.';
+  const out = stripPrematureHandoff(live);
+  assert.doesNotMatch(out, /@ExclusiveDoctor/);
+  assert.match(out, /Verify your credentials/, 'the steps survive');
+
+  // When the handoff IS the answer, cutting it leaves the customer nothing.
+  for (const only of [
+    "I can't help with that one — message an admin directly.",
+    'To renew, message @ExclusiveDoctor directly.',
+    'For pricing, message an admin directly.',
+  ]) assert.match(stripPrematureHandoff(only), /admin|@ExclusiveDoctor/i, only);
+});
+
+test('"Close case" with no number does something sensible', async () => {
+  // Live: the admin said "Close case" and got "shout here if it stops working
+  // and I'll flag it with the team" — the customer flow, answering an admin,
+  // about nothing.
+  setSetting('reports.adminTelegramIds', [4242]);
+  setSetting('bot.cooldownSeconds', 0);
+  db.prepare('DELETE FROM problem_reports').run();
+  hub.api = { sendMessage: async () => ({ message_id: 1 }) };
+
+  // Nothing open.
+  let ctx = fakeCtx('Close case', { userId: 4242 });
+  await handleDirectMessage(ctx, 'Close case');
+  assert.match(ctx.sent.map((s) => s.msg).join('\n'), /No open cases/i);
+
+  // Exactly one open — no ambiguity, so close it.
+  db.prepare("INSERT INTO problem_reports (tg_user_id, tg_user, chat_id, text, topic, ts, resolved) VALUES (99, 'cust', -100999, 'my login says invalid', NULL, 0, 0)").run();
+  const only = db.prepare('SELECT id FROM problem_reports ORDER BY id DESC LIMIT 1').get().id;
+  ctx = fakeCtx('Close case', { userId: 4242 });
+  await handleDirectMessage(ctx, 'Close case');
+  assert.match(ctx.sent.map((s) => s.msg).join('\n'), new RegExp(`#${only} closed`));
+
+  // Several open — ask, never guess which one.
+  db.prepare("INSERT INTO problem_reports (tg_user_id, tg_user, chat_id, text, topic, ts, resolved) VALUES (98, 'a', -100999, 'buffering', NULL, 0, 0)").run();
+  db.prepare("INSERT INTO problem_reports (tg_user_id, tg_user, chat_id, text, topic, ts, resolved) VALUES (97, 'b', -100999, 'no sound', NULL, 0, 0)").run();
+  ctx = fakeCtx('close case', { userId: 4242 });
+  await handleDirectMessage(ctx, 'close case');
+  const msg = ctx.sent.map((s) => s.msg).join('\n');
+  assert.match(msg, /2 cases are open/i);
+  assert.doesNotMatch(msg, /closed/, 'closing the wrong one is worse than asking');
+  hub.api = null;
+});
+
+test('a bare "that\'s fixed now" in conversation is not a close command', async () => {
+  // Without the word "case" it stays ordinary chat — the admin talking, not
+  // issuing a command.
+  setSetting('reports.adminTelegramIds', [4242]);
+  db.prepare('DELETE FROM problem_reports').run();
+  db.prepare("INSERT INTO problem_reports (tg_user_id, tg_user, chat_id, text, topic, ts, resolved) VALUES (96, 'c', -100999, 'buffering', NULL, 0, 0)").run();
+  const before = db.prepare('SELECT COUNT(*) n FROM problem_reports WHERE resolved = 0').get().n;
+  const ctx = fakeCtx("that's fixed now", { userId: 4242 });
+  await handleDirectMessage(ctx, "that's fixed now");
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM problem_reports WHERE resolved = 0').get().n, before,
+    'nothing closed on a guess');
+});

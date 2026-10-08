@@ -181,6 +181,11 @@ export function echoesInstructions(reply) {
 }
 
 // A handoff to a human, in any of the shapes a model writes one.
+// Things you can actually DO, and things you can do them to. Text naming
+// none of these is reassurance, not troubleshooting.
+const STEP_THING = /\b(app|apps|cache|caches|router|wifi|ethernet|vpn|stream|streams|link|links|server|servers|channel|channels|login|password|username|device|firestick|downloader|box|tv|guide|epg|epgs|subtitle|audio|quality|connection|data|dns|speed|playlist|account|purple|smarters|sky\s*glass|xc)\b/i;
+const STEP_ACTION = /\b(restart|reboot|reinstall|install|clear|clearing|switch|switching|change|changing|try|open|enter|turn|disable|enable|unplug|update|updating|log\s+(?:in|out)|sign\s+(?:in|out)|force\s+stop|refresh|select|pick|check|use)\b/i;
+
 const HANDOFF_RE = /\b(?:message|contact|dm|speak\s+to|talk\s+to|reach\s+out\s+to|get\s+in\s+touch\s+with|ask)\s+(?:@\w+|an?\s+admin|the\s+admin|the\s+team|support|customer\s+service)\b|\b(?:the\s+)?admin\s+(?:will|can|should)\b|\bfurther\s+assistance\b/i;
 
 // The first answer to a problem must not end by sending them to a human. The
@@ -200,11 +205,11 @@ export function stripPrematureHandoff(reply) {
     const last = out.slice(idx + 1).trim();
     if (!HANDOFF_RE.test(last)) break;
     const candidate = out.slice(0, idx + 1).trimEnd();
-    // Nothing useful would be left, so the handoff WAS the whole answer —
-    // a renewal or a payment, where the human is the point. Set low on
-    // purpose: "Restart the app and clear the cache" is a thin answer but
-    // still a better first round than being sent to a person.
-    if (candidate.replace(/[^a-z]/gi, '').length < 15) break;
+    // Only cut it when what remains actually tells them something to DO.
+    // Otherwise the handoff was the answer — a renewal, a payment, "I can't
+    // help with that, message an admin" — and removing it leaves the customer
+    // with nothing at all.
+    if (!STEP_THING.test(candidate) || !STEP_ACTION.test(candidate)) break;
     out = candidate;
   }
   return out
@@ -219,8 +224,6 @@ export function stripPrematureHandoff(reply) {
 
 // Things you can actually DO, and things you can do them to. A round of
 // troubleshooting that names none of these is not a round of troubleshooting.
-const STEP_THING = /\b(app|apps|cache|caches|router|wifi|ethernet|vpn|stream|streams|link|links|server|servers|channel|channels|login|password|username|device|firestick|downloader|box|tv|guide|epg|epgs|subtitle|audio|quality|connection|data|dns|speed|playlist|account|purple|smarters|sky\s*glass|xc)\b/i;
-const STEP_ACTION = /\b(restart|reboot|reinstall|install|clear|clearing|switch|switching|change|changing|try|open|enter|turn|disable|enable|unplug|update|updating|log\s+(?:in|out)|sign\s+(?:in|out)|force\s+stop|refresh|select|pick|check|use)\b/i;
 
 // A follow-up round that tells the customer nothing they can act on. They
 // have just said the first fixes did not work; replying "give it a shot and
@@ -233,6 +236,33 @@ export function offersNoNewHelp(reply) {
   // a genuine "try the backup app with the same login" is neither.
   if (!STEP_THING.test(text) || !STEP_ACTION.test(text)) return true;
   return false;
+}
+
+// Has the bot already said this? Asked "are you being dumb?", it replied with
+// the same six steps it had just given — which is the one thing the service
+// was announced to customers as not doing.
+//
+// Compared on content words only, so rewording the same advice still counts
+// as repeating it: a model told to try again will reorder and re-pad the
+// same list rather than find anything new.
+const CONTENT_STOP = new Set([
+  'the', 'and', 'you', 'your', 'for', 'with', 'this', 'that', 'then', 'from', 'are', 'can',
+  'try', 'any', 'all', 'into', 'out', 'back', 'about', 'they', 'their', 'have', 'has',
+  'will', 'would', 'should', 'please', 'issue', 'still', 'more', 'other', 'step', 'steps',
+]);
+
+const contentWords = (text) => new Set(
+  (String(text || '').toLowerCase().match(/[a-z]{4,}/g) || []).filter((w) => !CONTENT_STOP.has(w))
+);
+
+export function repeatsPreviousAnswer(reply, previous, { threshold = 0.65 } = {}) {
+  const now = contentWords(reply);
+  const before = contentWords(previous);
+  if (now.size < 4 || before.size < 4) return false;
+  let shared = 0;
+  for (const w of now) if (before.has(w)) shared++;
+  // Against the SMALLER set, so padding a repeat with filler does not hide it.
+  return shared / Math.min(now.size, before.size) >= threshold;
 }
 
 export function containsBannedWord(text, bannedWords) {

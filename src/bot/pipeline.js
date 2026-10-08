@@ -3,7 +3,7 @@ import { db, now } from '../db/db.js';
 import { getSetting, redactServiceUrls } from '../settings.js';
 import { matchFaq } from '../faq/matcher.js';
 import { askAi, aiBudgetExceeded, rephraseCanned } from '../ai/client.js';
-import { containsBannedWord, endsWithQuestion, offersNoNewHelp } from '../ai/guardrails.js';
+import { containsBannedWord, endsWithQuestion, offersNoNewHelp, repeatsPreviousAnswer } from '../ai/guardrails.js';
 import { state } from '../state.js';
 import {
   sendChunked, logMessage, setLogSource, recordUnanswered, chatAllowed,
@@ -20,7 +20,7 @@ import { looksLikeWalletRequest, walletMessage } from '../payments.js';
 import { recallService, rememberService, forgetService } from '../service-memory.js';
 import {
   queueProblemAlert, setProblemRearmHook, maybeAutoDegrade,
-  looksLikeCaseClose, caseNumbersIn, closeCaseAsAdmin,
+  looksLikeCaseClose, caseNumbersIn, closeCaseAsAdmin, openCaseIds,
 } from './problems.js';
 import { parseVodRequest, parseNaturalVodRequest, parseAvailabilityQuestion, serviceNamedIn, recordVodRequest, setRequestService, lookupImdb, canonicalizeRequest } from './requests.js';
 import { hub } from './hub.js';
@@ -874,12 +874,30 @@ async function handleAdminCaseClose(ctx, text, logId) {
 
   const own = caseNumbersIn(text);
   const replied = caseNumbersIn(ctx.message?.reply_to_message?.text || '');
-  const ids = own.length ? own : replied;
-  if (!ids.length) return false;
+  let ids = own.length ? own : replied;
 
   const reply = (msg) => ctx.api.sendMessage(ctx.chat.id, msg, {
     ...(ctx.chat?.type === 'private' ? {} : { reply_parameters: { message_id: ctx.message.message_id } }),
   }).catch(() => {});
+
+  if (!ids.length) {
+    // "Close case" with no number said plainly. Falling through sent it to
+    // the customer flow, which answered "shout here if it plays up again" —
+    // to the admin, about nothing. Only taken over when they actually said
+    // "case": a bare "that's fixed now" in conversation still flows past.
+    if (!/\bcases?\b/i.test(text)) return false;
+    const open = openCaseIds();
+    setLogSource(logId, 'case-ambiguous');
+    if (!open.length) {
+      await reply('No open cases to close. 🎉');
+      return true;
+    }
+    if (open.length > 1) {
+      await reply(`${open.length} cases are open — which one? Say "#${open[0]} fixed", or /cases to see them.`);
+      return true;
+    }
+    ids = open; // exactly one open, so there is nothing to disambiguate
+  }
 
   // Replying "fixed" to an alert that listed several cases says nothing about
   // which one — guessing would close someone else's open problem.
@@ -1410,6 +1428,14 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
             // what they already tried and loops them. Dropping it here makes
             // the caller escalate to a human, which is what they need.
             if (reply && deepen && offersNoNewHelp(reply)) {
+              setLogSource(logId, 'no-new-help');
+              return 'no-new-help';
+            }
+            // Saying the same thing again is not an answer. The customer has
+            // already read it, and repeating it is what makes a bot feel like
+            // a wall — it is the complaint that started this whole build.
+            const lastSaid = [...history].reverse().find((m) => m.role === 'assistant')?.content;
+            if (reply && lastSaid && repeatsPreviousAnswer(reply, lastSaid)) {
               setLogSource(logId, 'no-new-help');
               return 'no-new-help';
             }
