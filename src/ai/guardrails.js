@@ -103,7 +103,7 @@ export function stripDeadEndQuestion(reply) {
 // sentences are cut whenever real content precedes them.
 // Concrete invite phrases only — a generic "if you need/have..." test would
 // also kill legit trailing advice like "If you have a VPN, turn it off."
-const INVITE_RE = /\b(feel free|let me know|just ask|ask away|don'?t hesitate|happy to (help|chat|assist)|any (other |more )?questions|i'?m (always )?here (to|if|for)|here to help|reach out|hit me up|shout if|(what|how) about you)\b/i;
+const INVITE_RE = /\b(feel free|let me know|just ask|ask away|don'?t hesitate|happy to (help|chat|assist)|any (other |more )?questions|i'?m (always )?here (to|if|for)|here to help|reach out|hit me up|shout if|(what|how) about you|give (me|it|us) a (try|go|shout)|try me|fire away|where i shine|what i'?m (here for|best at|good at)|i'?m (great|good|best) (at|with))\b/i;
 
 export function stripInvitationTail(reply) {
   let out = String(reply || '').trimEnd();

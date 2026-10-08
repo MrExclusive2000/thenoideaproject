@@ -3308,3 +3308,67 @@ test('a named service resolves to the right NUMBER, not always service 1', async
   assert.match(ctx.sent.map((s) => s.msg).join('\n'), /already on the service/i,
     'service 2 was checked, not service 1');
 });
+
+// --- from the group: "Good morning, can I ask for Reacher to be added" -------
+// Missed entirely, so it reached the model, which then announced that Reacher
+// "isn't available on our lineup" — a claim nobody had checked — and signed
+// off with "service stuff is where I shine 😄 ... Give me a try!".
+
+test('a request opening with a greeting is still a request', async () => {
+  setSetting('vod.imdbCheck', false);
+  setSetting('bot.cooldownSeconds', 0);
+  db.prepare('DELETE FROM xc_vod').run();
+  db.prepare('DELETE FROM vod_requests').run();
+  lastAiRequest = null;
+
+  const ctx = fakeCtx('Good morning, can I ask for Reacher to be added', { userId: 99601 });
+  await handleDirectMessage(ctx, ctx.message.text);
+  const row = db.prepare('SELECT * FROM vod_requests ORDER BY id DESC LIMIT 1').get();
+  assert.ok(row, 'captured despite the greeting');
+  assert.equal(row.title, 'Reacher', '"to be added" says what to do with it, not what it is called');
+  assert.equal(lastAiRequest, null, 'and the model never got the chance to guess at availability');
+});
+
+test('every way people actually open a request is captured', async () => {
+  setSetting('vod.imdbCheck', false);
+  const phrasings = [
+    ['Good morning, can I ask for Reacher to be added', 'Reacher'],
+    ['hi mate can you add Reacher please', 'Reacher'],
+    ['morning! any chance of adding Reacher', 'Reacher'],
+    ['would it be possible to add Reacher', 'Reacher'],
+    ['hello, I would like to request Reacher', 'Reacher'],
+    ['Hey, Request: Dune (2021)', 'Dune (2021)'],
+  ];
+  for (const [text, expected] of phrasings) {
+    db.prepare('DELETE FROM vod_requests').run();
+    const ctx = fakeCtx(text, { userId: 99610 });
+    await handleDirectMessage(ctx, text);
+    const row = db.prepare('SELECT * FROM vod_requests ORDER BY id DESC LIMIT 1').get();
+    assert.ok(row, `not captured: ${text}`);
+    assert.equal(row.title, expected, `wrong title from: ${text}`);
+  }
+});
+
+test('a greeting on its own is still a greeting, not an empty request', async () => {
+  const { parseVodRequest, parseNaturalVodRequest, parseAvailabilityQuestion } = await import('../src/bot/requests.js');
+  for (const g of ['Good morning', 'morning!', 'hey', 'hi mate']) {
+    assert.equal(parseVodRequest(g) || parseNaturalVodRequest(g), null, g);
+    assert.equal(parseAvailabilityQuestion(g), null, g);
+  }
+  // And a greeting in front of a support question does not make it a request.
+  assert.equal(parseNaturalVodRequest('hi can you help me install on firestick'), null);
+  assert.equal(parseNaturalVodRequest('hey my app keeps buffering'), null);
+});
+
+test('the bot does not sign off by advertising itself', async () => {
+  const { stripInvitationTail } = await import('../src/ai/guardrails.js');
+  const real = "Reacher isn't on there yet, so I've put it on the request list.\n\nAnyway — service stuff is where I shine 😄 settings, sign-ins, buffer fixes, and requests. Give me a try!";
+  const out = stripInvitationTail(real);
+  assert.doesNotMatch(out, /where I shine|Give me a try/i);
+  assert.match(out, /request list/, 'the actual answer survives');
+  // A real answer that happens to end on a full stop is left alone.
+  assert.equal(
+    stripInvitationTail('Restart the app and clear its cache, then try the channel again.'),
+    'Restart the app and clear its cache, then try the channel again.'
+  );
+});

@@ -12,7 +12,7 @@ import { alertAdmins } from './reports.js';
 const NOT_A_TITLE = /^(a |an |the |my |to |for )*\s*(refund|refunds|cancel|cancell?ed|cancell?ing|cancellation|money|payment|pay|callback|call ?back|help|support|assistance|password|login|log ?in|account|invoice|receipt|chargeback|renewal|renew|upgrade|change)\b/i;
 
 export function parseVodRequest(text) {
-  const m = String(text).match(/^\s*request\b\s*[:\-–]?\s*(.{2,200})/i);
+  const m = stripLeadIn(text).match(/^\s*request\b\s*[:\-–]?\s*(.{2,200})/i);
   if (!m) return null;
   const title = stripTitleTail(m[1].trim().replace(/\s+/g, ' '));
   if (title.length < 2) return null;
@@ -65,7 +65,7 @@ function availabilityOnService(s) {
 
 export function parseAvailabilityQuestion(text) {
   if (/\n/.test(String(text))) return null;
-  const s = String(text).trim();
+  const s = stripLeadIn(text).trim();
   if (s.length > 120) return null;
   const onService = availabilityOnService(s);
   // It has to actually be asking whether we HAVE something.
@@ -86,7 +86,23 @@ export function parseAvailabilityQuestion(text) {
 // "I'd like to request The Big Bang Theory" fall through to the model, which
 // answered by telling the customer the format to type — so nothing was
 // captured, nothing was acked, and nobody was asked which service it was for.
-const REQUEST_VERB = /^\s*(?:please |pls |plz )?(?:(?:i(?:'| a|a)?d like to|i would like to|i want to|i wanna|id like to|(?:can|could|may|might) i|(?:can|could) we|wanting to|looking to|here to)\s+request|requesting|request(?:ing)? for)\s+(.{2,100}?)[\s?!.]*$/i;
+const REQUEST_VERB = /^\s*(?:please |pls |plz )?(?:(?:i(?:'| a|a)?d like to|i would like to|i want to|i wanna|id like to|(?:can|could|may|might) i|(?:can|could) we|wanting to|looking to|here to)\s+(?:request|ask\s+for)|(?:can|could|may|might)\s+i\s+ask\s+(?:for|about)|requesting|request(?:ing)? for|(?:would|is)\s+it\s+(?:be\s+)?possible\s+to\s+(?:add|get)|asking\s+for)\s+(.{2,100}?)[\s?!.]*$/i;
+
+// A message that opens with a greeting is the normal case, not the exception
+// — "Good morning, can I ask for Reacher to be added" matched nothing at all
+// because every pattern here is anchored to the start of the message. The
+// greeting is stripped first so the request underneath is seen.
+// "please" is deliberately NOT in here: it is not a greeting, and the request
+// patterns below already allow a leading one — stripping it broke
+// "please add severance season 3".
+const LEAD_IN = /^(?:\s*(?:hi|hey|hello|heya|hiya|yo|alright|alreet|morning|afternoon|evening|good\s+(?:morning|afternoon|evening)|sorry|excuse\s+me|quick\s+one|mate|m8|pal|bud|boss|guys|lads|team|folks)\b[\s,!.:;–—-]*)+/i;
+
+export function stripLeadIn(text) {
+  const out = String(text || '').replace(LEAD_IN, '').trim();
+  // Never strip the whole message away: "morning!" on its own is a greeting,
+  // and the greeting handler should still see it as one.
+  return out.length >= 2 ? out : String(text || '');
+}
 
 const NATURAL_REQ = /^\s*(?:please |pls |plz )?(?:any chance (?:of |we can |you can )?(?:getting |adding |putting (?:on |up )?)?|(?:can|could|cud) (?:we|you|u|i) (?:get|add|have|put on|put up|upload) |(?:please|pls|plz) add )\s*(.{2,100}?)[\s?!.]*$/i;
 
@@ -99,7 +115,7 @@ const TITLE_TAIL = /\s+(?:the\s+)?(?:tv\s+)?(?:series|show|boxset|box\s?set|coll
 // Trailing words that say what to DO with it, not what it is called.
 // "Can I get big bang theory added" was filed as "big bang theory added",
 // which matches no library entry and no other request for the same show.
-const TITLE_VERB_TAIL = /\s+(?:added|adding|uploaded|uploading|put\s+(?:on|up)|on\s+(?:here|there|the\s+service|vod)|to\s+(?:the\s+)?(?:vod|service|list)|sorted|please|plz|pls)\s*$/i;
+const TITLE_VERB_TAIL = /\s+(?:added|adding|uploaded|uploading|put\s+(?:on|up)|on\s+(?:here|there|the\s+service|vod)|to\s+(?:the\s+)?(?:vod|service|list)|to\s+be|sorted|please|plz|pls|thanks|ta|cheers)\s*$/i;
 
 export function stripTitleTail(title) {
   let out = String(title).trim();
@@ -119,7 +135,8 @@ const NOT_VOD_TOPIC = /\b(urls?|codes?|links?|login|logins|password|passwords|ac
 
 export function parseNaturalVodRequest(text) {
   if (/\n/.test(String(text))) return null; // single-line asks only
-  const m = String(text).match(REQUEST_VERB) || String(text).match(NATURAL_REQ);
+  const lead = stripLeadIn(text);
+  const m = lead.match(REQUEST_VERB) || lead.match(NATURAL_REQ);
   if (!m) return null;
   let title = m[1].trim().replace(/\s+/g, ' ').replace(/\s*\b(please|pls|plz|thanks|thank you|ta|mate|m8)$/i, '').trim();
   title = stripTitleTail(title);
