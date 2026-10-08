@@ -122,6 +122,10 @@ const DEFAULTS = {
   'bot.problemSoftCloseMessage': "👍 No problem — shout here if it starts playing up again and I'll flag it straight to the team.",
   // Sent when the AI is overloaded (queue full or generation timed out).
   // Empty = stay silent.
+  // Sent instead of the busy line when the message was a PROBLEM REPORT and
+  // the AI could not get a slot. Never asks them to send it again: we already
+  // have the report, and during a surge a re-send is load we cannot afford.
+  'bot.busyProblemMessage': "✅ Got that — it's logged and the team can see it, no need to send it again. Your reference is #{case}. We're busy right now so I'll leave the troubleshooting to a person; {admin} if it's urgent.",
   'bot.busyMessage': "I'm helping a lot of people right now 😅 — give me a minute and send your question again.",
   // Never auto-answer group messages from the admins listed in Reports —
   // their questions, mentions and replies to the bot still work.

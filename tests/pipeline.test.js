@@ -230,15 +230,21 @@ test('simultaneous users queue for the single AI slot — nobody is dropped', as
 });
 
 test('AI overload/timeout gets an honest busy reply instead of silence', async () => {
+  // try/finally because this test leaves the AI timeout at 200ms if it
+  // fails, and every test after it then times out too — one real failure
+  // came back as ten, which hides the one that matters.
   setSetting('ai.timeoutSeconds', 0.2); // 200ms
   aiDelayMs = 600;
-  const ctx = fakeCtx('what does error 403 in the app mean?', { userId: 96010 });
-  const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
-  assert.equal(result, 'busy');
-  assert.equal(ctx.sent.length, 1);
-  assert.match(ctx.sent[0].msg, /helping a lot of people/i);
-  aiDelayMs = 0;
-  setSetting('ai.timeoutSeconds', 180);
+  try {
+    const ctx = fakeCtx('what does error 403 in the app mean?', { userId: 96010 });
+    const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+    assert.equal(result, 'busy');
+    assert.equal(ctx.sent.length, 1);
+    assert.match(ctx.sent[0].msg, /helping a lot of people/i);
+  } finally {
+    aiDelayMs = 0;
+    setSetting('ai.timeoutSeconds', 180);
+  }
 });
 
 test('the AI knows its own commands and must not offer follow-ups', async () => {
@@ -2471,14 +2477,19 @@ test('a report during a known outage is acknowledged, not troubleshooted', async
   setSetting('service.status', 'degraded');
   setSetting('service.note', "We're seeing several reports of buffering problems and are looking into it.");
   try {
+    lastAiRequest = null;
     const ctx = fakeCtx('everything is buffering for me too', { chatType: 'group', userId: 95001 });
     await handleGroupMessage(ctx);
     assert.ok(ctx.sent.length, 'they still get a reply');
     assert.match(ctx.sent[0].msg, /aware of a service issue/, 'led with the known-issue banner');
+    assert.doesNotMatch(ctx.sent[0].msg, /clear.{0,12}cache|reinstall the app/i, 'no fixes that cannot help');
 
-    const system = lastAiRequest.messages.map((m) => m.content).join('\n');
-    assert.match(system, /service-wide problem is ALREADY KNOWN/, 'the model is told not to run the playbook');
-    assert.ok(lastAiRequest.max_tokens <= 120, 'and to keep it short');
+    // The model used to be asked for this and told to keep it short. It is
+    // answered from code now: an outage is the moment thirty people report at
+    // once, and the AI queue is eight deep. Stress test, 25 simultaneous
+    // reports on a node taking 1.2s each — 14 of them were turned away with
+    // "I'm helping a lot of people right now" before this, and none are now.
+    assert.equal(lastAiRequest, null, 'no AI call spent on a fault we already know about');
   } finally {
     setSetting('service.status', 'operational');
     setSetting('service.note', '');
@@ -4847,4 +4858,56 @@ test('"is <show> on <service>?" is a library question, not a channel one', async
   assert.match(msg, /request list|already on the service|checked/i, 'treated as a library question');
 
   db.prepare('DELETE FROM xc_channels WHERE stream_id = 9100').run();
+});
+
+test('a problem report that cannot get an AI slot is flagged, not bounced', async () => {
+  // Stress test, 25 simultaneous reports with auto-degradation off: 16 were
+  // told "I'm helping a lot of people right now — give me a minute and send
+  // your question again". We already HAVE their report, with a case number.
+  // Asking them to repeat it during a surge is load at the exact moment
+  // there is none spare, and it reads as being brushed off.
+  setSetting('ai.timeoutSeconds', 0.2);
+  setSetting('bot.busyProblemMessage', "✅ Got that — it's logged, no need to send it again. Reference #{case}.");
+  setSetting('reports.adminTelegramIds', [777]);
+  aiDelayMs = 600;
+  _resetProblemTriage();
+  _resetProblemQueue();
+  db.prepare('DELETE FROM problem_reports').run();
+  try {
+    // An open case on file is what makes it "we already have this".
+    db.prepare("INSERT INTO problem_reports (tg_user_id, tg_user, chat_id, text, topic, escalated, resolved, answered, ts) VALUES (96020, 'c', 96020, 'bbc1 buffering', 'buffering', 0, 0, 0, 0)").run();
+
+    const ctx = fakeCtx('bbc1 is still buffering', { userId: 96020 });
+    const result = await answer(ctx, 'bbc1 is still buffering', { isDm: true, logId: null });
+    assert.equal(result, 'escalated', 'goes to a human rather than bouncing');
+    const msg = ctx.sent.map((s) => s.msg).join('\n');
+    assert.doesNotMatch(msg, /give me a minute|try me again/i, 'never asks for a re-send');
+    assert.match(msg, /no need to send it again/i, 'says the opposite — we have it');
+    assert.match(msg, /logged/i);
+    assert.equal(
+      db.prepare('SELECT escalated e FROM problem_reports WHERE tg_user_id = 96020').get().e,
+      1,
+      'and the admin will actually see it',
+    );
+  } finally {
+    aiDelayMs = 0;
+    setSetting('ai.timeoutSeconds', 180);
+  }
+});
+
+test('a question that merely contains the word "error" is not treated as a filed report', async () => {
+  // looksLikeProblem() says yes to "what does error 403 mean?". Telling
+  // someone that is logged and flagged would be a lie — nothing was filed.
+  setSetting('ai.timeoutSeconds', 0.2);
+  aiDelayMs = 600;
+  _resetProblemTriage();
+  db.prepare('DELETE FROM problem_reports WHERE tg_user_id = 96021').run();
+  try {
+    const ctx = fakeCtx('what does error 403 in the app mean?', { userId: 96021 });
+    const result = await answer(ctx, 'what does error 403 in the app mean?', { isDm: true, logId: null });
+    assert.equal(result, 'busy', 'the ordinary busy reply still applies');
+  } finally {
+    aiDelayMs = 0;
+    setSetting('ai.timeoutSeconds', 180);
+  }
 });

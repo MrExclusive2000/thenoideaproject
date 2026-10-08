@@ -1093,6 +1093,21 @@ function serviceStatusLine() {
   return `⚠️ We're aware of a service issue right now${note ? ` — ${note}` : ''}. This may be what you're seeing.`;
 }
 
+// During a KNOWN outage a problem report does not need the model at all.
+// Walking somebody through restarting their box cannot fix a fault on our
+// side — the model is already told that and answers in two lines — and an
+// outage is exactly when thirty people report at once. Stress test, 25
+// simultaneous reports on a node taking 1.2s each: 14 of them got "I'm
+// helping a lot of people right now, give me a minute", because the AI queue
+// is 8 deep and everything past it is turned away. Answering from code costs
+// nothing, cannot queue, and says more than the model would.
+function knownOutageReply() {
+  const banner = serviceStatusLine();
+  if (!banner) return null;
+  return `${banner}\n\nNo need to reinstall anything or change your settings — it is not something on your end. `
+    + 'We are on it and will say here when it is back. Shout if it is still playing up once we have given the all-clear.';
+}
+
 // Being spoken to by NAME counts as being spoken to. People do not type
 // @Exclusive_Manager_Bot in a group, they type "bot, what channel is it on" —
 // and that was landing as ordinary group chatter, so in the default
@@ -2224,6 +2239,35 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         // DID get a slot never land here — waiting in line is the retry.
         if (err.code === 'AI_BUSY' || err.code === 'AI_TIMEOUT') {
           setLogSource(logId, 'busy');
+          // A PROBLEM report that cannot get a slot must not be told to send
+          // it again. We already have it — it is in problem_reports with a
+          // case number — and asking the customer to repeat themselves during
+          // a surge adds load at the exact moment there is none to spare.
+          // Stress test, 25 simultaneous reports with auto-degradation off:
+          // 16 of them hit this, and every one was invited to re-send.
+          // Flag it to a human instead; that is what they wanted anyway.
+          // Precisely "we already have this on file" — an open case row, or
+          // live triage state. looksLikeProblem() alone was too loose: "what
+          // does error 403 in the app mean?" is a question with the word
+          // error in it, not a fault we are holding, and telling someone
+          // that is logged and flagged would be a lie.
+          const row = db.prepare('SELECT id FROM problem_reports WHERE tg_user_id = ? AND resolved = 0 ORDER BY id DESC LIMIT 1').get(ctx.from.id);
+          if (row || getProblemState(ctx.from?.id)) {
+            db.prepare('UPDATE problem_reports SET escalated = 1 WHERE tg_user_id = ? AND resolved = 0').run(ctx.from.id);
+            setProblemState(ctx.from.id, { at: Date.now(), escalatedAt: Date.now() });
+            queueProblemAlert({
+              id: row?.id,
+              tg_user: ctx.from?.username || ctx.from?.first_name,
+              tg_user_id: ctx.from?.id,
+              text: question,
+              topic: extractProblemTopic(question),
+            });
+            const note = withAdminContact(String(getSetting('bot.busyProblemMessage') || '').trim());
+            if (note) {
+              await ctx.api.sendMessage(ctx.chat.id, withCaseNumber(note, row?.id), replyParams).catch(() => {});
+            }
+            return 'escalated';
+          }
           const busy = getSetting('bot.busyMessage');
           if (busy) await ctx.api.sendMessage(ctx.chat.id, busy, replyParams).catch(() => {});
           if (err.code === 'AI_TIMEOUT') {
@@ -2643,6 +2687,16 @@ export async function handleGroupMessage(ctx) {
   // Replying to the bot's own message is by definition an on-topic
   // conversation — a bare "THM4821" after the which-service answer must not
   // be brushed off as OFFTOPIC.
+  // A known outage is answered from code, not the model: it is the better
+  // answer AND it is the moment the queue is under most pressure.
+  const outageNow = problemId && knownOutageReply();
+  if (outageNow) {
+    setLogSource(logId, 'known-outage', outageNow);
+    await ctx.api.sendMessage(ctx.chat.id, outageNow, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
+    setProblemState(ctx.from.id, { at: Date.now(), answeredAt: Date.now() });
+    return;
+  }
+
   const outcome = await answer(ctx, question, { isDm: false, logId, history, skipFaq: isFollowUp, suffix: problemSuffix, prefix: problemPrefix, assumeOnTopic: isFollowUp, directed: mentioned || isFollowUp });
 
   // Only mark the report answered when a real answer actually went out —
@@ -2913,6 +2967,16 @@ export async function handleDirectMessage(ctx) {
     checkOutage();
     problemPrefix = serviceStatusLine();
   }
+  // Same as the group: a known outage is answered from code.
+  const dmOutage = problemId && knownOutageReply();
+  if (dmOutage) {
+    setLogSource(logId, 'known-outage', dmOutage);
+    await ctx.reply(dmOutage).catch(() => {});
+    db.prepare('UPDATE problem_reports SET answered = 1 WHERE id = ?').run(problemId);
+    setProblemState(ctx.from.id, { answeredAt: Date.now() });
+    return;
+  }
+
   const outcome = await answer(ctx, text, { isDm: true, logId, suffix: problemSuffix, prefix: problemPrefix });
   if (problemId) {
     const gotAnswer = ['faq', 'ai'].includes(outcome);
