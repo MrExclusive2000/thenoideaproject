@@ -14,7 +14,7 @@ import { alertAdmins } from './reports.js';
 import { embed, retrieveFaqs, embeddingsProven } from '../ai/embeddings.js';
 import { lookupAnswer, rememberAnswer, cacheable } from '../ai/answer-cache.js';
 import { circuitOpen } from '../ai/breaker.js';
-import { looksLikeChannelQuestion, channelGrounding } from '../xc.js';
+import { looksLikeChannelQuestion, looksLikeFixtureQuestion, channelGrounding } from '../xc.js';
 import { looksLikeGuideRequest, findGuide, visibleGuides, mdToPlain } from '../guides.js';
 import { looksLikeWalletRequest, walletMessage } from '../payments.js';
 import {
@@ -957,7 +957,11 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
             // there. Fetched per question rather than held in the prompt: the
             // lineup is thousands of channels and the model needs the few
             // that answer this one.
-            const channels = looksLikeChannelQuestion(question)
+            // "Who's playing Derby tonight?" names no channel, so it never
+            // looked like a channel question — and the bot had to say it has
+            // no fixtures. The downloaded guide answers it, so the fixture
+            // phrasings get the same grounding.
+            const channels = looksLikeChannelQuestion(question) || looksLikeFixtureQuestion(question)
               ? await channelGrounding(question).catch(() => null)
               : null;
             try {

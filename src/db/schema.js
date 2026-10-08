@@ -511,6 +511,31 @@ const migrations = [
   `
   ALTER TABLE guides ADD COLUMN seed_hash TEXT;
   `,
+  // v22 — the whole guide, not just the channels someone already named.
+  //
+  // get_short_epg answers "what's on Sky Sports Main Event?" because the
+  // channel is in the question. It cannot answer "who's playing Derby
+  // tonight?" or "what channel is the Arsenal game on?", where the channel is
+  // the ANSWER: that needs searching programme titles across the lineup, and
+  // the per-channel endpoint would mean one call per channel to do it.
+  //
+  // xmltv.php returns the lot in one download, joined to channels by the
+  // epg_channel_id the lineup already stores. Only a window around now is
+  // kept — these questions are about tonight and tomorrow, and holding a
+  // week of listings for a few hundred channels makes the title scan slow
+  // for no benefit.
+  `
+  CREATE TABLE xc_programmes (
+    id         INTEGER PRIMARY KEY,
+    service    INTEGER NOT NULL,
+    channel_id TEXT NOT NULL,
+    title      TEXT NOT NULL,
+    start_ts   INTEGER NOT NULL,
+    stop_ts    INTEGER NOT NULL
+  );
+  CREATE INDEX idx_xc_prog_when ON xc_programmes(service, start_ts);
+  CREATE INDEX idx_xc_prog_chan ON xc_programmes(service, channel_id, start_ts);
+  `,
 ];
 
 export function migrate(db) {

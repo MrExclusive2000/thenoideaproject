@@ -4,7 +4,7 @@ import { composeDigest, aiUsageToday } from '../ai/client.js';
 import { hub } from './hub.js';
 import { vetSweep } from './joiners.js';
 import { autoCloseSweep, degradeRecoverySweep } from './problems.js';
-import { sweepScheduledBroadcasts, expiryReminders, expiryUpsells, suggestFaqsSweep, promoSweep, xcChannelSweep } from './scheduled.js';
+import { sweepScheduledBroadcasts, expiryReminders, expiryUpsells, suggestFaqsSweep, promoSweep, xcChannelSweep, xcGuideSweep } from './scheduled.js';
 import { pruneEpgCache } from '../xc.js';
 
 // Instant alerts, throttled per type so a flapping error can't flood DMs.
@@ -133,6 +133,7 @@ export function startSchedulers() {
     sweepScheduledBroadcasts().catch((err) => console.error('scheduled broadcast failed:', err.message));
     promoSweep().catch((err) => console.error('promo sweep failed:', err.message));
     xcChannelSweep().catch((err) => console.error('channel refresh failed:', err.message));
+    xcGuideSweep().catch((err) => console.error('guide refresh failed:', err.message));
     if (Date.now() - lastVetAt > 15 * 60 * 1000) {
       lastVetAt = Date.now();
       vetSweep().catch((err) => console.error('vet sweep failed:', err.message));

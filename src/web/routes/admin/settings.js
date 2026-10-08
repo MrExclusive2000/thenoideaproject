@@ -67,6 +67,8 @@ settingsRouter.get('/bot', (req, res) => {
       xcPass2Set: Boolean(String(getSetting('services.xcPass2') || '').trim()),
       xcRefreshHours: getSetting('services.xcRefreshHours'),
       epgCacheMinutes: getSetting('services.epgCacheMinutes'),
+      xmltvRefreshHours: getSetting('services.xmltvRefreshHours'),
+      epgWindowHours: getSetting('services.epgWindowHours'),
       thanksMessage: getSetting('bot.thanksMessage'),
       photoMessage: getSetting('bot.photoMessage'),
       problemFollowupNote: getSetting('bot.problemFollowupNote'),
@@ -136,6 +138,8 @@ settingsRouter.post('/bot', (req, res) => {
     // Floor of 1 minute: a 0 here would mean a live API call per question,
     // which is the thing the cache exists to stop.
     'services.epgCacheMinutes': Math.max(1, Math.min(720, Number(b.epgCacheMinutes) || 30)),
+    'services.xmltvRefreshHours': Math.max(0, Math.min(168, Number(b.xmltvRefreshHours) || 0)),
+    'services.epgWindowHours': Math.max(6, Math.min(168, Number(b.epgWindowHours) || 48)),
     'bot.thanksMessage': String(b.thanksMessage || '').slice(0, 500),
     'bot.photoMessage': String(b.photoMessage || '').slice(0, 500),
     'bot.problemFollowupNote': String(b.problemFollowupNote || '').slice(0, 500),

@@ -4,6 +4,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import zlib from 'node:zlib';
 
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-xc-'));
 
@@ -18,6 +19,39 @@ let streams = [
   { stream_id: 103, name: 'UK: TNT Sports 1', category_id: '1' },
   { stream_id: 201, name: 'UK: BBC One HD', category_id: '2' },
 ];
+
+let xmltvGzip = false;
+// Times carry an offset, which is what makes them safe to compare against our
+// own clock. Built relative to now so "tonight" is meaningful whenever the
+// suite runs.
+const xmlStamp = (offsetSeconds) => {
+  const d = new Date((Math.floor(Date.now() / 1000) + offsetSeconds) * 1000);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}${p(d.getUTCHours())}${p(d.getUTCMinutes())}00 +0000`;
+};
+function xmltvBody() {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<tv>
+  <channel id="skyf1.uk"><display-name>Sky Sports F1</display-name></channel>
+  <programme start="${xmlStamp(1800)}" stop="${xmlStamp(9000)}" channel="skyf1.uk">
+    <title lang="en">Formula 1: Qatar Grand Prix</title>
+    <desc lang="en">Live coverage</desc>
+  </programme>
+  <programme start="${xmlStamp(3600)}" stop="${xmlStamp(10800)}" channel="skysports.main">
+    <title lang="en"><![CDATA[Derby County v Leeds United]]></title>
+  </programme>
+  <programme start="${xmlStamp(7200)}" stop="${xmlStamp(12000)}" channel="tnt1.uk">
+    <title lang="en">Arsenal &amp; Chelsea: Match of the Day</title>
+  </programme>
+  <programme start="${xmlStamp(-7 * 86400)}" stop="${xmlStamp(-7 * 86400 + 3600)}" channel="skyf1.uk">
+    <title lang="en">Last week: Mexican Grand Prix</title>
+  </programme>
+  <programme start="${xmlStamp(20 * 86400)}" stop="${xmlStamp(20 * 86400 + 3600)}" channel="skyf1.uk">
+    <title lang="en">Next month: Abu Dhabi Grand Prix</title>
+  </programme>
+</tv>`;
+}
+
 let seenPasswords = [];
 let calls = [];
 let epgListings = null; // null = the panel's default single listing
@@ -27,7 +61,15 @@ before(async () => {
   panel = http.createServer((req, res) => {
     const u = new URL(req.url, 'http://x');
     seenPasswords.push(u.searchParams.get('password'));
-    calls.push(u.searchParams.get('action'));
+    calls.push(u.pathname.endsWith('/xmltv.php') ? 'xmltv' : u.searchParams.get('action'));
+    if (u.pathname.endsWith('/xmltv.php')) {
+      if (u.searchParams.get('password') !== 'rightpw') { res.statusCode = 401; return res.end('no'); }
+      const body = Buffer.from(xmltvBody(), 'utf8');
+      res.setHeader('content-type', 'application/xml');
+      // Panels commonly serve gzip BYTES with no content-encoding header, so
+      // fetch hands them over still compressed.
+      return res.end(xmltvGzip ? zlib.gzipSync(body) : body);
+    }
     res.setHeader('content-type', 'application/json');
     // A wrong password answers 200 with auth:0, not an error status — a bad
     // login looks exactly like a successful one unless you check for it.
@@ -322,4 +364,139 @@ test('channel questions are told apart from support questions', () => {
   for (const q of ['my app keeps buffering', 'how do i install on firestick', 'whats the downloader code']) {
     assert.equal(xc.looksLikeChannelQuestion(q), false, q);
   }
+});
+
+// --- the whole guide: questions where the CHANNEL is the answer --------------
+
+async function loadGuide() {
+  // Channels first: a programme we cannot name a channel for is no answer.
+  db.prepare('DELETE FROM xc_channels').run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (1, 101, 'UK: Sky Sports F1 HD', 'UK | SPORTS', 'skyf1.uk', 1)").run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (1, 102, 'UK: Sky Sports Main Event', 'UK | SPORTS', 'skysports.main', 1)").run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (1, 103, 'UK: TNT Sports 1', 'UK | SPORTS', 'tnt1.uk', 1)").run();
+  return xc.refreshGuide(1);
+}
+
+test('the full guide downloads, parses and keeps only a window around now', async () => {
+  const r = await loadGuide();
+  assert.equal(r.ok, true);
+  assert.equal(r.scanned, 5, 'every programme in the file was read');
+  assert.equal(r.count, 3, 'last week and next month are not what anyone is asking about');
+  assert.equal(xc.programmeCount(1), 3);
+});
+
+test('a gzipped guide with no content-encoding header is still read', async () => {
+  // Panels commonly serve gzip bytes without the header, so fetch hands them
+  // over compressed and a naive reader stores a few hundred thousand mojibake.
+  xmltvGzip = true;
+  try {
+    const r = await loadGuide();
+    assert.equal(r.ok, true);
+    assert.equal(r.count, 3);
+    assert.ok(db.prepare("SELECT 1 FROM xc_programmes WHERE title LIKE '%Qatar%'").get(), 'titles survived');
+  } finally {
+    xmltvGzip = false;
+    await loadGuide();
+  }
+});
+
+test('XML entities and CDATA come out as the real title', () => {
+  const titles = db.prepare('SELECT title FROM xc_programmes').all().map((r) => r.title);
+  assert.ok(titles.includes('Derby County v Leeds United'), 'CDATA unwrapped');
+  assert.ok(titles.includes('Arsenal & Chelsea: Match of the Day'), '&amp; decoded');
+});
+
+test('XMLTV times are read with their offset, not as local wall clock', () => {
+  // Getting this wrong puts every kick-off out by an hour, which is worse
+  // than having no listing at all.
+  assert.equal(xc.xmltvTime('20261007180000 +0000'), Date.UTC(2026, 9, 7, 18, 0, 0) / 1000);
+  assert.equal(xc.xmltvTime('20261007180000 +0100'), Date.UTC(2026, 9, 7, 17, 0, 0) / 1000);
+  assert.equal(xc.xmltvTime('20261007180000 -0500'), Date.UTC(2026, 9, 7, 23, 0, 0) / 1000);
+  assert.equal(xc.xmltvTime('nonsense'), 0);
+});
+
+test('"who is playing Derby tonight" finds the fixture AND the channel', () => {
+  const hits = xc.findProgrammes('who is playing derby tonight', { service: 1 });
+  assert.ok(hits.length, 'found something');
+  assert.match(hits[0].title, /Derby County v Leeds United/);
+  assert.equal(hits[0].channel, 'UK: Sky Sports Main Event',
+    'the channel name is the answer — the epg id means nothing to a customer');
+});
+
+test('a programme with no channel in the lineup is never offered', async () => {
+  db.prepare("DELETE FROM xc_channels WHERE epg_channel_id = 'skysports.main'").run();
+  try {
+    assert.equal(xc.findProgrammes('derby', { service: 1 }).length, 0,
+      'naming a programme we cannot tell them how to watch is not an answer');
+  } finally {
+    await loadGuide();
+  }
+});
+
+test('a question of nothing but filler matches nothing', () => {
+  assert.equal(xc.findProgrammes('what is on tonight then', { service: 1 }).length, 0,
+    'better to say we do not know than to return the first thing in the guide');
+});
+
+test('fixture questions are recognised where channel questions were not', () => {
+  for (const q of [
+    'who is playing derby tonight',
+    "who's playing tonight",
+    'what time is the arsenal game',
+    'what time is kick off',
+  ]) assert.equal(xc.looksLikeFixtureQuestion(q), true, q);
+  for (const q of ['my app keeps buffering', 'how do i install on firestick']) {
+    assert.equal(xc.looksLikeFixtureQuestion(q), false, q);
+  }
+});
+
+test('grounding answers a fixture question with the channel and the time', async () => {
+  const g = await xc.channelGrounding('who is playing derby tonight', { service: 1 });
+  assert.match(g, /Derby County v Leeds United/);
+  assert.match(g, /UK: Sky Sports Main Event/, 'and where to watch it');
+  assert.match(g, /\d{2}:\d{2}/, 'and when');
+});
+
+test('a wrong password on the guide never leaks the URL or the password', async () => {
+  setSetting('services.xcPass1', 'wrongpw');
+  try {
+    const r = await xc.refreshGuide(1);
+    assert.equal(r.ok, false);
+    assert.doesNotMatch(r.error, /rightpw|wrongpw|127\.0\.0\.1|xmltv/,
+      'the credential rides in the query string, so no error may carry the URL');
+  } finally {
+    setSetting('services.xcPass1', 'rightpw');
+  }
+});
+
+test('a failed download leaves the guide we already had', async () => {
+  await loadGuide();
+  const before = xc.programmeCount(1);
+  const url = `http://127.0.0.1:${panel.address().port}`;
+  setSetting('services.url1', 'http://127.0.0.1:1');
+  try {
+    const r = await xc.refreshGuide(1);
+    assert.equal(r.ok, false);
+    assert.equal(xc.programmeCount(1), before, 'a blip must not cost us the whole guide');
+  } finally {
+    setSetting('services.url1', url);
+  }
+});
+
+test('the asked-for time ranks first but never excludes a match we hold', () => {
+  // Someone asking at lunchtime who is playing "tonight" must not be told we
+  // have no listing for a fixture we are holding, just because they picked
+  // the wrong word for 5pm.
+  const hits = xc.findProgrammes('who is playing derby tonight', { service: 1 });
+  assert.ok(hits.some((h) => /Derby/.test(h.title)), 'found whatever the hour');
+  // And a question with no time word still works.
+  assert.ok(xc.findProgrammes('what channel is the derby game on', { service: 1 }).length);
+});
+
+test('"tonight" and "tomorrow" pick out different windows', () => {
+  const [tonightFrom] = xc.timeWindow('who is playing tonight');
+  const [tomorrowFrom] = xc.timeWindow('whats on tomorrow');
+  assert.ok(tomorrowFrom > tonightFrom, 'tomorrow starts later than tonight');
+  const [defFrom, defTo] = xc.timeWindow('what channel is the f1 on');
+  assert.ok(defTo - defFrom >= 23 * 3600, 'no time word means roughly the next day');
 });

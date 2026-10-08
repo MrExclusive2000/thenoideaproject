@@ -229,6 +229,16 @@ const DEFAULTS = {
   // so the same question asked twice cost two. A finished run is dropped
   // early regardless, so raising this does not mean serving yesterday's guide.
   'services.epgCacheMinutes': 30,
+  // Download the WHOLE guide (xmltv.php) this often, in hours. 0 = off. This
+  // is what answers "who's playing Derby tonight" — a question where the
+  // channel is the answer — so it cannot be done per channel on demand.
+  'services.xmltvRefreshHours': 6,
+  // How far ahead of now the downloaded guide is kept. These questions are
+  // about tonight and tomorrow; a week of listings for several hundred
+  // channels just makes the title search slower.
+  'services.epgWindowHours': 48,
+  'services.guideFetchedAt1': 0,
+  'services.guideFetchedAt2': 0,
   // Rotating group promos ("recommend us", renewals) every N days.
   'promo.enabled': false,
   'promo.intervalDays': 3,

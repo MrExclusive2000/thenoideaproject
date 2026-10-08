@@ -11,7 +11,7 @@ import { caseNumberIn, caseSummary, closeCaseAsAdmin, openCasesList, looksLikeCa
 import { hub } from './hub.js';
 import { state } from '../state.js';
 import { localBuild, updateCheck, describeUpdate, applyUpdate } from '../build.js';
-import { xcConfigured, refreshChannels, channelCount, channelsUpdatedAt, findChannels, xcLastError, epgCacheStats } from '../xc.js';
+import { xcConfigured, refreshChannels, channelCount, channelsUpdatedAt, findChannels, xcLastError, epgCacheStats, refreshGuide, programmeCount, guideRefreshedAt, findProgrammes } from '../xc.js';
 import { mdToPlain } from '../guides.js';
 import { addressLooksValid, acceptedCoins } from '../payments.js';
 
@@ -436,6 +436,43 @@ export function registerCommands(bot) {
       );
     }
     await ctx.reply(`${bits.join('\n')}\n\n/channels refresh — pull the latest\n/channels sky sports — search the lineup`);
+  });
+
+  // The whole TV guide: what answers "who's playing Derby tonight", where the
+  // channel is the answer rather than part of the question.
+  bot.command('guide', async (ctx) => {
+    if (!isAdminUser(ctx.from.id)) return;
+    const arg = String(ctx.match || '').trim();
+
+    if (/^(refresh|update|sync|pull)$/i.test(arg)) {
+      await ctx.reply('\u23f3 Downloading the full guide — this one is big, give it a minute…');
+      const lines = [];
+      for (const service of [1, 2]) {
+        if (!xcConfigured(service)) continue;
+        const r = await refreshGuide(service);
+        lines.push(r.ok
+          ? `\u2705 Service ${service}: ${r.count} programmes kept (of ${r.scanned} in the guide).`
+          : `\u274c Service ${service}: ${r.error}`);
+      }
+      return ctx.reply(lines.length ? lines.join('\n') : 'No service has a lookup account set — add one under Bot settings.');
+    }
+
+    if (arg) {
+      const hits = findProgrammes(arg, { service: 1, limit: 10 });
+      return ctx.reply(hits.length
+        ? `In the guide:\n${hits.map((h) => `\u2022 ${h.title} — ${h.channel}`).join('\n')}`
+        : `Nothing in the guide matches "${arg}" in that time window. Try /guide refresh, or check the lineup with /channels.`);
+    }
+
+    const bits = [];
+    for (const service of [1, 2]) {
+      if (!xcConfigured(service)) continue;
+      const at = guideRefreshedAt(service);
+      const age = at ? `${Math.round((Date.now() / 1000 - at) / 3600)}h ago` : 'never';
+      bits.push(`Service ${service}: ${programmeCount(service)} programmes, downloaded ${age}`);
+    }
+    if (!bits.length) return ctx.reply('No lookup account set yet — add the Xtream Codes username and password under Bot settings, then send /guide refresh.');
+    await ctx.reply(`${bits.join('\n')}\n\n/guide refresh — download the latest\n/guide derby — search what's on`);
   });
 
   bot.command('case', async (ctx) => {

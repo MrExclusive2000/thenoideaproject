@@ -1,5 +1,7 @@
+import { Readable } from 'node:stream';
+import { createGunzip } from 'node:zlib';
 import { db, now } from './db/db.js';
-import { getSetting } from './settings.js';
+import { getSetting, setSetting } from './settings.js';
 
 // The service runs on an Xtream Codes panel, which already knows the two
 // things no public API can tell us: which channels THIS service carries, and
@@ -282,21 +284,299 @@ const hhmm = (raw) => {
   return m ? m[1] : '';
 };
 
+const timeOfDay = (ts) => {
+  if (!ts) return '';
+  const d = new Date(ts * 1000);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+
 export async function channelGrounding(question, { service = 1 } = {}) {
   if (!xcConfigured(service)) return null;
-  const hits = findChannels(question, { service, limit: 6 });
-  if (!hits.length) return null;
+  const lines = [];
 
-  const lines = ['Channels in OUR lineup matching what they asked about (these names are exact — use them as written):'];
-  for (const h of hits) lines.push(`- ${h.name}${h.category ? ` — ${h.category}` : ''}`);
-
-  // Only the best match gets a listing: one EPG call, and "what's on" almost
-  // always means the channel they named.
-  const epg = await shortEpg(hits[0].stream_id, { service, limit: 3 });
-  if (epg.length) {
-    lines.push('', `What the guide shows next on ${hits[0].name}:`);
-    for (const e of epg) lines.push(`- ${hhmm(e.start)} ${e.title}`.trim());
-    lines.push('(These times come straight from the channel guide.)');
+  // Searching the WHOLE guide by title is what answers "who's playing Derby
+  // tonight?" and "what channel is the Arsenal game on?" — questions where
+  // the channel is the answer, not part of the question.
+  const programmes = findProgrammes(question, { service, limit: 6 });
+  if (programmes.length) {
+    lines.push('From OUR TV guide — what is on, and the channel carrying it (exact, use as written):');
+    for (const p of programmes) {
+      lines.push(`- ${timeOfDay(p.start_ts)} ${p.title} — on ${p.channel}`);
+    }
+    lines.push('(Straight from the guide. If none of these is what they asked about, say we do not have it listed rather than offering the nearest one.)');
   }
-  return lines.join('\n');
+
+  const hits = findChannels(question, { service, limit: 6 });
+  if (hits.length) {
+    if (lines.length) lines.push('');
+    lines.push('Channels in OUR lineup matching what they asked about (these names are exact — use them as written):');
+    for (const h of hits) lines.push(`- ${h.name}${h.category ? ` — ${h.category}` : ''}`);
+
+    // Listings for the best few matches rather than only the top one. "What's
+    // on sky sports" can match half a dozen channels, and now that the guide
+    // is cached per channel the extra lookups are usually free.
+    for (const h of hits.slice(0, 3)) {
+      const epg = await shortEpg(h.stream_id, { service, limit: 3 });
+      if (!epg.length) continue;
+      lines.push('', `What the guide shows next on ${h.name}:`);
+      for (const e of epg) lines.push(`- ${hhmm(e.start)} ${e.title}`.trim());
+    }
+    if (lines.some((l) => l.startsWith('What the guide shows next'))) {
+      lines.push('(These times come straight from the channel guide.)');
+    }
+  }
+
+  return lines.length ? lines.join('\n') : null;
 }
+
+// ---- the whole guide (xmltv.php) --------------------------------------------
+//
+// The per-channel endpoint above answers "what's on Sky Sports Main Event?"
+// because the question names the channel. It cannot answer "who's playing
+// Derby tonight?", where the channel is what the customer wants to be TOLD —
+// that means searching programme titles across the lineup, and doing it with
+// get_short_epg would be one call per channel.
+//
+// xmltv.php returns the lot in one download. It is big (tens of MB, sometimes
+// gzipped), so it is streamed and parsed in chunks rather than held in memory
+// as one string: this runs on the same small box as the bot, and an OOM here
+// takes the bot down with it.
+
+const XMLTV_TIMEOUT_MS = 5 * 60 * 1000;
+const XMLTV_MAX_BYTES = 250 * 1024 * 1024;
+
+// Bytes from the response, gunzipped if the body is raw gzip. fetch already
+// decompresses a Content-Encoding: gzip response, but panels commonly serve
+// gzip bytes with no such header, and then it arrives compressed.
+async function* xmltvBytes(body) {
+  const iterator = body[Symbol.asyncIterator]();
+  const first = await iterator.next();
+  if (first.done) return;
+  const head = Buffer.from(first.value);
+  const rest = { [Symbol.asyncIterator]: () => iterator };
+
+  async function* source() {
+    yield head;
+    for await (const chunk of rest) yield Buffer.from(chunk);
+  }
+  if (!(head[0] === 0x1f && head[1] === 0x8b)) {
+    yield* source();
+    return;
+  }
+  const gunzip = createGunzip();
+  Readable.from(source()).pipe(gunzip);
+  yield* gunzip;
+}
+
+// "20261007180000 +0100" → epoch seconds. The offset is what makes this safe
+// to compare against our own clock; without one the panel's wall clock is all
+// we have, so it is read as UTC and said so.
+export function xmltvTime(raw) {
+  const m = String(raw || '').match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?\s*([+-]\d{4})?/);
+  if (!m) return 0;
+  const [, y, mo, d, h, mi, sec, off] = m;
+  const wall = Date.UTC(+y, +mo - 1, +d, +h, +mi, +(sec || 0)) / 1000;
+  if (!off) return wall;
+  const sign = off[0] === '-' ? -1 : 1;
+  return wall - sign * (Number(off.slice(1, 3)) * 3600 + Number(off.slice(3, 5)) * 60);
+}
+
+const unescapeXml = (s) => String(s)
+  .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+  .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+  .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+  .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+  .replace(/&amp;/g, '&')
+  .trim();
+
+// Exported for the tests: one <programme> block → a row, or null.
+export function parseProgramme(block) {
+  const start = block.match(/\bstart="([^"]+)"/);
+  const stop = block.match(/\bstop="([^"]+)"/);
+  const channel = block.match(/\bchannel="([^"]+)"/);
+  const title = block.match(/<title[^>]*>([\s\S]*?)<\/title>/);
+  if (!start || !channel || !title) return null;
+  const text = unescapeXml(title[1]).slice(0, 200);
+  if (!text) return null;
+  const startTs = xmltvTime(start[1]);
+  if (!startTs) return null;
+  return {
+    channelId: unescapeXml(channel[1]).slice(0, 200),
+    title: text,
+    startTs,
+    stopTs: stop ? xmltvTime(stop[1]) : startTs,
+  };
+}
+
+let guideRefreshing = false;
+
+export async function refreshGuide(service = 1) {
+  const a = xcAccount(service);
+  if (!a.url || !a.username || !a.password) return { ok: false, error: 'no lookup account set' };
+  // One at a time: this is a large download and a second one would double the
+  // memory and the bandwidth for the same data.
+  if (guideRefreshing) return { ok: false, error: 'a guide refresh is already running' };
+  guideRefreshing = true;
+
+  const windowHours = Math.max(6, Number(getSetting('services.epgWindowHours')) || 48);
+  const t = now();
+  const from = t - 3 * 3600;
+  const to = t + windowHours * 3600;
+  const rows = [];
+  let seen = 0;
+  let total = 0;
+
+  try {
+    const qs = new URLSearchParams({ username: a.username, password: a.password });
+    const res = await fetch(`${a.url}/xmltv.php?${qs}`, {
+      signal: AbortSignal.timeout(XMLTV_TIMEOUT_MS),
+      headers: { Accept: 'application/xml' },
+    });
+    if (!res.ok) return { ok: false, error: `panel returned ${res.status}` };
+    if (!res.body) return { ok: false, error: 'panel sent no guide data' };
+
+    const decoder = new TextDecoder('utf-8');
+    let buf = '';
+    for await (const chunk of xmltvBytes(res.body)) {
+      seen += chunk.length;
+      if (seen > XMLTV_MAX_BYTES) return { ok: false, error: 'guide download was unreasonably large — stopped' };
+      buf += decoder.decode(chunk, { stream: true });
+
+      let end;
+      while ((end = buf.indexOf('</programme>')) !== -1) {
+        const block = buf.slice(0, end);
+        buf = buf.slice(end + '</programme>'.length);
+        const open = block.lastIndexOf('<programme');
+        if (open === -1) continue;
+        total++;
+        const p = parseProgramme(block.slice(open));
+        // Only the window around now is kept. These questions are about
+        // tonight and tomorrow, and a week of listings for several hundred
+        // channels makes the title scan slow for nothing.
+        if (p && p.startTs < to && (p.stopTs || p.startTs) > from) rows.push(p);
+      }
+      // A document with no </programme> at all must not grow the buffer
+      // without limit — drop everything except a possible partial tag.
+      if (buf.length > 1_000_000) buf = buf.slice(-64);
+    }
+  } catch (err) {
+    // SECURITY: the password is in the query string, so no fetch error text
+    // and no URL may be passed through. These strings are written by hand.
+    return {
+      ok: false,
+      error: /timeout|aborted/i.test(String(err?.message)) ? 'the guide download timed out' : 'could not download the guide',
+    };
+  } finally {
+    guideRefreshing = false;
+  }
+
+  if (!total) return { ok: false, error: 'the panel returned no guide data' };
+
+  // Replaced wholesale inside a transaction, like the lineup: readers see the
+  // old guide or the new one, never half of one.
+  const insert = db.prepare('INSERT INTO xc_programmes (service, channel_id, title, start_ts, stop_ts) VALUES (?, ?, ?, ?, ?)');
+  db.transaction(() => {
+    db.prepare('DELETE FROM xc_programmes WHERE service = ?').run(service);
+    for (const p of rows) insert.run(service, p.channelId, p.title, p.startTs, p.stopTs);
+  })();
+  setSetting(`services.guideFetchedAt${service === 2 ? 2 : 1}`, now());
+  return { ok: true, count: rows.length, scanned: total };
+}
+
+// Recorded on success only, so a panel that is refusing the guide is retried
+// on the sweep's own short backoff rather than being written off for hours.
+export function guideRefreshedAt(service = 1) {
+  return Number(getSetting(`services.guideFetchedAt${service === 2 ? 2 : 1}`)) || 0;
+}
+
+export function programmeCount(service = 1) {
+  return db.prepare('SELECT COUNT(*) n FROM xc_programmes WHERE service = ?').get(service).n;
+}
+
+export function guideSpan(service = 1) {
+  const r = db.prepare('SELECT MIN(start_ts) a, MAX(start_ts) b FROM xc_programmes WHERE service = ?').get(service);
+  return { from: r.a || 0, to: r.b || 0 };
+}
+
+// ---- searching the guide ----------------------------------------------------
+
+// Words that say when, not what.
+const WHEN_WORDS = {
+  now: () => [now() - 1800, now() + 1800],
+  tonight: () => dayWindow(0, 16, 30),
+  today: () => dayWindow(0, 0, 24),
+  tomorrow: () => dayWindow(1, 0, 24),
+};
+
+// Day boundaries come from the server's own clock, so the host should be set
+// to the same timezone as the service. "Tonight" is otherwise ambiguous in a
+// way no amount of code can resolve.
+function dayWindow(dayOffset, startHour, endHour) {
+  const d = new Date();
+  d.setDate(d.getDate() + dayOffset);
+  d.setHours(startHour, 0, 0, 0);
+  const from = Math.floor(d.getTime() / 1000);
+  return [Math.max(from, now() - 3600), from + (endHour - startHour) * 3600];
+}
+
+export function timeWindow(question) {
+  const s = String(question || '').toLowerCase();
+  for (const [word, fn] of Object.entries(WHEN_WORDS)) {
+    if (new RegExp(`\\b${word}\\b`).test(s)) return fn();
+  }
+  return [now() - 1800, now() + 24 * 3600];
+}
+
+// Words that appear in half the questions and name no programme.
+const PROG_NOISE = new Set([
+  'what', 'whats', 'which', 'where', 'when', 'who', 'whos', 'how', 'the', 'is', 'are', 'on', 'at',
+  'in', 'to', 'for', 'of', 'a', 'an', 'and', 'or', 'it', 'its', 'i', 'me', 'my', 'we', 'you',
+  'channel', 'channels', 'watch', 'watching', 'showing', 'shown', 'playing', 'play', 'game',
+  'match', 'live', 'tv', 'time', 'kick', 'off', 'kickoff', 'tonight', 'today', 'tomorrow', 'now',
+  'can', 'do', 'does', 'did', 'will', 'be', 'got', 'get', 'any', 'anyone', 'please', 'pls',
+  'vs', 'v', 'against', 'uk', 'hd', 'sport', 'sports',
+]);
+
+// Find programmes whose TITLE matches the question, within its time window.
+// Joined to the lineup so the answer is a channel NAME — the epg id means
+// nothing to a customer.
+export function findProgrammes(question, { service = 1, limit = 6 } = {}) {
+  const terms = (String(question || '').toLowerCase().match(/[a-z0-9']{3,}/g) || [])
+    .map((w) => w.replace(/'/g, ''))
+    .filter((w) => w.length >= 3 && !PROG_NOISE.has(w));
+  if (!terms.length) return [];
+
+  // Everything still to come, not just the question's window. A window that
+  // EXCLUDES is the wrong trade here: someone asking at lunchtime who is
+  // playing "tonight" should not be told we have no listing for a match we
+  // are holding, just because they picked the wrong word for 5pm. The window
+  // ranks instead — asked-for time first, then everything else.
+  const [wantFrom, wantTo] = timeWindow(question);
+  const rows = db.prepare(`
+    SELECT p.title, p.start_ts, p.stop_ts, c.name AS channel
+    FROM xc_programmes p
+    LEFT JOIN xc_channels c ON c.service = p.service AND c.epg_channel_id = p.channel_id
+    WHERE p.service = ? AND p.stop_ts > ?
+  `).all(service, now() - 3600);
+
+  const scored = [];
+  for (const r of rows) {
+    const title = r.title.toLowerCase();
+    let score = 0;
+    for (const term of terms) if (title.includes(term)) score += term.length >= 5 ? 3 : 1;
+    if (!score) continue;
+    // A programme we cannot name a channel for is no use as an answer.
+    if (!r.channel) continue;
+    if (r.start_ts < wantTo && r.stop_ts > wantFrom) score += 2;
+    scored.push({ ...r, score });
+  }
+  return scored
+    .sort((a, b) => b.score - a.score || a.start_ts - b.start_ts)
+    .slice(0, limit);
+}
+
+// Is this a question about a fixture rather than about a channel?
+const FIXTURE_QUESTION = /\bwho('?s| is| are)?\s+(playing|on|against)\b|\bwho\s+\w+\s+playing\b|\bwhat\s+time\b|\bkick\s?off\b|\bis\s+(the\s+)?[\w\s]{2,30}\s+(on|playing)\b|\bany\s+(football|boxing|games?|matches)\b/i;
+
+export const looksLikeFixtureQuestion = (text) =>
+  FIXTURE_QUESTION.test(String(text || '')) && String(text || '').length < 160;

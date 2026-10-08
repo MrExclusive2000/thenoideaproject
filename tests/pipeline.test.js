@@ -2774,10 +2774,15 @@ test('the service note reaches the model without an entry being edited', async (
 });
 
 // ---- sport: channels yes, invented fixtures never -------------------------------
-test('the model is told channel questions are in scope and fixtures are not knowable', () => {
+test('fixtures are answerable only from supplied listings, never from memory', () => {
+  // The rule used to be a flat "you have NO live information". Now the guide
+  // can be downloaded and handed to the model, so the rule has to turn on the
+  // listings being present — otherwise it contradicts the facts it is given
+  // and the bot refuses to read its own guide.
   const prompt = buildSystemPrompt('what channel is the f1 on');
   assert.match(prompt, /is a SERVICE question/, 'channel questions are ours to answer');
-  assert.match(prompt, /NO live information/, 'and fixtures are explicitly off-limits');
+  assert.match(prompt, /ONLY as a block of channel and guide facts/, 'listings are the only source');
+  assert.match(prompt, /When it is NOT there you have no fixtures/, 'and without them, nothing is invented');
   assert.match(prompt, /blames the service/, 'with the reason stated, not just the rule');
 });
 
@@ -2886,4 +2891,31 @@ test('a wallet address pasted into knowledge never reaches the prompt', () => {
   assert.doesNotMatch(prompt, /LbTpcL1qLMoCDbcZ4oVVnzZDNnFC5Y8PLJ/,
     'a model given an address will quote it, and sometimes quote it wrong');
   db.prepare("DELETE FROM faqs WHERE question = 'Where do I send the money for renewals?'").run();
+});
+
+test('a fixture question reaches the model with the real listing attached', async () => {
+  // End to end: "who's playing Derby tonight" names no channel, so it never
+  // looked like a channel question and the bot had to say it has no fixtures.
+  db.prepare('DELETE FROM xc_channels').run();
+  db.prepare('DELETE FROM xc_programmes').run();
+  setSetting('services.url1', 'http://127.0.0.1:1');
+  setSetting('services.xcUser1', 'lookup');
+  setSetting('services.xcPass1', 'pw');
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (1, 102, 'UK: Sky Sports Main Event', 'UK | SPORTS', 'ssme.uk', 1)").run();
+  const soon = Math.floor(Date.now() / 1000) + 3600;
+  db.prepare('INSERT INTO xc_programmes (service, channel_id, title, start_ts, stop_ts) VALUES (1, ?, ?, ?, ?)')
+    .run('ssme.uk', 'Derby County v Leeds United', soon, soon + 7200);
+
+  aiResponse = "Derby County v Leeds United is on UK: Sky Sports Main Event.";
+  const ctx = fakeCtx('who is playing derby tonight?');
+  await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+
+  const sentToModel = JSON.stringify(lastAiRequest);
+  assert.match(sentToModel, /Derby County v Leeds United/, 'the real fixture was supplied');
+  assert.match(sentToModel, /UK: Sky Sports Main Event/, 'with the channel carrying it');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+  setSetting('services.xcUser1', '');
+  setSetting('services.xcPass1', '');
+  db.prepare('DELETE FROM xc_programmes').run();
+  db.prepare('DELETE FROM xc_channels').run();
 });

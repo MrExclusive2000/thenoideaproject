@@ -2,7 +2,7 @@ import { db, now } from '../db/db.js';
 import { getSetting, setSetting } from '../settings.js';
 import { hub } from './hub.js';
 import { withAdminContact } from './helpers.js';
-import { xcConfigured, refreshChannels, channelsUpdatedAt } from '../xc.js';
+import { xcConfigured, refreshChannels, channelsUpdatedAt, refreshGuide, guideRefreshedAt } from '../xc.js';
 import { tokens, matchFaq } from '../faq/matcher.js';
 import { composeFaqSuggestion } from '../ai/client.js';
 import { harvestAdminAnswers, harvestResolvedCases, recurringUnresolved } from '../ai/learn.js';
@@ -274,5 +274,26 @@ export async function xcChannelSweep() {
     const age = now() - channelsUpdatedAt(service);
     if (age < hours * 3600) continue;
     await refreshChannels(service).catch(() => {});
+  }
+}
+
+// The full guide, downloaded on its own slower schedule — it is tens of
+// megabytes, so it must not ride along with the lineup refresh.
+const lastGuideAttempt = new Map();
+
+export async function xcGuideSweep() {
+  const hours = Number(getSetting('services.xmltvRefreshHours')) || 0;
+  if (!hours) return;
+  for (const service of [1, 2]) {
+    if (!xcConfigured(service)) continue;
+    // Never before the lineup: a programme with no channel to name is not an
+    // answer, and the join is on the lineup's epg_channel_id.
+    if (!channelsUpdatedAt(service)) continue;
+    if (now() - guideRefreshedAt(service) < hours * 3600) continue;
+    // A failure does not record a fetch time, so without this the sweep would
+    // retry a tens-of-megabytes download every single minute.
+    if (Date.now() - (lastGuideAttempt.get(service) || 0) < 30 * 60 * 1000) continue;
+    lastGuideAttempt.set(service, Date.now());
+    await refreshGuide(service).catch(() => {});
   }
 }

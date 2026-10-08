@@ -134,6 +134,18 @@
     </div>
     <p class="hint">Channels get added, renamed and dropped. A stale list has the bot sending someone to a channel that no longer exists, which is worse than not answering. In Telegram: <code>/channels</code> shows what is cached, <code>/channels refresh</code> pulls it now, <code>/channels sky sports</code> searches it.</p>
     <p class="hint">The guide is cached per channel, so ten people asking what's on the same channel is <strong>one</strong> call to your panel, not ten. A cached run is also dropped as soon as everything in it has finished, so a longer window doesn't mean quoting a match that already ended — raise it if your panel is slow, lower it if your listings change a lot.</p>
+    <div class="row">
+      <div>
+        <label for="xmltvRefreshHours">Download the FULL guide every (hours, 0 = off)</label>
+        <input id="xmltvRefreshHours" name="xmltvRefreshHours" type="number" min="0" max="168" value="<%= s.xmltvRefreshHours %>">
+      </div>
+      <div>
+        <label for="epgWindowHours">Keep this much of it (hours ahead)</label>
+        <input id="epgWindowHours" name="epgWindowHours" type="number" min="6" max="168" value="<%= s.epgWindowHours %>">
+      </div>
+    </div>
+    <p class="hint">The per-channel lookup above answers <em>"what's on Sky Sports Main Event?"</em>, because the question names the channel. It cannot answer <em>"who's playing Derby tonight?"</em> — there the channel is what the customer wants to be told, which means searching programme titles across the whole lineup. That needs the full guide (<code>xmltv.php</code>), downloaded in one go on this slower schedule. It is a large file, so it runs on its own timer and never alongside the lineup refresh. In Telegram: <code>/guide</code> shows what is stored, <code>/guide refresh</code> pulls it now, <code>/guide derby</code> searches it.</p>
+    <p class="hint">Only a window around now is kept — these are questions about tonight and tomorrow, and holding a week of listings for several hundred channels only makes the search slower. <strong>Day boundaries use this server's clock</strong>, so set the host's timezone to match the service or "tonight" will mean the wrong evening.</p>
   </div>
 
   <div class="card">
