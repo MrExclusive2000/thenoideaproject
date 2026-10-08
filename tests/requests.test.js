@@ -113,3 +113,31 @@ test('parseNaturalVodRequest captures "can we get X" but never service asks', as
     assert.equal(parseNaturalVodRequest(q), null, `should NOT capture: "${q}"`);
   }
 });
+
+test('"Hey bot" on its own line does not hide the question under it', async () => {
+  // Live: "Hey bot / Is Mobland on exclusive?" parsed as nothing, so a plain
+  // "have you got this show" question fell through to the channel-lookup path
+  // and came back "give me the channel name and I'll look it up" — about a
+  // TV series. Two faults: the parser rejected ANY multi-line message, and
+  // "bot" was not a recognised way of addressing it.
+  const { parseAvailabilityQuestion } = await import('../src/bot/requests.js');
+  const { setSetting } = await import('../src/settings.js');
+  // "on exclusive" only reads as a service when the service is named.
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+
+  for (const q of [
+    'Is Mobland on exclusive?',
+    'Hey bot\nIs Mobland on exclusive?',
+    'Hey bot, is Mobland on exclusive?',
+    'bot do you have severance',
+  ]) assert.ok(parseAvailabilityQuestion(q), `should find the title in: ${JSON.stringify(q)}`);
+
+  assert.equal(parseAvailabilityQuestion('Hey bot\nIs Mobland on exclusive?'), 'Mobland');
+
+  // A genuine multi-message paste is still left alone.
+  assert.equal(
+    parseAvailabilityQuestion('Hey bot\nmy app is buffering\nand the login failed too'),
+    null,
+  );
+});

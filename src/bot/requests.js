@@ -64,7 +64,15 @@ function availabilityOnService(s) {
 }
 
 export function parseAvailabilityQuestion(text) {
-  if (/\n/.test(String(text))) return null;
+  // A short multi-line message is one question with the address on its own
+  // line. Try each line rather than discarding the lot.
+  if (/\n/.test(String(text))) {
+    for (const line of questionLines(text)) {
+      const hit = parseAvailabilityQuestion(line);
+      if (hit) return hit;
+    }
+    return null;
+  }
   const s = stripLeadIn(text).trim();
   if (s.length > 120) return null;
   const onService = availabilityOnService(s);
@@ -95,13 +103,28 @@ const REQUEST_VERB = /^\s*(?:please |pls |plz )?(?:(?:i(?:'| a|a)?d like to|i wo
 // "please" is deliberately NOT in here: it is not a greeting, and the request
 // patterns below already allow a leading one — stripping it broke
 // "please add severance season 3".
-const LEAD_IN = /^(?:\s*(?:hi|hey|hello|heya|hiya|yo|alright|alreet|morning|afternoon|evening|good\s+(?:morning|afternoon|evening)|sorry|excuse\s+me|quick\s+one|mate|m8|pal|bud|boss|guys|lads|team|folks)\b[\s,!.:;–—-]*)+/i;
+// "bot" belongs here too: people address it before asking, and the address is
+// not part of the question. Live: "Hey bot / Is Mobland on exclusive?" parsed
+// as nothing at all, so a straight "have you got this show" question fell
+// through to the channel-lookup path and came back "give me the channel name".
+const LEAD_IN = /^(?:\s*(?:hi|hey|hello|heya|hiya|yo|oi|alright|alreet|morning|afternoon|evening|good\s+(?:morning|afternoon|evening)|sorry|excuse\s+me|quick\s+one|mate|m8|pal|bud|boss|guys|lads|team|folks|bot|bots|robot|assistant)\b[\s,!.:;–—-]*)+/i;
 
 export function stripLeadIn(text) {
   const out = String(text || '').replace(LEAD_IN, '').trim();
   // Never strip the whole message away: "morning!" on its own is a greeting,
   // and the greeting handler should still see it as one.
   return out.length >= 2 ? out : String(text || '');
+}
+
+// People put the address on its own line — "Hey bot" then the question. A
+// blanket "any newline means this is not a question" threw those away whole.
+// Long pasted blocks are still ignored; a couple of short lines are not a
+// paste, they are someone typing the way people type.
+export function questionLines(text) {
+  const lines = String(text || '').split(/\n+/).map((l) => l.trim()).filter(Boolean);
+  if (!lines.length || lines.length > 3) return [];
+  if (lines.some((l) => l.length > 140)) return [];
+  return lines;
 }
 
 const NATURAL_REQ = /^\s*(?:please |pls |plz )?(?:any chance (?:of |we can |you can )?(?:getting |adding |putting (?:on |up )?)?|(?:can|could|cud) (?:we|you|u|i) (?:get|add|have|put on|put up|upload) |(?:please|pls|plz) add )\s*(.{2,100}?)[\s?!.]*$/i;

@@ -4825,3 +4825,26 @@ test('the brush-off and the steer are personalised, the status lines are not', a
     assert.equal(lines.has(fixed), true, `${fixed} must stay verbatim`);
   }
 });
+
+test('"is <show> on <service>?" is a library question, not a channel one', async () => {
+  // The no-listing message says "give me the channel name and I'll look it
+  // up", which is the wrong answer to a question about a TV series.
+  // isServiceSpecific says yes to anything that merely names a service, so
+  // that branch was claiming title questions.
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+  setSetting('bot.noListingMessage', "I don't have a listing for that. Give me the channel name.");
+  _resetProblemTriage();
+  const t = Math.floor(Date.now() / 1000);
+  db.prepare('INSERT OR REPLACE INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (?,?,?,?,?,?)')
+    .run(1, 9100, 'BBC One HD', 'UK', 'uk.9100', t);
+
+  const ctx = fakeCtx('Hey bot\nIs Mobland on exclusive?', { userId: 99995 });
+  await handleDirectMessage(ctx, 'Hey bot\nIs Mobland on exclusive?');
+  const msg = ctx.sent.map((s) => s.msg).join('\n');
+  assert.doesNotMatch(msg, /channel name/i, 'never the channel-lookup brush-off');
+  assert.match(msg, /request list|already on the service|checked/i, 'treated as a library question');
+
+  db.prepare('DELETE FROM xc_channels WHERE stream_id = 9100').run();
+});

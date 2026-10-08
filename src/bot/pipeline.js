@@ -1928,7 +1928,15 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
             // F1" matches no channel in the lineup, and without this it got
             // "I don't have a listing for that" while the real classification
             // sat ready in the next variable along.
-            if (!sports && isServiceSpecific(question) && !channels && channelCount(serviceNumber || 1) > 0) {
+            //
+            // And only for questions actually about the LINEUP. The message
+            // says "give me the channel name and I'll look it up", which is
+            // the wrong answer to "is Mobland on exclusive?" — that is a show,
+            // not a channel, and isServiceSpecific says yes to anything that
+            // merely names a service. Live, that is exactly what happened.
+            const aboutTheLineup = looksLikeChannelQuestion(question) || looksLikeFixtureQuestion(question);
+            if (!sports && aboutTheLineup && !anyVodRequest(question) && !parseAvailabilityQuestion(question)
+                && isServiceSpecific(question) && !channels && channelCount(serviceNumber || 1) > 0) {
               const noListing = withAdminContact(String(getSetting('bot.noListingMessage') || '').trim());
               if (noListing) {
                 setLogSource(logId, 'no-listing', noListing);
