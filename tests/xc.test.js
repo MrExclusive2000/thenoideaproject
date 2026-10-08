@@ -558,3 +558,37 @@ test('the libraries are per service and never answered from the wrong one', () =
   assert.equal(xc.findVodTitle('Oppenheimer', { service: 2 }).length, 0,
     'service 1 carrying it says nothing about service 2');
 });
+
+test('the guide downloads once a day, and the kept window always covers the gap', async () => {
+  const { getSetting } = await import('../src/settings.js');
+  // Tens of megabytes four times a day bought nothing: the listings it
+  // carries do not change that often.
+  assert.equal(Number(getSetting('services.xmltvRefreshHours')), 24);
+  // The window has to be at least as wide as the interval between downloads,
+  // or there are hours every day with no listings and the bot quietly stops
+  // answering fixture questions until the next pull.
+  assert.ok(Number(getSetting('services.epgWindowHours')) >= Number(getSetting('services.xmltvRefreshHours')),
+    'a day between downloads needs at least a day of listings held');
+});
+
+test('an install still on the old 6-hour default is moved to 24', async () => {
+  const { setSetting } = await import('../src/settings.js');
+  const { migrate } = await import('../src/db/schema.js');
+  // Asserted against the stored row rather than getSetting: settings are
+  // cached in process and the migration writes SQL underneath it. That is
+  // fine at boot — db.js runs migrate() at import, before anything can read a
+  // setting — but not inside a test that has just warmed the cache.
+  const stored = () => db.prepare("SELECT value FROM settings WHERE key = 'services.xmltvRefreshHours'").get()?.value;
+
+  setSetting('services.xmltvRefreshHours', 6);
+  db.pragma('user_version = 23');
+  migrate(db);
+  assert.equal(stored(), '24', 'the old shipped default moves');
+
+  // A number someone chose deliberately is left alone.
+  setSetting('services.xmltvRefreshHours', 3);
+  db.pragma('user_version = 23');
+  migrate(db);
+  assert.equal(stored(), '3');
+  setSetting('services.xmltvRefreshHours', 24);
+});

@@ -556,6 +556,13 @@ const migrations = [
   );
   CREATE INDEX idx_xc_vod_norm ON xc_vod(service, norm_name);
   `,
+  // v24 — the full guide downloads once a day rather than four times.
+  // It is tens of megabytes and the listings it carries do not change often
+  // enough to be worth that. Only moves a value still sitting on the old
+  // default; a number the admin chose deliberately is left alone.
+  `
+  UPDATE settings SET value = '24' WHERE key = 'services.xmltvRefreshHours' AND value = '6';
+  `,
 ];
 
 export function migrate(db) {

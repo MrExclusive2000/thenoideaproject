@@ -139,7 +139,14 @@ settingsRouter.post('/bot', (req, res) => {
     // which is the thing the cache exists to stop.
     'services.epgCacheMinutes': Math.max(1, Math.min(720, Number(b.epgCacheMinutes) || 30)),
     'services.xmltvRefreshHours': Math.max(0, Math.min(168, Number(b.xmltvRefreshHours) || 0)),
-    'services.epgWindowHours': Math.max(6, Math.min(168, Number(b.epgWindowHours) || 48)),
+    // The kept window must cover the gap between downloads, or there are
+    // hours every day with no listings at all and the bot quietly stops
+    // answering fixture questions until the next pull.
+    'services.epgWindowHours': Math.max(
+      6,
+      Math.max(0, Math.min(168, Number(b.xmltvRefreshHours) || 0)),
+      Math.min(168, Number(b.epgWindowHours) || 48)
+    ),
     'bot.thanksMessage': String(b.thanksMessage || '').slice(0, 500),
     'bot.photoMessage': String(b.photoMessage || '').slice(0, 500),
     'bot.problemFollowupNote': String(b.problemFollowupNote || '').slice(0, 500),

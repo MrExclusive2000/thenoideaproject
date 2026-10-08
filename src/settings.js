@@ -232,7 +232,10 @@ const DEFAULTS = {
   // Download the WHOLE guide (xmltv.php) this often, in hours. 0 = off. This
   // is what answers "who's playing Derby tonight" — a question where the
   // channel is the answer — so it cannot be done per channel on demand.
-  'services.xmltvRefreshHours': 6,
+  // Once a day. The kept window (below) is wider than this interval on
+  // purpose, so there is always at least a day of listings ahead even in the
+  // hour before the next download.
+  'services.xmltvRefreshHours': 24,
   // How far ahead of now the downloaded guide is kept. These questions are
   // about tonight and tomorrow; a week of listings for several hundred
   // channels just makes the title search slower.
