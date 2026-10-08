@@ -3,7 +3,7 @@ import { db, now } from '../db/db.js';
 import { getSetting, redactServiceUrls } from '../settings.js';
 import { matchFaq } from '../faq/matcher.js';
 import { askAi, aiBudgetExceeded, rephraseCanned } from '../ai/client.js';
-import { containsBannedWord, endsWithQuestion } from '../ai/guardrails.js';
+import { containsBannedWord, endsWithQuestion, offersNoNewHelp } from '../ai/guardrails.js';
 import { state } from '../state.js';
 import {
   sendChunked, logMessage, setLogSource, recordUnanswered, chatAllowed,
@@ -1347,6 +1347,15 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
               state.bot.lastError = `AI: ${String(err.message).slice(0, 280)}`;
               aiUnavailable = true;
               reply = null;
+            }
+            // A SECOND round that offers nothing to act on must not be sent.
+            // The customer has just said the first fixes did not work; being
+            // told "give it a shot and reply if it still doesn't work" repeats
+            // what they already tried and loops them. Dropping it here makes
+            // the caller escalate to a human, which is what they need.
+            if (reply && deepen && offersNoNewHelp(reply)) {
+              setLogSource(logId, 'no-new-help');
+              return 'no-new-help';
             }
             if (reply && canCache) {
               await rememberAnswer(question, reply, { source: 'ai', vector: cacheVec });

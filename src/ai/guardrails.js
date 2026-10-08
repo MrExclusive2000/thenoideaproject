@@ -210,6 +210,24 @@ export function stripPrematureHandoff(reply) {
   return out.replace(/\s*(?:still\s+no\s+luck\??|if\s+that\s+fails\??|otherwise\??)\s*$/i, '').trimEnd();
 }
 
+// Things you can actually DO, and things you can do them to. A round of
+// troubleshooting that names none of these is not a round of troubleshooting.
+const STEP_THING = /\b(app|apps|cache|caches|router|wifi|ethernet|vpn|stream|streams|link|links|server|servers|channel|channels|login|password|username|device|firestick|downloader|box|tv|guide|epg|epgs|subtitle|audio|quality|connection|data|dns|speed|playlist|account|purple|smarters|sky\s*glass|xc)\b/i;
+const STEP_ACTION = /\b(restart|reboot|reinstall|install|clear|clearing|switch|switching|change|changing|try|open|enter|turn|disable|enable|unplug|update|updating|log\s+(?:in|out)|sign\s+(?:in|out)|force\s+stop|refresh|select|pick|check|use)\b/i;
+
+// A follow-up round that tells the customer nothing they can act on. They
+// have just said the first fixes did not work; replying "give it a shot and
+// let me know" repeats the thing they already tried and loops them, which is
+// worse than admitting it needs a person.
+export function offersNoNewHelp(reply) {
+  const text = String(reply || '').trim();
+  if (!text) return true;
+  // Reassurance with nothing attached. Short AND vague is the giveaway —
+  // a genuine "try the backup app with the same login" is neither.
+  if (!STEP_THING.test(text) || !STEP_ACTION.test(text)) return true;
+  return false;
+}
+
 export function containsBannedWord(text, bannedWords) {
   if (!text || !bannedWords?.length) return false;
   const lower = text.toLowerCase();

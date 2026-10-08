@@ -3693,3 +3693,51 @@ test('the model is told to work the whole playbook on the first round', () => {
   assert.match(prompt, /For ANY problem report/, 'not just playback problems');
   assert.match(prompt, /Give them ALL, in their order/, 'all the steps, not the first one');
 });
+
+// --- round two must advance the problem, or hand it to a person -------------
+
+test('a second round offering nothing to act on is never sent', async () => {
+  const { offersNoNewHelp } = await import('../src/ai/guardrails.js');
+  // Live reply after "It's still happening": told them to try the thing they
+  // had just said did not work, then invited them to reply again. A loop.
+  const live = "No problem! I know those steps can take a bit of time. Give it a shot and if it's still not working, feel free to reply here and we'll get it sorted quickly.";
+  assert.equal(offersNoNewHelp(live), true);
+  for (const empty of [
+    'Thanks for your patience, we will get this sorted shortly.',
+    'Sorry to hear that! Let me know how you get on.',
+    'That should do it.',
+  ]) assert.equal(offersNoNewHelp(empty), true, empty);
+
+  // Genuine next steps are untouched.
+  for (const real of [
+    'Try the same login in XC or Smarters — their players handle streams differently.',
+    'Clear the app cache from Manage Installed Applications, then restart the Firestick.',
+    'Switch to a different link for that channel and turn off your VPN if you use one.',
+    'Reinstall Sky Glass with code 3793766 and sign in again.',
+  ]) assert.equal(offersNoNewHelp(real), false, real);
+});
+
+test('an empty second round escalates to a human instead of looping', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.problemFixRounds', 2);
+  setSetting('reports.adminTelegramIds', [777]);
+  _resetProblemTriage();
+  db.prepare('DELETE FROM problem_reports').run();
+
+  // Round one: real fixes.
+  aiResponse = 'Check the username and password for extra spaces, then try the same login in XC or Smarters.';
+  const first = fakeCtx('my login says invalid on sky glass', { userId: 99980 });
+  await handleDirectMessage(first, first.message.text);
+  assert.ok(first.sent.length, 'answered');
+
+  // Round two: the model waffles.
+  aiResponse = "No problem! I know those steps can take a bit of time. Give it a shot and if it's still not working, feel free to reply here.";
+  const second = fakeCtx("it's still happening", { userId: 99980 });
+  await handleDirectMessage(second, "it's still happening");
+  const msg = second.sent.map((s) => s.msg).join('\n');
+  assert.doesNotMatch(msg, /Give it a shot/i, 'the filler is never sent');
+  // They get the escalation note instead — a person is now on it.
+  const row = db.prepare('SELECT * FROM problem_reports WHERE tg_user_id = 99980 ORDER BY id DESC LIMIT 1').get();
+  assert.equal(row?.escalated, 1, 'handed to a human rather than looped');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
