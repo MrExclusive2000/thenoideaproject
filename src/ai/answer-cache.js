@@ -20,6 +20,9 @@ const MAX_ENTRIES = 2000;
 // playback context, or by this user's service/account is correct for that user
 // and wrong for the next one, so it is never stored.
 export function cacheable({ history = [], grounding = null, playback = null, secondRound = false, smallTalk = false } = {}) {
+  // Answers built from live data (a race result, tonight's listings) are kept
+  // out of here at the STORE site, where it is known what the answer was
+  // actually built from rather than guessed from the question's shape.
   return !history.length && !grounding && !playback && !secondRound && !smallTalk;
 }
 

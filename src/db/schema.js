@@ -632,6 +632,19 @@ const migrations = [
   WHERE key = 'bot.problemFlaggedNote'
     AND value = '"\u2705 Flagged to the team \u2014 they''ll look into it. No need to report it again."';
   `,
+
+  // v30 — scores, league tables and race results. Cached in the database
+  // rather than in memory so the answers survive a restart and a free API
+  // with a rate limit is not spent on every message. IF NOT EXISTS because a
+  // migration that can brick a boot is worse than no migration.
+  `
+  CREATE TABLE IF NOT EXISTS sports_cache (
+    key        TEXT PRIMARY KEY,
+    body       TEXT NOT NULL,
+    fetched_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_sports_cache_at ON sports_cache(fetched_at);
+  `,
 ];
 
 export function migrate(db) {

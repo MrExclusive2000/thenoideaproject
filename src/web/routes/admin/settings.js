@@ -70,6 +70,11 @@ settingsRouter.get('/bot', (req, res) => {
       xmltvRefreshHours: getSetting('services.xmltvRefreshHours'),
       epgWindowHours: getSetting('services.epgWindowHours'),
       thanksMessage: getSetting('bot.thanksMessage'),
+      f1Enabled: getSetting('sports.f1Enabled'),
+      footballApiKeySet: Boolean(String(getSetting('sports.footballApiKey') || '').trim()),
+      footballCompetitions: getSetting('sports.footballCompetitions'),
+      sportsCommentary: getSetting('sports.commentary'),
+      sportsCacheMinutes: getSetting('sports.cacheMinutes'),
       helpAskMessage: getSetting('bot.helpAskMessage'),
       humanRequestMessage: getSetting('bot.humanRequestMessage'),
       frustrationMessage: getSetting('bot.frustrationMessage'),
@@ -151,6 +156,15 @@ settingsRouter.post('/bot', (req, res) => {
       Math.min(168, Number(b.epgWindowHours) || 48)
     ),
     'bot.thanksMessage': String(b.thanksMessage || '').slice(0, 500),
+    'sports.f1Enabled': b.f1Enabled === '1',
+    // Blank means "leave the saved key alone", never "clear it" — the same
+    // rule as the panel passwords next door.
+    ...(String(b.footballApiKey || '').trim()
+      ? { 'sports.footballApiKey': String(b.footballApiKey).trim().slice(0, 200) }
+      : {}),
+    'sports.footballCompetitions': String(b.footballCompetitions || 'PL').trim().slice(0, 120),
+    'sports.commentary': b.sportsCommentary === '1',
+    'sports.cacheMinutes': Math.max(2, Math.min(720, Number(b.sportsCacheMinutes) || 30)),
     'bot.helpAskMessage': String(b.helpAskMessage || '').slice(0, 500),
     'bot.humanRequestMessage': String(b.humanRequestMessage || '').slice(0, 500),
     'bot.frustrationMessage': String(b.frustrationMessage || '').slice(0, 500),

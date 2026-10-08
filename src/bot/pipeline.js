@@ -19,6 +19,7 @@ import { looksLikeGuideRequest, findGuide, visibleGuides, mdToPlain, guideLeadIn
 import { looksLikeWalletRequest, walletMessage } from '../payments.js';
 import { looksLikeInviteRequest, buildInvite, INVITE_NO_GROUP, INVITE_NO_PERMISSION } from './invites.js';
 import { looksLikeCredentialDump, CREDENTIAL_WARNING } from './credentials.js';
+import { looksLikeSportsQuestion, sportsGrounding, sportsEnabled } from '../sports.js';
 import { recallService, rememberService, forgetService } from '../service-memory.js';
 import {
   queueProblemAlert, setProblemRearmHook, maybeAutoDegrade,
@@ -1804,8 +1805,12 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         // call "what's on ITV 2" off-topic whenever it had no listings to
         // hand, and the customer got the banter brush-off for a perfectly
         // ordinary question about the service.
+        // A scores or standings question is in scope by definition — it is
+        // about the sport they pay us to watch, and the model must not be
+        // free to call it off-topic.
+        const sportsQuestion = sportsEnabled() && looksLikeSportsQuestion(question);
         const assumeOnTopic = forceOnTopic || looksLikeProblem(question) || Boolean(result.nearMiss)
-          || isLikelyInScope(question) || isServiceSpecific(question);
+          || isLikelyInScope(question) || isServiceSpecific(question) || sportsQuestion;
         // The AI only sees messages with SOMETHING to anchor them: a scope
         // signal (one fuzzy vocabulary hit is enough), a problem/near-miss,
         // or an ongoing conversation. Anything else — "Sausage", "do you
@@ -1905,6 +1910,13 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
             const channels = isServiceSpecific(question)
               ? await channelGrounding(question, { service: serviceNumber || 1 }).catch(() => null)
               : null;
+            // The real classification, table or scoreline. Fetched per
+            // question and cached, same as the lineup: there is no point
+            // holding a league table in the prompt for someone asking how to
+            // install an app.
+            const sports = sportsQuestion
+              ? await sportsGrounding(question).catch(() => null)
+              : null;
             // Nothing cached matches what they asked. Answering that from code
             // rather than asking the model to is the whole point: handed an
             // empty block it either invents a channel or, as it did in the
@@ -1912,7 +1924,11 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
             // Only when we HAVE a lineup and nothing in it matches — that is
             // a real "we do not carry that". With nothing cached at all the
             // model still gets its go, as before.
-            if (isServiceSpecific(question) && !channels && channelCount(serviceNumber || 1) > 0) {
+            // ...unless we DID find the answer somewhere else. "Who won the
+            // F1" matches no channel in the lineup, and without this it got
+            // "I don't have a listing for that" while the real classification
+            // sat ready in the next variable along.
+            if (!sports && isServiceSpecific(question) && !channels && channelCount(serviceNumber || 1) > 0) {
               const noListing = withAdminContact(String(getSetting('bot.noListingMessage') || '').trim());
               if (noListing) {
                 setLogSource(logId, 'no-listing', noListing);
@@ -1932,6 +1948,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
                 knownOutage: Boolean(prefix) && getSetting('service.status') !== 'operational' && looksLikeProblem(question),
                 knowledgeFaqs: retrieved.length ? retrieved.map((r) => r.faq) : null,
                 alreadyTried,
+                sports,
               });
             } catch (err) {
               // An unreachable endpoint must NOT skip the near-miss FAQ below.
@@ -1978,7 +1995,15 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
               }
               return 'no-new-help';
             }
-            if (reply && canCache) {
+            // Judged on what the answer was actually BUILT from, not on what
+            // the question looked like. The question-shape tests are
+            // deliberately loose — looksLikeChannelQuestion says yes to "which
+            // app should I use on Firestick" — so using them here would stop
+            // perfectly stable answers being cached at all. An answer written
+            // from live data is never stored, so a stale one can never be
+            // served: "who won the F1" would otherwise still be naming last
+            // month's winner a month later, with total confidence.
+            if (reply && canCache && !sports && !channels) {
               await rememberAnswer(question, reply, { source: 'ai', vector: cacheVec });
             }
           }

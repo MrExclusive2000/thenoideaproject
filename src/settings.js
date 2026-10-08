@@ -306,6 +306,24 @@ const DEFAULTS = {
   'portal.expiryReminderMessage': '⏰ Heads up {name}: your access expires in {days} day(s). Renewing only takes a few minutes — {admin} or ask in the group and we will sort you out.',
   // DM sent ON/after expiry day ({name}). Empty = off.
   'portal.expiryUpsellMessage': "😢 {name}, your access expired — but getting back takes minutes. {admin} or ask in the group and we'll renew you today. Paying with crypto is easier than it sounds: the step-by-step guide does the hard part.",
+  // Scores, tables and race results.
+  // F1 comes from Jolpica (the free Ergast successor): no key, no account, so
+  // it works the moment the bot starts. Football needs a free API key from
+  // football-data.org — without one that half simply stays off and the bot
+  // says it has no scores rather than guessing at one.
+  'sports.f1Enabled': true,
+  'sports.footballApiKey': '',
+  // football-data competition codes. PL Premier League, ELC Championship,
+  // CL Champions League, PD La Liga, SA Serie A, BL1 Bundesliga, FL1 Ligue 1.
+  'sports.footballCompetitions': 'PL',
+  // Tables barely move between matches and a free tier has a rate limit, so
+  // the answers are held rather than re-fetched per message.
+  'sports.cacheMinutes': 30,
+  // Let the AI call it like someone who watched it ("Max gapped Lando for
+  // P2") instead of reading the table out. The FACTS still come only from the
+  // feed — this changes the delivery, never the numbers.
+  'sports.commentary': true,
+
   'reports.alertErrors': true,
   'reports.alertBudget': true,
   'reports.alertBannedWords': false,

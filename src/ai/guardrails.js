@@ -323,3 +323,27 @@ export function inventsLink(reply, known) {
     return !haystack.includes(host);
   });
 }
+
+// A result the model made up. The sports block is handed over as fact with an
+// instruction to use nothing else, but an instruction is not a control: the
+// checkable claims are scorelines ("2-1") and positions ("P3"), and a customer
+// who repeats an invented one in the group looks daft because of us.
+//
+// Only the claims that can be checked are checked. A wrong adjective is a
+// wrong adjective; a wrong scoreline is a lie with a number in it.
+export function invensSportsResult(reply, block) {
+  if (!block) return false;
+  const text = String(reply || '');
+  const facts = String(block);
+  const flat = facts.replace(/\s+/g, ' ');
+
+  for (const score of text.match(/\b\d{1,2}\s?[-–]\s?\d{1,2}\b/g) || []) {
+    const [h, a] = score.split(/[-–]/).map((n) => n.trim());
+    // Written as "2-1" in the block; allow spacing differences either side.
+    if (!new RegExp(`\\b${h}\\s?[-–]\\s?${a}\\b`).test(flat)) return true;
+  }
+  for (const pos of text.match(/\bP(\d{1,2})\b/g) || []) {
+    if (!new RegExp(`\\b${pos}\\b`, 'i').test(flat)) return true;
+  }
+  return false;
+}

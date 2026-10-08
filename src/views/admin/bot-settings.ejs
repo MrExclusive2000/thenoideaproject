@@ -111,6 +111,39 @@
   </div>
 
   <div class="card">
+    <h2>Scores, tables and race results</h2>
+    <p class="sub">The questions customers were always going to ask a bot that sells them sport. Answered from real feeds — the bot is never allowed to guess a result.</p>
+
+    <div class="checkline">
+      <input type="checkbox" id="f1Enabled" name="f1Enabled" value="1" <%= s.f1Enabled ? 'checked' : '' %>>
+      <label for="f1Enabled">Formula 1 — race results, drivers' and constructors' championships</label>
+    </div>
+    <p class="hint">Needs nothing from you. The data comes from Jolpica (the free successor to Ergast): no key, no account, no sign-up.</p>
+
+    <label for="footballApiKey">Football API key <%= s.footballApiKeySet ? '(saved)' : '' %></label>
+    <input id="footballApiKey" name="footballApiKey" type="password" maxlength="200" placeholder="<%= s.footballApiKeySet ? 'leave blank to keep' : 'leave empty to turn football off' %>" autocomplete="new-password">
+    <p class="hint">Free key from <strong>football-data.org</strong> — sign up, copy the token here. Without one the football half stays off and the bot says it has no scores rather than inventing one. The key is never shown to customers, logged, or put in the AI's prompt.</p>
+
+    <label for="footballCompetitions">Competitions</label>
+    <input id="footballCompetitions" name="footballCompetitions" type="text" maxlength="120" value="<%= s.footballCompetitions %>" placeholder="PL">
+    <p class="hint">Comma separated codes: <code>PL</code> Premier League · <code>ELC</code> Championship · <code>CL</code> Champions League · <code>PD</code> La Liga · <code>SA</code> Serie A · <code>BL1</code> Bundesliga · <code>FL1</code> Ligue 1. The free tier covers a limited set — start with <code>PL</code>.</p>
+
+    <div class="checkline">
+      <input type="checkbox" id="sportsCommentary" name="sportsCommentary" value="1" <%= s.sportsCommentary ? 'checked' : '' %>>
+      <label for="sportsCommentary">Call it like someone who watched it, not like a results service</label>
+    </div>
+    <p class="hint">On: "Max held Lando off by under a second for the win, Hamilton came through from 8th for the last podium spot." Off: the positions and numbers, plainly. Either way the facts come only from the feed — this changes the delivery, never the numbers. A scoreline or finishing position the feed did not contain is thrown away before it reaches anyone.</p>
+
+    <div class="row">
+      <div>
+        <label for="sportsCacheMinutes">Hold results for (minutes)</label>
+        <input id="sportsCacheMinutes" name="sportsCacheMinutes" type="number" min="2" max="720" value="<%= s.sportsCacheMinutes %>">
+      </div>
+    </div>
+    <p class="hint">Tables barely move between matches and the free tiers have rate limits, so answers are held rather than re-fetched for every message. Drop it on a race weekend if you want results sooner.</p>
+  </div>
+
+  <div class="card">
     <h2>Channel lookup</h2>
     <p class="sub">"What channel is the F1 on?" is a question about <em>your</em> lineup, so no public TV API can answer it — only the Xtream Codes panel your service runs on. Give the bot a read-only lookup account and it pulls the channel list and guide, then answers from the real listing instead of guessing a channel that may not exist.</p>
     <p class="hint">Use a spare account, not your own. The password is stored here and sent to the panel on every lookup — it is never shown to customers, written to logs, or included in the AI's prompt. Leave a password blank to keep the one already saved.</p>
