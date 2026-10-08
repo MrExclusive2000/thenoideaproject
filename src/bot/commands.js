@@ -11,7 +11,7 @@ import { caseNumberIn, caseSummary, closeCaseAsAdmin, openCasesList, looksLikeCa
 import { hub } from './hub.js';
 import { state } from '../state.js';
 import { localBuild, updateCheck, describeUpdate, applyUpdate } from '../build.js';
-import { xcConfigured, refreshChannels, channelCount, channelsUpdatedAt, findChannels, xcLastError, epgCacheStats, refreshGuide, programmeCount, guideRefreshedAt, findProgrammes } from '../xc.js';
+import { xcConfigured, refreshChannels, channelCount, channelsUpdatedAt, findChannels, xcLastError, epgCacheStats, refreshGuide, programmeCount, guideRefreshedAt, findProgrammes, refreshVod, vodCount, vodUpdatedAt, findVodTitle } from '../xc.js';
 import { mdToPlain } from '../guides.js';
 import { addressLooksValid, acceptedCoins } from '../payments.js';
 
@@ -473,6 +473,47 @@ export function registerCommands(bot) {
     }
     if (!bits.length) return ctx.reply('No lookup account set yet — add the Xtream Codes username and password under Bot settings, then send /guide refresh.');
     await ctx.reply(`${bits.join('\n')}\n\n/guide refresh — download the latest\n/guide derby — search what's on`);
+  });
+
+  // The VOD library, so "can we get X" can be checked against what the
+  // service actually carries instead of becoming a request for a title we
+  // already have.
+  bot.command('library', async (ctx) => {
+    if (!isAdminUser(ctx.from.id)) return;
+    const arg = String(ctx.match || '').trim();
+
+    if (/^(refresh|update|sync|pull)$/i.test(arg)) {
+      await ctx.reply('\u23f3 Pulling the VOD library…');
+      const lines = [];
+      for (const service of [1, 2]) {
+        if (!xcConfigured(service)) continue;
+        const r = await refreshVod(service);
+        lines.push(r.ok ? `\u2705 Service ${service}: ${r.count} titles cached.` : `\u274c Service ${service}: ${r.error}`);
+      }
+      return ctx.reply(lines.length ? lines.join('\n') : 'No service has a lookup account set — add one under Bot settings.');
+    }
+
+    if (arg) {
+      const lines = [];
+      for (const service of [1, 2]) {
+        if (!vodCount(service)) continue;
+        const hits = findVodTitle(arg, { service, limit: 5 });
+        lines.push(hits.length
+          ? `Service ${service}: ${hits.map((h) => `${h.name} (${h.kind})`).join(', ')}`
+          : `Service ${service}: not in the library`);
+      }
+      return ctx.reply(lines.length ? lines.join('\n') : 'No library cached yet — send /library refresh.');
+    }
+
+    const bits = [];
+    for (const service of [1, 2]) {
+      if (!xcConfigured(service)) continue;
+      const at = vodUpdatedAt(service);
+      const age = at ? `${Math.round((Date.now() / 1000 - at) / 3600)}h ago` : 'never';
+      bits.push(`Service ${service}: ${vodCount(service)} titles, updated ${age}`);
+    }
+    if (!bits.length) return ctx.reply('No lookup account set yet — add the Xtream Codes username and password under Bot settings, then send /library refresh.');
+    await ctx.reply(`${bits.join('\n')}\n\n/library refresh — pull the latest\n/library oppenheimer — check a title`);
   });
 
   bot.command('case', async (ctx) => {

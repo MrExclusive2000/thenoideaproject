@@ -580,3 +580,87 @@ const FIXTURE_QUESTION = /\bwho('?s| is| are)?\s+(playing|on|against)\b|\bwho\s+
 
 export const looksLikeFixtureQuestion = (text) =>
   FIXTURE_QUESTION.test(String(text || '')) && String(text || '').length < 160;
+
+// ---- the VOD library --------------------------------------------------------
+//
+// "Can we get Oppenheimer?" was always filed as a request, even when the
+// service already carried it. The customer then waits for a batch that will
+// never come, and the admin closes a request for a title they already have.
+// The panel knows the answer, so ask it.
+//
+// Per service on purpose: the two libraries are not the same, which is why
+// answering this properly means knowing which service the person is on.
+
+const normName = (s) => String(s || '')
+  .toLowerCase()
+  .replace(/\b(19|20)\d{2}\b/g, ' ')        // a year is not part of the name
+  .replace(/\b(s\d{1,2}|season\s*\d{1,2}|complete|collection|saga)\b/g, ' ')
+  .replace(/[^a-z0-9]/g, '');
+
+export async function refreshVod(service = 1) {
+  const movies = await call(service, { action: 'get_vod_streams' });
+  const series = await call(service, { action: 'get_series' });
+  if (!Array.isArray(movies) && !Array.isArray(series)) {
+    return { ok: false, error: lastError || 'no library returned' };
+  }
+  const rows = [];
+  for (const m of Array.isArray(movies) ? movies : []) {
+    if (m?.name) rows.push({ kind: 'movie', name: String(m.name).slice(0, 300), category: m.category_id ?? null });
+  }
+  for (const s of Array.isArray(series) ? series : []) {
+    if (s?.name) rows.push({ kind: 'series', name: String(s.name).slice(0, 300), category: s.category_id ?? null });
+  }
+  // Same reasoning as the lineup: an empty answer from a panel mid-restart
+  // must not wipe a library we are using to tell people what we carry.
+  if (!rows.length && vodCount(service) > 0) {
+    return { ok: false, error: 'panel returned an empty library — keeping the cached one' };
+  }
+
+  const t = now();
+  const insert = db.prepare('INSERT INTO xc_vod (service, kind, name, norm_name, category, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
+  db.transaction(() => {
+    db.prepare('DELETE FROM xc_vod WHERE service = ?').run(service);
+    for (const r of rows) {
+      const norm = normName(r.name);
+      if (norm) insert.run(service, r.kind, r.name, norm, r.category === null ? null : String(r.category), t);
+    }
+  })();
+  return { ok: true, count: vodCount(service) };
+}
+
+export function vodCount(service = 1) {
+  return db.prepare('SELECT COUNT(*) n FROM xc_vod WHERE service = ?').get(service).n;
+}
+
+export function vodUpdatedAt(service = 1) {
+  return db.prepare('SELECT MAX(updated_at) t FROM xc_vod WHERE service = ?').get(service).t || 0;
+}
+
+export const vodKnown = (service = 1) => vodCount(service) > 0;
+
+// Is this title already in the library? Deliberately strict: telling someone
+// a film is already there when it is not sends them hunting through the app
+// and makes the bot look like it is fobbing them off, which is worse than
+// taking a duplicate request.
+export function findVodTitle(title, { service = 1, limit = 3 } = {}) {
+  const norm = normName(title);
+  // Short titles are real ("Up", "It", "Her"). They are only rejected for the
+  // CONTAINMENT pass below, where being a fragment of a longer name is a
+  // coincidence rather than a match.
+  if (norm.length < 2) return [];
+  const rows = db.prepare('SELECT kind, name, norm_name FROM xc_vod WHERE service = ?').all(service);
+
+  const exact = rows.filter((r) => r.norm_name === norm);
+  if (exact.length) return exact.slice(0, limit).map((r) => ({ ...r, exact: true }));
+
+  // A library name usually carries extra decoration ("Oppenheimer 4K",
+  // "The Batman [2022] IMAX"), so a contained match counts — but only when
+  // the asked-for title is long enough that containment means something.
+  // "Up" or "It" inside a longer name is a coincidence, not a hit.
+  if (norm.length < 6) return [];
+  return rows
+    .filter((r) => r.norm_name.includes(norm))
+    .sort((a, b) => a.norm_name.length - b.norm_name.length)
+    .slice(0, limit)
+    .map((r) => ({ ...r, exact: false }));
+}

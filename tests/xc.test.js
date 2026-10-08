@@ -52,6 +52,13 @@ function xmltvBody() {
 </tv>`;
 }
 
+let vodStreams = [
+  { name: 'Oppenheimer (2023) 4K', category_id: '10' },
+  { name: 'The Batman [2022] IMAX', category_id: '10' },
+  { name: 'Up', category_id: '11' },
+];
+let vodSeries = [{ name: 'Severance', category_id: '20' }];
+
 let seenPasswords = [];
 let calls = [];
 let epgListings = null; // null = the panel's default single listing
@@ -84,6 +91,8 @@ before(async () => {
       ]));
     }
     if (action === 'get_live_streams') return res.end(JSON.stringify(streams));
+    if (action === 'get_vod_streams') return res.end(JSON.stringify(vodStreams));
+    if (action === 'get_series') return res.end(JSON.stringify(vodSeries));
     if (action === 'get_short_epg') {
       if (epgListings) return res.end(JSON.stringify({ epg_listings: epgListings }));
       return res.end(JSON.stringify({ epg_listings: [{
@@ -499,4 +508,53 @@ test('"tonight" and "tomorrow" pick out different windows', () => {
   assert.ok(tomorrowFrom > tonightFrom, 'tomorrow starts later than tonight');
   const [defFrom, defTo] = xc.timeWindow('what channel is the f1 on');
   assert.ok(defTo - defFrom >= 23 * 3600, 'no time word means roughly the next day');
+});
+
+// --- the VOD library ---------------------------------------------------------
+
+test('the library is pulled and both films and series are kept', async () => {
+  const r = await xc.refreshVod(1);
+  assert.equal(r.ok, true);
+  assert.equal(r.count, 4);
+  assert.equal(db.prepare("SELECT kind FROM xc_vod WHERE name = 'Severance'").get().kind, 'series');
+});
+
+test('an empty library from the panel never wipes the one we have', async () => {
+  const before = xc.vodCount(1);
+  const keptM = vodStreams; const keptS = vodSeries;
+  vodStreams = []; vodSeries = [];
+  try {
+    const r = await xc.refreshVod(1);
+    assert.equal(r.ok, false);
+    assert.equal(xc.vodCount(1), before, 'a panel blip must not make us claim we carry nothing');
+  } finally {
+    vodStreams = keptM; vodSeries = keptS;
+    await xc.refreshVod(1);
+  }
+});
+
+test('a title is matched through the decoration library names carry', () => {
+  // "Oppenheimer 4K", "The Batman [2022] IMAX" — nobody asks for it that way.
+  assert.match(xc.findVodTitle('Oppenheimer', { service: 1 })[0].name, /Oppenheimer/);
+  assert.match(xc.findVodTitle('oppenheimer (2023)', { service: 1 })[0].name, /Oppenheimer/);
+  assert.match(xc.findVodTitle('the batman', { service: 1 })[0].name, /Batman/);
+  assert.match(xc.findVodTitle('Severance season 2', { service: 1 })[0].name, /Severance/);
+});
+
+test('a short title never matches by being a fragment of a longer one', () => {
+  // "Up" is inside dozens of names. Sending someone hunting for a film we do
+  // not carry is worse than taking a duplicate request.
+  assert.equal(xc.findVodTitle('Up', { service: 1 })[0].exact, true, 'an exact short title still matches');
+  assert.equal(xc.findVodTitle('man', { service: 1 }).length, 0, 'but a fragment does not');
+  assert.equal(xc.findVodTitle('Batma', { service: 1 }).length, 0);
+});
+
+test('a title we do not carry is reported as missing, not as the nearest thing', () => {
+  assert.equal(xc.findVodTitle('Dune Part Three', { service: 1 }).length, 0);
+});
+
+test('the libraries are per service and never answered from the wrong one', () => {
+  assert.equal(xc.vodKnown(2), false, 'service 2 has no library cached');
+  assert.equal(xc.findVodTitle('Oppenheimer', { service: 2 }).length, 0,
+    'service 1 carrying it says nothing about service 2');
 });

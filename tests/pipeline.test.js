@@ -2919,3 +2919,121 @@ test('a fixture question reaches the model with the real listing attached', asyn
   db.prepare('DELETE FROM xc_programmes').run();
   db.prepare('DELETE FROM xc_channels').run();
 });
+
+// --- VOD requests are checked against what we actually carry -----------------
+
+function stockLibrary() {
+  db.prepare('DELETE FROM xc_vod').run();
+  const ins = db.prepare('INSERT INTO xc_vod (service, kind, name, norm_name, category, updated_at) VALUES (?, ?, ?, ?, NULL, 1)');
+  ins.run(1, 'movie', 'Oppenheimer (2023) 4K', 'oppenheimer');
+  ins.run(1, 'series', 'Severance', 'severance');
+  ins.run(2, 'movie', 'Oppenheimer (2023) 4K', 'oppenheimer');
+  ins.run(2, 'series', 'Severance', 'severance');
+  // Carried by service 1 ONLY — the two libraries are not the same, which is
+  // the whole reason this has to care who is asking.
+  ins.run(1, 'series', 'The Bear', 'thebear');
+}
+
+test('a request for something already on the service is answered, not filed', async () => {
+  stockLibrary();
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+  db.prepare('DELETE FROM vod_requests').run();
+
+  const ctx = fakeCtx('can we get Oppenheimer', { userId: 99201 });
+  await handleDirectMessage(ctx, ctx.message.text);
+  const msg = ctx.sent.map((s) => s.msg).join('\n');
+  assert.match(msg, /already/i, 'told it is there');
+  assert.match(msg, /Oppenheimer/, 'and what it is listed as');
+  assert.match(msg, /Movies/, 'and where to look');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM vod_requests').get().n, 0,
+    'nothing filed — the customer would wait for a batch that never comes and the admin would close it by hand');
+});
+
+test('a series says Series, not Movies', async () => {
+  stockLibrary();
+  const ctx = fakeCtx('Request: Severance', { userId: 99202 });
+  await handleDirectMessage(ctx, ctx.message.text);
+  assert.match(ctx.sent.map((s) => s.msg).join('\n'), /Series section/);
+});
+
+test('a title we genuinely do not carry is still recorded as a request', async () => {
+  stockLibrary();
+  db.prepare('DELETE FROM vod_requests').run();
+  const ctx = fakeCtx('Request: Dune Part Three (2027)', { userId: 99203 });
+  await handleDirectMessage(ctx, ctx.message.text);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM vod_requests').get().n, 1, 'normal behaviour is unchanged');
+});
+
+test('with no library cached nothing is claimed about what we carry', async () => {
+  db.prepare('DELETE FROM xc_vod').run();
+  db.prepare('DELETE FROM vod_requests').run();
+  const ctx = fakeCtx('can we get Oppenheimer', { userId: 99204 });
+  await handleDirectMessage(ctx, ctx.message.text);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM vod_requests').get().n, 1,
+    'a duplicate request beats sending someone hunting for a film we may not have');
+});
+
+test('a title in only ONE library is not claimed for a user we cannot place', async () => {
+  // Service 1 has The Bear, service 2 does not. An unlinked group member
+  // could be on either, so "it's already there" would be a coin flip.
+  stockLibrary();
+  db.prepare('DELETE FROM vod_requests').run();
+  const ctx = fakeCtx('can we get The Bear', { userId: 777333 });
+  await handleDirectMessage(ctx, ctx.message.text);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM vod_requests').get().n, 1, 'recorded rather than guessed at');
+});
+
+// --- service-specific questions ask which service ----------------------------
+
+test('a channel question asks which service when we cannot tell, then answers it', async () => {
+  const { _resetServiceAsk, handleDirectMessage } = await import('../src/bot/pipeline.js');
+  _resetServiceAsk();
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+  db.prepare('DELETE FROM xc_channels').run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (1, 101, 'UK: Sky Sports F1 HD', 'UK | SPORTS', 'f1.uk', 1)").run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (2, 201, 'FLIX: Sky Sports F1', 'SPORTS', 'f1b.uk', 1)").run();
+
+  const ctx = fakeCtx('what channel is the f1 on', { userId: 554433 });
+  const r = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.equal(r, 'service-ask');
+  assert.match(ctx.sent[0].msg, /Exclusive or Flix/, 'asked once, by name');
+  assert.match(ctx.sent[0].msg, /different channels/, 'and says why it matters');
+});
+
+test('answering which service re-runs the original question — they never repeat it', async () => {
+  const { _resetServiceAsk } = await import('../src/bot/pipeline.js');
+  _resetServiceAsk();
+  db.prepare('DELETE FROM xc_channels').run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (2, 201, 'FLIX: Sky Sports F1', 'SPORTS', 'f1b.uk', 1)").run();
+  setSetting('services.xcUser2', 'lookup');
+  setSetting('services.xcPass2', 'pw');
+  setSetting('services.url2', 'http://127.0.0.1:1');
+
+  const ctx = fakeCtx('what channel is the f1 on', { userId: 554434 });
+  await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.match(ctx.sent[0].msg, /Exclusive or Flix/);
+
+  aiResponse = 'It is on FLIX: Sky Sports F1.';
+  await handleDirectMessage(ctx, 'Flix');
+  // The question was answered without them typing it again, grounded on
+  // THEIR service's lineup.
+  assert.match(JSON.stringify(lastAiRequest), /FLIX: Sky Sports F1/, "service 2's lineup was used");
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+  setSetting('services.xcUser2', '');
+  setSetting('services.xcPass2', '');
+});
+
+test('with only one service configured the question is never asked', async () => {
+  const { _resetServiceAsk } = await import('../src/bot/pipeline.js');
+  _resetServiceAsk();
+  setSetting('services.name2', '');
+  try {
+    const ctx = fakeCtx('what channel is the f1 on', { userId: 554435 });
+    const r = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+    assert.notEqual(r, 'service-ask', 'nothing to disambiguate, so no friction');
+  } finally {
+    setSetting('services.name2', 'Flix');
+  }
+});

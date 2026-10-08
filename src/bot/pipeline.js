@@ -8,13 +8,13 @@ import { state } from '../state.js';
 import {
   sendChunked, logMessage, setLogSource, recordUnanswered, chatAllowed,
   isLikelyInScope, hasScopeSignal, recordProblem, extractProblemTopic, isAdminUser,
-  isContentIssue, looksLikeLiveIssue, wrongCopyIssue, withAdminContact,
+  isContentIssue, looksLikeLiveIssue, wrongCopyIssue, withAdminContact, linkedCustomer,
 } from './helpers.js';
 import { alertAdmins } from './reports.js';
 import { embed, retrieveFaqs, embeddingsProven } from '../ai/embeddings.js';
 import { lookupAnswer, rememberAnswer, cacheable } from '../ai/answer-cache.js';
 import { circuitOpen } from '../ai/breaker.js';
-import { looksLikeChannelQuestion, looksLikeFixtureQuestion, channelGrounding } from '../xc.js';
+import { looksLikeChannelQuestion, looksLikeFixtureQuestion, channelGrounding, channelCount, findVodTitle, vodKnown } from '../xc.js';
 import { looksLikeGuideRequest, findGuide, visibleGuides, mdToPlain } from '../guides.js';
 import { looksLikeWalletRequest, walletMessage } from '../payments.js';
 import {
@@ -225,6 +225,108 @@ function peekVodService(userId) {
   return k && Date.now() - k.at < URL_TTL_MS ? k.name : null;
 }
 
+// ---- which service is this person on? --------------------------------------
+// The two services carry DIFFERENT channel lineups and DIFFERENT VOD
+// libraries, so a fair number of answers are only correct for one of them.
+// Answering from service 1 for everybody is not a neutral default — it is
+// confidently telling half the customers something untrue about their own
+// service. Resolve it where we can, ask once where we cannot.
+
+// 1 or 2, or null when we genuinely cannot tell.
+function serviceNumberFor(ctx) {
+  const s = serviceConfig();
+  // A linked customer is authoritative: their username is on file, and the
+  // username is what decides the service.
+  const customer = linkedCustomer(ctx.from?.id);
+  if (customer?.username) {
+    return serviceForUsername(customer.username) === s.two ? 2 : 1;
+  }
+  // Otherwise whatever they told us a few minutes ago, for anything.
+  const remembered = peekVodService(ctx.from?.id);
+  if (remembered) {
+    if (s.two.name && remembered.toLowerCase() === s.two.name.toLowerCase()) return 2;
+    if (s.one.name && remembered.toLowerCase() === s.one.name.toLowerCase()) return 1;
+  }
+  return null;
+}
+
+// With only one service configured there is nothing to ask about, so the
+// question would be pure friction.
+function serviceAmbiguous() {
+  const s = serviceConfig();
+  return Boolean(s.one.name && s.two.name);
+}
+
+function serviceAskText(why) {
+  const s = serviceConfig();
+  return `${why} Which service are you on — ${s.one.name} or ${s.two.name}? (Not sure? Reply with the username you log in with — never the password — and I'll work it out.)`;
+}
+
+// A question parked while we ask which service it is about, so the customer
+// does not have to type it again. Without this the follow-up costs them a
+// message and reads as the bot being obtuse.
+const pendingServiceQuestion = new Map(); // chatId:userId -> { question, at }
+
+// Ask which service, and park the question. Returns true when it asked.
+async function askWhichService(ctx, question, why, logId, replyParams) {
+  if (!serviceAmbiguous()) return false;
+  const key = `${ctx.chat.id}:${ctx.from.id}`;
+  pendingServiceQuestion.set(key, { question, at: Date.now() });
+  if (pendingServiceQuestion.size > 500) {
+    pendingServiceQuestion.delete(pendingServiceQuestion.keys().next().value);
+  }
+  setLogSource(logId, 'service-ask');
+  await ctx.api.sendMessage(ctx.chat.id, serviceAskText(why), replyParams).catch(() => {});
+  return true;
+}
+
+// Their answer to that ask: remember it and re-run what they originally
+// asked, so they never have to type it twice.
+async function handleServiceReply(ctx, text, logId, replyParams) {
+  const key = `${ctx.chat.id}:${ctx.from.id}`;
+  const st = pendingServiceQuestion.get(key);
+  if (!st) return false;
+  if (Date.now() - st.at >= URL_TTL_MS) {
+    pendingServiceQuestion.delete(key);
+    return false;
+  }
+  // They moved on rather than answering — let the normal flow have it.
+  if (looksLikeProblem(text) || anyVodRequest(text) || looksLikeGreeting(text) || looksLikeThanks(text)) {
+    pendingServiceQuestion.delete(key);
+    return false;
+  }
+
+  const s = serviceConfig();
+  let svc = serviceFromReply(text);
+  if (!svc) {
+    // They may have replied with a username instead of a service name.
+    const cand = plainWords(text).sort((a, b) => b.length - a.length)[0] || '';
+    if (cand.length >= 4) svc = serviceForUsername(cand);
+  }
+  if (!svc?.name) {
+    pendingServiceQuestion.delete(key);
+    return false; // unintelligible — normal handling, they can ask again
+  }
+
+  pendingServiceQuestion.delete(key);
+  rememberVodService(ctx.from.id, svc.name);
+  // Re-run the original question now that the answer will be right for them.
+  await answer(ctx, st.question, { isDm: ctx.chat.type === 'private', logId, assumeOnTopic: true });
+  return true;
+}
+
+// Questions whose answer differs between the two services. Both of these read
+// from per-service data, so answering without knowing which one is a coin
+// flip dressed up as an answer.
+function isServiceSpecific(question) {
+  return looksLikeChannelQuestion(question) || looksLikeFixtureQuestion(question);
+}
+
+export const _resetServiceAsk = () => {
+  pendingServiceQuestion.clear();
+  knownVodService.clear();
+};
+
 // Which-service follow-up for a captured request: auto-tag from recent
 // memory, or arm the ask. Returns the text to append to the ack ('' = none).
 function maybeArmServiceAsk(ctx, requestId) {
@@ -249,7 +351,45 @@ const pendingVodConfirm = new Map(); // chatId:userId -> { requestId, original, 
 // silently ("the batman" → "The Batman (2022)"); a DIFFERING best guess asks
 // the requester to confirm before the title is rewritten. IMDb being off,
 // slow or clueless changes nothing — the request is always recorded.
+// Is it already on the service? Checked before anything is filed, because a
+// request for a title we already carry costs the customer their evening
+// (waiting for a batch that will never come) and the admin a manual close.
+// Returns sendable text, or null to carry on and record the request.
+function alreadyInLibrary(ctx, title) {
+  const service = serviceNumberFor(ctx);
+  // Only check a library we actually hold. With no cached library, or no idea
+  // which service they are on AND the two libraries differing, saying "it's
+  // already there" would be a guess — and sending someone hunting through
+  // the app for a film we do not carry is worse than taking a duplicate.
+  const candidates = service ? [service] : [1, 2];
+  const usable = candidates.filter((n) => vodKnown(n));
+  if (!usable.length) return null;
+  if (!service && usable.length === 2 && serviceAmbiguous()) {
+    const hitsOne = findVodTitle(title, { service: 1 });
+    const hitsTwo = findVodTitle(title, { service: 2 });
+    // Only answer outright when both services agree; otherwise it depends on
+    // who they are, and the service ask below handles that.
+    if (!hitsOne.length || !hitsTwo.length) return null;
+    return libraryHitText(hitsOne[0]);
+  }
+  for (const n of usable) {
+    const hits = findVodTitle(title, { service: n });
+    if (hits.length) return libraryHitText(hits[0]);
+  }
+  return null;
+}
+
+function libraryHitText(hit) {
+  const where = hit.kind === 'series' ? 'Series' : 'Movies';
+  return hit.exact
+    ? `✅ Good news — "${hit.name}" is already on the service. Open the ${where} section in your app and search for it. If it won't play, tell me and I'll get it looked at.`
+    : `✅ I think we already have that — it's listed as "${hit.name}". Have a look in the ${where} section of your app. Not the one you meant? Reply with the exact title and year and I'll put a request in.`;
+}
+
 async function captureVodRequest(ctx, title) {
+  const already = alreadyInLibrary(ctx, title);
+  if (already) return already;
+
   const hit = await lookupImdb(title);
   let useTitle = title;
   let confirm = null;
@@ -800,6 +940,17 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
     }
   }
 
+  // Which service is this person on? Needed before anything that reads
+  // per-service data, and asked for exactly once when it matters.
+  const serviceNumber = serviceNumberFor(ctx);
+  if (serviceNumber === null && serviceAmbiguous() && isServiceSpecific(question) &&
+      (channelCount(1) || channelCount(2))) {
+    if (await askWhichService(ctx, question,
+      'The two services carry different channels, so I want to give you the right answer.', logId, replyParams)) {
+      return 'service-ask';
+    }
+  }
+
   // "Where do I send it?" is answered from settings, never by the model. A
   // crypto address is the one value here where a single wrong character costs
   // the customer their money with no way back, so it is sent verbatim by code
@@ -961,8 +1112,13 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
             // looked like a channel question — and the bot had to say it has
             // no fixtures. The downloaded guide answers it, so the fixture
             // phrasings get the same grounding.
-            const channels = looksLikeChannelQuestion(question) || looksLikeFixtureQuestion(question)
-              ? await channelGrounding(question).catch(() => null)
+            //
+            // Grounded against THEIR service: the two lineups differ, and
+            // answering everybody from service 1 is not a neutral default, it
+            // is telling half the customers something untrue about their own
+            // service. serviceNumber is resolved (or asked for) further up.
+            const channels = isServiceSpecific(question)
+              ? await channelGrounding(question, { service: serviceNumber || 1 }).catch(() => null)
               : null;
             try {
               reply = await askAi(question, {
@@ -1180,6 +1336,7 @@ export async function handleGroupMessage(ctx) {
   // or clear intent so group banter containing "url" doesn't trigger it.
   const groupReplyParams = { reply_parameters: { message_id: ctx.message.message_id } };
   if (await handleUrlServiceReply(ctx, text, logId, groupReplyParams)) return;
+  if (await handleServiceReply(ctx, text, logId, groupReplyParams)) return;
   if (await handleVodConfirmReply(ctx, text, logId, groupReplyParams)) return;
   if (await handleVodServiceReply(ctx, text, logId, groupReplyParams)) return;
   if (
@@ -1664,6 +1821,7 @@ export async function handleDirectMessage(ctx) {
   // Per-user service URL flow: answer a pending username reply, or start the
   // flow when they ask for a URL — only ever THEIR service's URL.
   if (await handleUrlServiceReply(ctx, text, logId, {})) return;
+  if (await handleServiceReply(ctx, text, logId, {})) return;
   if (await handleVodConfirmReply(ctx, text, logId, {})) return;
   if (await handleVodServiceReply(ctx, text, logId, {})) return;
   if (isUrlRequest(text) && await handleUrlRequest(ctx, logId, {})) return;

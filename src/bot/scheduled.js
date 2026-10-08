@@ -2,7 +2,7 @@ import { db, now } from '../db/db.js';
 import { getSetting, setSetting } from '../settings.js';
 import { hub } from './hub.js';
 import { withAdminContact } from './helpers.js';
-import { xcConfigured, refreshChannels, channelsUpdatedAt, refreshGuide, guideRefreshedAt } from '../xc.js';
+import { xcConfigured, refreshChannels, channelsUpdatedAt, refreshGuide, guideRefreshedAt, refreshVod, vodUpdatedAt } from '../xc.js';
 import { tokens, matchFaq } from '../faq/matcher.js';
 import { composeFaqSuggestion } from '../ai/client.js';
 import { harvestAdminAnswers, harvestResolvedCases, recurringUnresolved } from '../ai/learn.js';
@@ -274,6 +274,9 @@ export async function xcChannelSweep() {
     const age = now() - channelsUpdatedAt(service);
     if (age < hours * 3600) continue;
     await refreshChannels(service).catch(() => {});
+    // The VOD library rides with the lineup: same cadence, same reason, and
+    // it is a plain list rather than a big download like the guide.
+    await refreshVod(service).catch(() => {});
   }
 }
 

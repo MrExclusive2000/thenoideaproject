@@ -536,6 +536,26 @@ const migrations = [
   CREATE INDEX idx_xc_prog_when ON xc_programmes(service, start_ts);
   CREATE INDEX idx_xc_prog_chan ON xc_programmes(service, channel_id, start_ts);
   `,
+  // v23 — the VOD library, so "can we get Oppenheimer" can be checked against
+  // what is actually on the service instead of being filed as a request for
+  // something already there. That wastes the customer's evening (they wait for
+  // a batch that will never come) and the admin's time (they close a request
+  // for a title they already carry).
+  //
+  // Per service, because the two libraries are NOT the same — which is why
+  // answering this at all means knowing which service the person is on.
+  `
+  CREATE TABLE xc_vod (
+    id        INTEGER PRIMARY KEY,
+    service   INTEGER NOT NULL,
+    kind      TEXT NOT NULL,
+    name      TEXT NOT NULL,
+    norm_name TEXT NOT NULL,
+    category  TEXT,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE INDEX idx_xc_vod_norm ON xc_vod(service, norm_name);
+  `,
 ];
 
 export function migrate(db) {
