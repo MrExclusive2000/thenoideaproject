@@ -650,3 +650,16 @@ test('an install still on the old 30-minute default is moved to a day', async ()
   assert.equal(stored(), '90', 'a number someone chose is not overridden');
   setSetting('services.epgCacheMinutes', 1440);
 });
+
+test('a dropped leading "The" is still an exact match, not a hedge', () => {
+  db.prepare('DELETE FROM xc_vod').run();
+  db.prepare('INSERT INTO xc_vod (service, kind, name, norm_name, category, updated_at) VALUES (1, ?, ?, ?, NULL, 1)')
+    .run('series', 'The Big Bang Theory', 'thebigbangtheory');
+  // Answering "I think we already have that... not the one you meant?" for a
+  // show that is plainly the one they asked for reads as the bot fobbing
+  // them off.
+  const hit = xc.findVodTitle('big bang theory', { service: 1 })[0];
+  assert.ok(hit, 'found');
+  assert.equal(hit.exact, true, 'the article is not part of what anyone means');
+  assert.equal(xc.findVodTitle('The Big Bang Theory', { service: 1 })[0].exact, true);
+});

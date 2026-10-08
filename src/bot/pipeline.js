@@ -21,7 +21,7 @@ import {
   queueProblemAlert, setProblemRearmHook, maybeAutoDegrade,
   looksLikeCaseClose, caseNumbersIn, closeCaseAsAdmin,
 } from './problems.js';
-import { parseVodRequest, parseNaturalVodRequest, parseAvailabilityQuestion, recordVodRequest, setRequestService, lookupImdb, canonicalizeRequest } from './requests.js';
+import { parseVodRequest, parseNaturalVodRequest, parseAvailabilityQuestion, serviceNamedIn, recordVodRequest, setRequestService, lookupImdb, canonicalizeRequest } from './requests.js';
 import { hub } from './hub.js';
 
 // Both request shapes: the taught "Request: Title" and natural "can we get X".
@@ -249,8 +249,13 @@ function peekVodService(userId) {
 // service. Resolve it where we can, ask once where we cannot.
 
 // 1 or 2, or null when we genuinely cannot tell.
-function serviceNumberFor(ctx) {
+function serviceNumberFor(ctx, question = '') {
   const s = serviceConfig();
+  // What they said in this very message wins. "Is big bang theory on
+  // exclusive" already answers the question, and asking it back is the
+  // single most irritating thing a bot can do.
+  const named = serviceNamedIn(question);
+  if (named) return named;
   // A linked customer is authoritative: their username is on file, and the
   // username is what decides the service.
   const customer = linkedCustomer(ctx.from?.id);
@@ -369,8 +374,8 @@ const pendingVodConfirm = new Map(); // chatId:userId -> { requestId, original, 
 // request for a title we already carry costs the customer their evening
 // (waiting for a batch that will never come) and the admin a manual close.
 // Returns sendable text, or null to carry on and record the request.
-function alreadyInLibrary(ctx, title) {
-  const service = serviceNumberFor(ctx);
+function alreadyInLibrary(ctx, title, asked = '') {
+  const service = serviceNumberFor(ctx, asked);
   // Only check a library we actually hold. With no cached library, or no idea
   // which service they are on AND the two libraries differing, saying "it's
   // already there" would be a guess — and sending someone hunting through
@@ -406,11 +411,11 @@ function libraryHitText(hit) {
 // carry. Only the library may answer this; when there is no library cached,
 // it becomes a request, because a duplicate request is cheap and a wrong
 // "yes we have it" is not.
-async function answerAvailability(ctx, title) {
-  const already = alreadyInLibrary(ctx, title);
+async function answerAvailability(ctx, title, asked = '') {
+  const already = alreadyInLibrary(ctx, title, asked);
   if (already) return already;
 
-  const service = serviceNumberFor(ctx);
+  const service = serviceNumberFor(ctx, asked);
   const checked = service ? vodKnown(service) : (vodKnown(1) && vodKnown(2));
   if (checked) {
     const { ack, requestId, deduped } = recordVodRequest(ctx, title);
@@ -622,6 +627,23 @@ function onCooldown(userId) {
   // Admins are never rate-limited — rapid-fire testing must always answer.
   if (isAdminUser(userId)) return false;
   return Date.now() - (cooldowns.get(userId) || 0) < seconds * 1000;
+}
+
+// Is the bot waiting on an answer from this person? The rate limiter exists
+// to stop someone firing new questions at the bot, NOT to throw away a reply
+// the bot itself asked for. Dropping that is the worst thing it can do: the
+// bot asks "which service are you on?", the customer answers, and nothing
+// happens — which reads as broken, and leaves them stuck in a dead end with
+// no way to tell that a timer did it.
+function awaitingReplyFrom(ctx) {
+  const key = `${ctx.chat.id}:${ctx.from.id}`;
+  return Boolean(
+    pendingServiceQuestion.get(key) ||
+    pendingUrl.get(key) ||
+    pendingVodService.get(key) ||
+    pendingVodConfirm.get(key) ||
+    getProblemState(ctx.from.id)
+  );
 }
 
 function bumpCooldown(userId) {
@@ -986,7 +1008,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
 
   // Which service is this person on? Needed before anything that reads
   // per-service data, and asked for exactly once when it matters.
-  const serviceNumber = serviceNumberFor(ctx);
+  const serviceNumber = serviceNumberFor(ctx, question);
   if (serviceNumber === null && serviceAmbiguous() && isServiceSpecific(question) &&
       (channelCount(1) || channelCount(2))) {
     if (await askWhichService(ctx, question,
@@ -1396,7 +1418,7 @@ export async function handleGroupMessage(ctx) {
     const asking = parseAvailabilityQuestion(text);
     if (asking) {
       setLogSource(logId, 'vod-request');
-      await ctx.api.sendMessage(ctx.chat.id, await answerAvailability(ctx, asking), groupReplyParams).catch(() => {});
+      await ctx.api.sendMessage(ctx.chat.id, await answerAvailability(ctx, asking, text), groupReplyParams).catch(() => {});
       return;
     }
     const vodTitle = anyVodRequest(text);
@@ -1670,7 +1692,7 @@ export async function handleGroupMessage(ctx) {
 
   // Cooldown drops are stamped in the log — a silently ignored question is
   // indistinguishable from a bug without this.
-  if (onCooldown(ctx.from.id)) {
+  if (!awaitingReplyFrom(ctx) && onCooldown(ctx.from.id)) {
     setLogSource(logId, 'cooldown');
     return;
   }
@@ -1860,7 +1882,7 @@ export async function handleDirectMessage(ctx) {
   if (containsBannedWord(text, getBannedWords())) return;
   // Log BEFORE the cooldown check — a dropped DM used to vanish entirely.
   const logId = logMessage(ctx.chat.id, ctx.from, text, null, ctx.message, 'DM');
-  if (onCooldown(ctx.from.id)) {
+  if (!awaitingReplyFrom(ctx) && onCooldown(ctx.from.id)) {
     setLogSource(logId, 'cooldown');
     return;
   }
@@ -1881,7 +1903,7 @@ export async function handleDirectMessage(ctx) {
     const asking = parseAvailabilityQuestion(text);
     if (asking) {
       setLogSource(logId, 'vod-request');
-      await ctx.reply(await answerAvailability(ctx, asking)).catch(() => {});
+      await ctx.reply(await answerAvailability(ctx, asking, text)).catch(() => {});
       return;
     }
     const vodTitle = anyVodRequest(text);

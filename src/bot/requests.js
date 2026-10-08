@@ -26,13 +26,47 @@ export function parseVodRequest(text) {
 // library knows; the model does not.
 const AVAILABILITY = /^\s*(?:(?:do|have)\s+(?:you|yous|u|ya|we)\s+(?:have|got|carry)|(?:is|are)\s+(?:there\s+)?|(?:got|have)\s+(?:you\s+)?(?:got\s+)?|(?:any\s+sign\s+of)|(?:where\s+(?:can|do)\s+i\s+(?:find|watch)))\s*(.{2,100}?)\s*(?:on(?:\s+(?:here|there|the\s+service|vod))?|available|in\s+(?:the\s+)?vod|on\s+demand|anywhere)?\s*[?!.]*\s*$/i;
 
+// "Is big bang theory on exclusive" is a question about the VOD library that
+// happens to be shaped exactly like "is the boxing on tonight" — and it was
+// being read as the second one, so the bot asked which service carried the
+// CHANNEL. The thing that tells them apart is the tail: a configured service
+// name, or "here"/"the service"/"vod". "Is the F1 on Sky Sports" has a
+// channel in that slot and stays a fixture question.
+const serviceNames = () => ['services.name1', 'services.name2']
+  .map((k) => String(getSetting(k) || '').trim())
+  .filter((n) => n.length >= 3);
+
+const ON_WHAT = /^\s*(?:is|are|have\s+you\s+got|do\s+you\s+have|got|does\s+(?:it|he|she)\s+have)\s+(.{2,100}?)\s+on\s+([\w\s]{2,40}?)\s*[?!.]*$/i;
+
+// The service someone named in their own message, so the bot does not ask
+// which service they are on when they just said.
+export function serviceNamedIn(text) {
+  const s = String(text || '').toLowerCase();
+  const [one, two] = ['services.name1', 'services.name2'].map((k) => String(getSetting(k) || '').trim());
+  const hitOne = one.length >= 3 && new RegExp(`\\b${one.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(s);
+  const hitTwo = two.length >= 3 && new RegExp(`\\b${two.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(s);
+  if (hitOne && !hitTwo) return 1;
+  if (hitTwo && !hitOne) return 2;
+  return null;
+}
+
+function availabilityOnService(s) {
+  const m = s.match(ON_WHAT);
+  if (!m) return null;
+  const tail = m[2].trim().toLowerCase().replace(/^the\s+/, '');
+  const known = [...serviceNames().map((n) => n.toLowerCase()), 'here', 'there', 'vod', 'demand', 'service', 'your service', 'the app', 'app'];
+  if (!known.includes(tail)) return null;
+  return m[1].trim();
+}
+
 export function parseAvailabilityQuestion(text) {
   if (/\n/.test(String(text))) return null;
   const s = String(text).trim();
   if (s.length > 120) return null;
+  const onService = availabilityOnService(s);
   // It has to actually be asking whether we HAVE something.
-  if (!/\b(have|got|carry|available|on here|on there|in vod|on demand|where can i (?:find|watch))\b/i.test(s)) return null;
-  const m = s.match(AVAILABILITY);
+  if (!onService && !/\b(have|got|carry|available|on here|on there|in vod|on demand|where can i (?:find|watch))\b/i.test(s)) return null;
+  const m = onService ? [null, onService] : s.match(AVAILABILITY);
   if (!m) return null;
   let title = stripTitleTail(m[1].trim().replace(/\s+/g, ' '));
   if (title.length < 2 || title.length > 100) return null;
@@ -58,10 +92,15 @@ const NATURAL_REQ = /^\s*(?:please |pls |plz )?(?:any chance (?:of |we can |you 
 // show.
 const TITLE_TAIL = /\s+(?:the\s+)?(?:tv\s+)?(?:series|show|boxset|box\s?set|collection|movie|film|all\s+(?:the\s+)?seasons?|complete(?:\s+series)?)\s*$/i;
 
+// Trailing words that say what to DO with it, not what it is called.
+// "Can I get big bang theory added" was filed as "big bang theory added",
+// which matches no library entry and no other request for the same show.
+const TITLE_VERB_TAIL = /\s+(?:added|adding|uploaded|uploading|put\s+(?:on|up)|on\s+(?:here|there|the\s+service|vod)|to\s+(?:the\s+)?(?:vod|service|list)|sorted|please|plz|pls)\s*$/i;
+
 export function stripTitleTail(title) {
   let out = String(title).trim();
-  for (let i = 0; i < 3; i++) {
-    const next = out.replace(TITLE_TAIL, '').trim();
+  for (let i = 0; i < 4; i++) {
+    const next = out.replace(TITLE_VERB_TAIL, '').replace(TITLE_TAIL, '').trim();
     if (next === out) break;
     // Never strip it away to nothing — "The Movie" is a title in its own right.
     if (next.length < 2) break;

@@ -607,6 +607,8 @@ const normName = (s) => String(s || '')
   .replace(/\b(s\d{1,2}|season\s*\d{1,2}|complete|collection|saga)\b/g, ' ')
   .replace(/[^a-z0-9]/g, '');
 
+const dropArticle = (n) => String(n || '').replace(/^(?:the|a|an)/, '');
+
 export async function refreshVod(service = 1) {
   const movies = await call(service, { action: 'get_vod_streams' });
   const series = await call(service, { action: 'get_series' });
@@ -660,7 +662,14 @@ export function findVodTitle(title, { service = 1, limit = 3 } = {}) {
   if (norm.length < 2) return [];
   const rows = db.prepare('SELECT kind, name, norm_name FROM xc_vod WHERE service = ?').all(service);
 
-  const exact = rows.filter((r) => r.norm_name === norm);
+  // A leading article is dropped on both sides before comparing. People say
+  // "big bang theory" for "The Big Bang Theory" constantly, and without this
+  // it falls through to the fuzzy pass and gets answered with a hedge ("I
+  // think we already have that... not the one you meant?") for a show that is
+  // plainly the one they asked for. Compared rather than stored that way, so
+  // it works against rows written by an older version too.
+  const loose = dropArticle(norm);
+  const exact = rows.filter((r) => r.norm_name === norm || dropArticle(r.norm_name) === loose);
   if (exact.length) return exact.slice(0, limit).map((r) => ({ ...r, exact: true }));
 
   // A library name usually carries extra decoration ("Oppenheimer 4K",

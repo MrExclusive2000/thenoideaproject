@@ -3163,3 +3163,94 @@ test('the model is told it does not know what is in the VOD library', () => {
   assert.match(prompt, /do NOT know what is in the VOD library/);
   assert.match(prompt, /sends them hunting through the app/, 'with the reason, not just the rule');
 });
+
+// --- from the group: the whole exchange, turn by turn ------------------------
+// "Is big bang theory on exclusive" → the bot asked which service they were
+// on, having been told in the question. Then "Exclusive" got NO reply at all,
+// and nor did "Can I get big bang theory added".
+
+test('naming the service in the question means it is never asked back', async () => {
+  const { _resetServiceAsk } = await import('../src/bot/pipeline.js');
+  _resetServiceAsk();
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+  setSetting('bot.cooldownSeconds', 0);
+  db.prepare('DELETE FROM xc_vod').run();
+  db.prepare('INSERT INTO xc_vod (service, kind, name, norm_name, category, updated_at) VALUES (1, ?, ?, ?, NULL, 1)')
+    .run('series', 'The Big Bang Theory', 'thebigbangtheory');
+
+  const ctx = fakeCtx('Is big bang theory on exclusive', { userId: 99401 });
+  await handleDirectMessage(ctx, ctx.message.text);
+  const msg = ctx.sent.map((s) => s.msg).join('\n');
+  assert.doesNotMatch(msg, /Which service are you on/i, 'they just said which service');
+  assert.match(msg, /already on the service/i, 'answered from that service\'s library');
+});
+
+test('"is X on <service>" is a VOD question, not a football fixture', async () => {
+  const { looksLikeFixtureQuestion } = await import('../src/xc.js');
+  const { parseAvailabilityQuestion } = await import('../src/bot/requests.js');
+  // It is shaped exactly like "is the boxing on tonight", which is why it was
+  // being read as one — and the bot asked which service carried the CHANNEL.
+  assert.equal(parseAvailabilityQuestion('Is big bang theory on exclusive'), 'big bang theory');
+  assert.equal(parseAvailabilityQuestion('is dune on here'), 'dune');
+  // ...while a real fixture question is untouched.
+  assert.equal(parseAvailabilityQuestion('is the f1 on sky sports'), null);
+  assert.equal(parseAvailabilityQuestion('is the boxing on tonight'), null);
+  assert.equal(looksLikeFixtureQuestion('is the boxing on tonight'), true);
+});
+
+test('the answer to a question the bot asked is never dropped by the rate limiter', async () => {
+  // The worst thing the limiter can do: the bot asks "which service are you
+  // on?", the customer answers, and nothing happens. It reads as broken, and
+  // there is no way for them to tell that a timer did it.
+  const { _resetServiceAsk } = await import('../src/bot/pipeline.js');
+  _resetServiceAsk();
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+  setSetting('bot.cooldownSeconds', 15);
+  db.prepare('DELETE FROM xc_channels').run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (1, 101, 'UK: Sky Sports F1 HD', 'UK | SPORTS', 'f1.uk', 1)").run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (2, 201, 'FLIX: Sky Sports F1', 'SPORTS', 'f1b.uk', 1)").run();
+
+  try {
+    const ask = fakeCtx('what channel is the f1 on', { userId: 99402 });
+    await handleDirectMessage(ask, ask.message.text);
+    assert.match(ask.sent[0].msg, /Which service are you on/i, 'asked');
+
+    // Straight back, well inside the cooldown.
+    aiResponse = 'It is on UK: Sky Sports F1 HD.';
+    const reply = fakeCtx('Exclusive', { userId: 99402 });
+    await handleDirectMessage(reply, 'Exclusive');
+    assert.ok(reply.sent.length > 0, 'the answer to the bot\'s own question must always get a reply');
+  } finally {
+    setSetting('bot.cooldownSeconds', 0);
+    aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+  }
+});
+
+test('an unprompted second question is still rate limited', async () => {
+  // The limiter still does its job — it just stops eating solicited replies.
+  setSetting('bot.cooldownSeconds', 15);
+  try {
+    const a = fakeCtx('how do i install on firestick', { userId: 99403 });
+    await handleDirectMessage(a, a.message.text);
+    assert.ok(a.sent.length > 0);
+    const b = fakeCtx('and on android', { userId: 99403 });
+    await handleDirectMessage(b, b.message.text);
+    assert.equal(b.sent.length, 0, 'back-to-back new questions are still throttled');
+  } finally {
+    setSetting('bot.cooldownSeconds', 0);
+  }
+});
+
+test('"can I get X added" files X, not "X added"', async () => {
+  setSetting('vod.imdbCheck', false);
+  db.prepare('DELETE FROM xc_vod').run();
+  db.prepare('DELETE FROM vod_requests').run();
+  const ctx = fakeCtx('Can I get big bang theory added', { userId: 99404 });
+  await handleDirectMessage(ctx, ctx.message.text);
+  const row = db.prepare('SELECT * FROM vod_requests ORDER BY id DESC LIMIT 1').get();
+  assert.ok(row, 'captured');
+  assert.equal(row.title, 'big bang theory',
+    '"added" says what to do with it, not what it is called — left on it matches no library entry and no other request');
+});
