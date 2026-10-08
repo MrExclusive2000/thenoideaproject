@@ -185,9 +185,19 @@ const parseListings = (row) => {
   }
 };
 
+// How long a run may be held when the panel gave us NO stop_timestamp. With
+// one, a long TTL is safe because the run expires the moment it finishes —
+// that is what does the real work, and the TTL is just a backstop. Without
+// one we cannot tell a finished run from a current one, and the TTL is the
+// only thing standing between a customer and "next on Sky Sports: a match
+// that ended yesterday". So a blind entry is held briefly whatever the
+// setting says.
+const BLIND_CACHE_SECONDS = 30 * 60;
+
 function epgIsFresh(row, t) {
   const age = t - row.fetched_at;
-  if (age >= epgTtlSeconds()) return false;
+  const blind = row.last_end <= 0;
+  if (age >= (blind ? Math.min(epgTtlSeconds(), BLIND_CACHE_SECONDS) : epgTtlSeconds())) return false;
   if (age < MIN_CACHE_SECONDS) return true;
   // last_end is the panel's own epoch, so it needs no timezone guesswork —
   // but it is only trusted to SHORTEN the entry's life, never to extend it.

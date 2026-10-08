@@ -322,10 +322,14 @@ test('the TTL is what finally sends us back to the panel', async () => {
   clearEpg();
   calls = [];
   setSetting('services.epgCacheMinutes', 30);
-  await xc.shortEpg(101, { service: 1 });
-  db.prepare('UPDATE xc_epg SET fetched_at = fetched_at - ?').run(31 * 60);
-  await xc.shortEpg(101, { service: 1 });
-  assert.equal(epgCalls(), 2, 'a 30-minute cache is 30 minutes old at most');
+  try {
+    await xc.shortEpg(101, { service: 1 });
+    db.prepare('UPDATE xc_epg SET fetched_at = fetched_at - ?').run(31 * 60);
+    await xc.shortEpg(101, { service: 1 });
+    assert.equal(epgCalls(), 2, 'a 30-minute cache is 30 minutes old at most');
+  } finally {
+    setSetting('services.epgCacheMinutes', 1440); // leave the default as found
+  }
 });
 
 test('an empty channel list from the panel never wipes a working lineup', async () => {
@@ -591,4 +595,58 @@ test('an install still on the old 6-hour default is moved to 24', async () => {
   migrate(db);
   assert.equal(stored(), '3');
   setSetting('services.xmltvRefreshHours', 24);
+});
+
+test('a run the panel dated is held for a day; the end time does the expiring', async () => {
+  const { setSetting, getSetting } = await import('../src/settings.js');
+  assert.equal(Number(getSetting('services.epgCacheMinutes')), 1440, 'a day by default');
+  clearEpg();
+  calls = [];
+  epgStop = Math.floor(Date.now() / 1000) + 4 * 3600; // still running in 4h
+  try {
+    await xc.shortEpg(101, { service: 1 });
+    assert.equal(epgCalls(), 1);
+    // Two hours later the match is still on, so there is nothing to refetch.
+    db.prepare('UPDATE xc_epg SET fetched_at = fetched_at - ?').run(2 * 3600);
+    await xc.shortEpg(101, { service: 1 });
+    assert.equal(epgCalls(), 1, 'still the same programme — no reason to ask again');
+
+    // Once it has finished, it goes, long before the day is up.
+    db.prepare('UPDATE xc_epg SET last_end = ?').run(Math.floor(Date.now() / 1000) - 60);
+    await xc.shortEpg(101, { service: 1 });
+    assert.equal(epgCalls(), 2, 'a finished run is never quoted as what is on next');
+  } finally {
+    epgStop = 0;
+  }
+});
+
+test('a run with NO end time is never held for a day, whatever the setting says', async () => {
+  // Without an end time there is no way to tell a finished programme from a
+  // current one, so the TTL is the only thing between a customer and "next
+  // on Sky Sports: a match that ended yesterday".
+  clearEpg();
+  calls = [];
+  epgStop = 0; // the panel sends no stop_timestamp
+  await xc.shortEpg(101, { service: 1 });
+  assert.equal(epgCalls(), 1);
+  db.prepare('UPDATE xc_epg SET fetched_at = fetched_at - ?').run(45 * 60);
+  await xc.shortEpg(101, { service: 1 });
+  assert.equal(epgCalls(), 2, 'capped well short of the configured day');
+});
+
+test('an install still on the old 30-minute default is moved to a day', async () => {
+  const { setSetting } = await import('../src/settings.js');
+  const { migrate } = await import('../src/db/schema.js');
+  const stored = () => db.prepare("SELECT value FROM settings WHERE key = 'services.epgCacheMinutes'").get()?.value;
+
+  setSetting('services.epgCacheMinutes', 30);
+  db.pragma('user_version = 24');
+  migrate(db);
+  assert.equal(stored(), '1440');
+
+  setSetting('services.epgCacheMinutes', 90);
+  db.pragma('user_version = 24');
+  migrate(db);
+  assert.equal(stored(), '90', 'a number someone chose is not overridden');
+  setSetting('services.epgCacheMinutes', 1440);
 });

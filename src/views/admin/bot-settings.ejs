@@ -133,7 +133,7 @@
       </div>
     </div>
     <p class="hint">Channels get added, renamed and dropped. A stale list has the bot sending someone to a channel that no longer exists, which is worse than not answering. In Telegram: <code>/channels</code> shows what is cached, <code>/channels refresh</code> pulls it now, <code>/channels sky sports</code> searches it.</p>
-    <p class="hint">The guide is cached per channel, so ten people asking what's on the same channel is <strong>one</strong> call to your panel, not ten. A cached run is also dropped as soon as everything in it has finished, so a longer window doesn't mean quoting a match that already ended — raise it if your panel is slow, lower it if your listings change a lot.</p>
+    <p class="hint">The guide is cached per channel, so ten people asking what's on the same channel is <strong>one</strong> call to your panel, not ten. The number here is a backstop, not the thing doing the work: a cached run is dropped the moment your panel's own timestamps say everything in it has finished, which is why a day is safe here and still never quotes a match that already ended. If your panel sends listings with no end time, those are held for 30 minutes only, whatever this says — without an end time there is no way to tell a finished programme from a current one.</p>
     <div class="row">
       <div>
         <label for="xmltvRefreshHours">Download the FULL guide every (hours, 0 = off)</label>

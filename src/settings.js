@@ -228,7 +228,11 @@ const DEFAULTS = {
   // the panel (minutes). Without it, every "what's on" was a live API call,
   // so the same question asked twice cost two. A finished run is dropped
   // early regardless, so raising this does not mean serving yesterday's guide.
-  'services.epgCacheMinutes': 30,
+  // A day. A cached run is dropped the moment the panel's own timestamps say
+  // everything in it has finished, so this is a backstop rather than the thing
+  // doing the work — and a run the panel gave no end time for is held for 30
+  // minutes whatever this says.
+  'services.epgCacheMinutes': 1440,
   // Download the WHOLE guide (xmltv.php) this often, in hours. 0 = off. This
   // is what answers "who's playing Derby tonight" — a question where the
   // channel is the answer — so it cannot be done per channel on demand.

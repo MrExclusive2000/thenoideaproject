@@ -563,6 +563,14 @@ const migrations = [
   `
   UPDATE settings SET value = '24' WHERE key = 'services.xmltvRefreshHours' AND value = '6';
   `,
+  // v25 — per-channel listings are held for a day too. Safe because a cached
+  // run already expires as soon as the panel's own stop timestamp says it has
+  // finished; this value is the backstop for when it has not. A run the panel
+  // gave no end time for is capped far shorter in code, whatever this says.
+  // Only moves a value still sitting on the old default.
+  `
+  UPDATE settings SET value = '1440' WHERE key = 'services.epgCacheMinutes' AND value = '30';
+  `,
 ];
 
 export function migrate(db) {
