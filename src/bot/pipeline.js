@@ -14,7 +14,7 @@ import { alertAdmins } from './reports.js';
 import { embed, retrieveFaqs, embeddingsProven } from '../ai/embeddings.js';
 import { lookupAnswer, rememberAnswer, cacheable } from '../ai/answer-cache.js';
 import { circuitOpen } from '../ai/breaker.js';
-import { looksLikeChannelQuestion, looksLikeFixtureQuestion, channelGrounding, channelCount, findVodTitle, vodKnown, xcConfigured } from '../xc.js';
+import { looksLikeChannelQuestion, looksLikeFixtureQuestion, channelGrounding, channelCount, findChannels, findVodTitle, vodKnown, xcConfigured } from '../xc.js';
 import { looksLikeGuideRequest, findGuide, visibleGuides, mdToPlain, guideLeadIn } from '../guides.js';
 import { looksLikeWalletRequest, walletMessage } from '../payments.js';
 import { looksLikeInviteRequest, buildInvite, INVITE_NO_GROUP, INVITE_NO_PERMISSION } from './invites.js';
@@ -107,6 +107,24 @@ function urlAskText() {
 
 // Classify a USERNAME into a service: THM-prefixed or name-like ("ashley",
 // "john99") → service 2; random letters/numbers ("x9k2p7") → service 1.
+// Does this word plausibly name an account, as opposed to being an ordinary
+// word out of a sentence? serviceForUsername below never returns null — it is
+// a classifier, not a detector — so everything handed to it must have passed
+// through here first, or any stray word gets filed as the customer's service.
+function plausibleUsername(word) {
+  const w = String(word || '').trim();
+  if (w.length < 4) return false;
+  // On our books: settled, whatever it looks like.
+  try {
+    if (db.prepare('SELECT 1 FROM customers WHERE LOWER(username) = ? LIMIT 1').get(w.toLowerCase())) return true;
+  } catch { /* table may not exist yet */ }
+  const s = serviceConfig();
+  if (s.prefix && w.toUpperCase().startsWith(s.prefix.toUpperCase()) && w.length > s.prefix.length) return true;
+  // Otherwise it has to look like a login rather than a word: a digit in it,
+  // or a mix of cases. "sports" and "football" are neither.
+  return /\d/.test(w) || (/[a-z]/.test(w) && /[A-Z]/.test(w.slice(1)));
+}
+
 function serviceForUsername(username) {
   const s = serviceConfig();
   const t = String(username).trim();
@@ -400,6 +418,9 @@ function isServiceSpecific(question) {
 }
 
 export const _startsNewTopic = (t) => startsNewTopic(t);
+export const _looksLikeQuestion = (t) => looksLikeQuestion(t);
+export const _looksLikeProblem = (t) => looksLikeProblem(t);
+export const _plausibleUsername = (t) => plausibleUsername(t);
 export const _answersIsItSorted = (t) => answersIsItSorted(t);
 
 export const _resetServiceAsk = () => {
@@ -459,6 +480,39 @@ function alreadyInLibrary(ctx, title, asked = '') {
   return null;
 }
 
+// Is the thing they asked about a LIVE CHANNEL we carry? Deliberately strict:
+// findChannels is a fuzzy ranker built for "what's on bbc1", and a loose hit
+// here would answer "yes we have that" about a film because some channel name
+// shares a word with it. Every significant word of the title has to appear in
+// the channel's name.
+function channelsCarrying(title, service) {
+  const words = String(title).toLowerCase().match(/[a-z0-9+]+/g) || [];
+  const meaningful = words.filter((w) => w.length > 2 && !['the', 'and', 'you', 'got', 'have', 'any'].includes(w));
+  if (!meaningful.length) return [];
+  return findChannels(title, { service, limit: 6 })
+    .filter((c) => {
+      const name = String(c.name).toLowerCase();
+      return meaningful.every((w) => name.includes(w));
+    });
+}
+
+function alreadyInLineup(ctx, title, asked = '') {
+  const service = serviceNumberFor(ctx, asked);
+  const candidates = service ? [service] : [1, 2];
+  // A cached lineup is what matters, not whether the panel is reachable right
+  // now — the answer comes from the cache either way.
+  const usable = candidates.filter((n) => channelCount(n) > 0);
+  if (!usable.length) return null;
+  for (const n of usable) {
+    const hits = channelsCarrying(title, n);
+    if (!hits.length) continue;
+    const names = [...new Set(hits.map((h) => h.name))].slice(0, 4);
+    const list = names.length > 1 ? `\n${names.map((x) => `• ${x}`).join('\n')}` : ` "${names[0]}"`;
+    return `✅ Yes — that's a live channel on the service${list}\n\nIt's in the TV guide in your app. If it won't play, say so and I'll get it looked at.`;
+  }
+  return null;
+}
+
 function libraryHitText(hit) {
   const where = hit.kind === 'series' ? 'Series' : 'Movies';
   return hit.exact
@@ -473,6 +527,14 @@ function libraryHitText(hit) {
 // it becomes a request, because a duplicate request is cheap and a wrong
 // "yes we have it" is not.
 async function answerAvailability(ctx, title, asked = '') {
+  // A CHANNEL first. "Do you have Sky Sports" was being filed as a request for
+  // a film while two Sky Sports channels sat in the lineup the bot owns — the
+  // customer was told "I can't check" about something it could check, and the
+  // admin got a VOD request for a TV channel. Channels are checked before the
+  // library because a channel name is the less ambiguous of the two.
+  const chan = alreadyInLineup(ctx, title, asked);
+  if (chan) return chan;
+
   const already = alreadyInLibrary(ctx, title, asked);
   if (already) return already;
 
@@ -570,16 +632,24 @@ async function handleVodServiceReply(ctx, text, logId, replyParams) {
   // and let the normal flow take the message. A NEW "Request: ..." must be
   // captured (it re-arms its own ask), a problem report belongs to triage,
   // greetings/thanks to their canned replies.
-  if (looksLikeQuestion(text) || anyVodRequest(text) || looksLikeProblem(text) || looksLikeGreeting(text) || looksLikeThanks(text)) {
+  // parseAvailabilityQuestion too: "have you got tnt sports" is a NEW
+  // question about the lineup, and it was being consumed as the answer to
+  // "which service is that request for?".
+  if (looksLikeQuestion(text) || anyVodRequest(text) || parseAvailabilityQuestion(text)
+      || looksLikeProblem(text) || looksLikeGreeting(text) || looksLikeThanks(text)
+      || looksLikeAcknowledgement(text)) {
     pendingVodService.delete(key);
     return false;
   }
   let svc = serviceFromReply(text);
   if (!svc) {
     // They may have answered with their username, which is what we asked for
-    // when the services have no names configured.
+    // when the services have no names configured. serviceForUsername is a
+    // heuristic that ALWAYS returns a service, so it must only ever see
+    // something that is actually a username — handed the longest word of any
+    // sentence it assigned "sports" to a service and recorded it.
     const cand = plainWords(text).sort((a, b) => b.length - a.length)[0] || '';
-    if (cand.length >= 4) svc = serviceForUsername(cand);
+    if (plausibleUsername(cand)) svc = serviceForUsername(cand);
   }
   const send = (msg) => ctx.api.sendMessage(ctx.chat.id, msg, replyParams).catch(() => {});
   setLogSource(logId, 'vod-request');
@@ -656,7 +726,16 @@ const CORE_GREETING = new Set([
 // sir" into an off-topic message and the customer was brushed off for saying
 // hello. No word list is ever complete, so this is the backstop: brief, says
 // hello, asks nothing.
+// "You there?", "anyone about?", "is anyone online" — checking somebody is
+// listening before they type the real question. Not a greeting by vocabulary
+// and not a help request, so it went to the banter path and got "service
+// stuff is where I shine 😄" in reply to a customer wondering if anyone is
+// home. Answering it like a hello is right: it invites the actual question.
+const PRESENCE_RE =
+  /^\s*(?:is\s+)?(?:any\s?(?:one|body)|u|you|ya|anyone\s+there|hello|helloo+)\s*(?:there|about|around|online|on|awake|in|up|home)?\s*\??\s*$/i;
+
 function mostlyGreeting(text) {
+  if (PRESENCE_RE.test(String(text || ''))) return true;
   const w = plainWords(text);
   if (!w.length || w.length > 5) return false;
   if (String(text).includes('?')) return false;
@@ -790,7 +869,11 @@ function looksLikeQuestion(text) {
   if (text.includes('?')) return true;
   // "whats" (no apostrophe) must count too — \b never fires inside it, so
   // the contracted forms need listing explicitly.
-  const starters = /^(how|hows|what|whats|why|when|whens|where|wheres|which|who|whos|can|does|do|is|are|will|help|anyone|any1|pls|please)\b/i;
+  // "have/got/could/any" were missing, and people drop the question mark
+  // constantly: "have you got tnt sports" read as a statement, which let the
+  // pending "which service is that request for?" question swallow it and
+  // file TNT Sports as the service the customer is on.
+  const starters = /^(how|hows|what|whats|why|when|whens|where|wheres|which|who|whos|can|could|would|should|does|do|did|is|are|was|were|will|have|has|had|got|any|anybody|anyone|any1|am|shall|may|might|help|pls|please)\b/i;
   return starters.test(text.trim());
 }
 
@@ -801,10 +884,18 @@ function looksLikeQuestion(text) {
 // him is...") only count when the message also mentions the service.
 const STRONG_PROBLEM =
   /\b(buffer(ing|s)?|freez\w*|frozen|lag(gy|ging|s)?|stutter\w*|glitch\w*|crash\w*|playback|black ?screen|no (sound|audio|picture|video|streams?|channels?|epg|vod)|invalid|unauthori[sz]ed|logged (out|off)|wrong password|access denied|wrong (language|audio|sound|version|copy|cut|file)|(us|american|censored|dubbed) (version|copy|cut)|only (one|1) (language|audio( track)?|track)|not work\w*|(doesnt|dont|isnt|aint|stopped) work\w*|wont (work|load|play|open|start)|cant (log ?in|sign in|watch|open|play|stream|connect)|keeps? (stopping|buffering|freezing|crashing|cutting|loading)|(is|are|was|were|gone|went|still) down|offline)\b/i;
-const WEAK_PROBLEM = /\b(down|error|issues?|problems?|stuck|loading|broken)\b/i;
+const WEAK_PROBLEM = /\b(down|error|issues?|problems?|stuck|loading|broken|broke|bust|knackered|useless)\b/i;
+
+// Blunt, whole-message complaints. "Nothing works" and "it's broke" are
+// complete problem reports in the way people actually type them, and both
+// were landing in the banter path — a customer saying nothing works got
+// "Anyway, service stuff is where I shine 😄". They name no app and no
+// symptom, so no amount of vocabulary matching was ever going to catch them.
+const BLUNT_PROBLEM =
+  /\b(?:nothing|nowt|none of it|nothings?|no ?thing)\s+(?:works?|working|loads?|loading|plays?|playing)\b|\b(?:it'?s|its|it is|everything'?s|everythings|all)\s+(?:broke|broken|bust|busted|down|dead|knackered|fucked|buggered)\b|^\s*(?:not working|notworking|no\s*work|doesn'?t work|dont work|won'?t work|not loading|won'?t load|wont load|no signal|no service|dead)\s*[.!]*$/i;
 
 function looksLikeProblem(text) {
-  if (STRONG_PROBLEM.test(text)) return true;
+  if (STRONG_PROBLEM.test(text) || BLUNT_PROBLEM.test(text)) return true;
   return WEAK_PROBLEM.test(text) && isLikelyInScope(text);
 }
 
@@ -1654,9 +1745,20 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
             // Saying the same thing again is not an answer. The customer has
             // already read it, and repeating it is what makes a bot feel like
             // a wall — it is the complaint that started this whole build.
+            //
+            // In TRIAGE the caller takes it from here: 'no-new-help' is its
+            // signal to stop suggesting fixes and escalate. In an ordinary
+            // conversation there is no caller to catch it, and returning here
+            // sent the customer nothing at all — a question answered with
+            // total silence, which reads as the bot ignoring them. So outside
+            // triage it hands over to a human instead of just going quiet.
             const lastSaid = [...history].reverse().find((m) => m.role === 'assistant')?.content;
             if (reply && lastSaid && repeatsPreviousAnswer(reply, lastSaid)) {
               setLogSource(logId, 'no-new-help');
+              if (!deepen && !getProblemState(ctx.from?.id)) {
+                const msg = await spoken('bot.unsureMessage');
+                if (msg) await ctx.api.sendMessage(ctx.chat.id, withSuffix(msg), replyParams).catch(() => {});
+              }
               return 'no-new-help';
             }
             if (reply && canCache) {
@@ -2010,7 +2112,8 @@ export async function handleGroupMessage(ctx) {
   // !upset, as in the DM path: this branch takes ANY reply that is not a
   // question or a problem, so "fuck this" was being recorded as the service
   // the fault is on.
-  if (st?.awaitingService && !looksLikeQuestion(text) && !isProblem && !looksLikeFrustration(text)) {
+  if (st?.awaitingService && !looksLikeQuestion(text) && !isProblem && !looksLikeFrustration(text)
+      && !looksLikeAcknowledgement(text) && !looksLikeThanks(text)) {
     setProblemState(ctx.from.id, { awaitingService: false, at: Date.now() });
     const info = text.slice(0, 100);
     db.prepare('UPDATE problem_reports SET service = ? WHERE tg_user_id = ? AND escalated = 1 AND resolved = 0')
@@ -2253,7 +2356,8 @@ async function handleDmProblemReply(ctx, text, logId) {
   const upset = looksLikeFrustration(text);
 
   // Which-service answer for an escalated report.
-  if (st.awaitingService && !looksLikeQuestion(text) && !isProblem && !upset) {
+  if (st.awaitingService && !looksLikeQuestion(text) && !isProblem && !upset
+      && !looksLikeAcknowledgement(text) && !looksLikeThanks(text)) {
     setProblemState(ctx.from.id, { awaitingService: false, at: Date.now() });
     const info = text.slice(0, 100);
     db.prepare('UPDATE problem_reports SET service = ? WHERE tg_user_id = ? AND escalated = 1 AND resolved = 0')

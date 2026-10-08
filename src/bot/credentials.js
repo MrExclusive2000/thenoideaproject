@@ -57,5 +57,7 @@ export function looksLikeCredentialDump(text) {
 // must not do is repeat the password while discussing it.
 export const CREDENTIAL_WARNING =
   '🔒 Careful — that looks like your password, and you should never send it to anyone, including me.\n\n' +
-  'I never need it: everything I do works without it. Delete that message if you can, and ' +
-  'message {admin} to get your password changed, just to be safe.';
+  // {admin} already expands to "message @handle directly" — prefixing it with
+  // another "message" produced "message message @ExclusiveDoctor directly".
+  'I never need it: everything I do works without it. Delete that message if you can, then ' +
+  '{admin} to get your password changed, just to be safe.';

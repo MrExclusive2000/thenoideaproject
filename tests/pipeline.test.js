@@ -4537,3 +4537,104 @@ test('"fuck this" while we are asking which service is not filed as the service'
   assert.ok(!adminDms.some((d) => /problem is on: "fuck this"/.test(d.text)), 'and not reported as one');
   hub.api = null;
 });
+
+// --- found by driving real customer traffic through the pipeline -------------
+// A harness that replays the messages customers actually send, and reports
+// which branch claimed each one. Everything below is a defect it surfaced that
+// no unit test was looking for.
+
+test('pre-sales questions are in scope — they are people trying to pay you', async () => {
+  // "How much is it" and "what do you charge" carry no support vocabulary at
+  // all, so the scope gate filed them as banter and answered the one question
+  // every prospective customer asks with "Can't help with that one 😂".
+  const { looksLikePreSales } = await import('../src/bot/helpers.js');
+  for (const q of [
+    'how much is it', 'how much', 'what do you charge', 'whats the price',
+    'how do i sign up', 'is there a free trial', 'what channels do you have',
+    'i want to join', 'whats included', 'how do i get it',
+  ]) assert.equal(looksLikePreSales(q), true, `pre-sales: ${q}`);
+
+  // "How much" is also how you ask the price of a pint.
+  for (const q of ['how much is a pint', 'how much is a pint in london', 'tell me a joke']) {
+    assert.equal(looksLikePreSales(q), false, `not ours: ${q}`);
+  }
+});
+
+test('"do you have sky sports" is answered from the lineup, not filed as a film', async () => {
+  // The bot held two Sky Sports channels and still told the customer it
+  // couldn't check, then sent the admin a VOD request for a TV channel.
+  setSetting('bot.cooldownSeconds', 0);
+  _resetProblemTriage();
+  const t = Math.floor(Date.now() / 1000);
+  const ins = db.prepare('INSERT OR REPLACE INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (?,?,?,?,?,?)');
+  ins.run(1, 9001, 'Sky Sports Main Event', 'UK', 'uk.1', t);
+  ins.run(1, 9002, 'Sky Sports Football', 'UK', 'uk.2', t);
+  ins.run(2, 9003, 'Sky Sports Main Event', 'UK', 'uk.1', t);
+
+  const before = db.prepare("SELECT COUNT(*) n FROM vod_requests").get().n;
+  const ctx = fakeCtx('do you have sky sports', { userId: 99950 });
+  await handleDirectMessage(ctx, 'do you have sky sports');
+  const msg = ctx.sent.map((s) => s.msg).join('\n');
+  assert.match(msg, /live channel/i, 'answered as a channel');
+  assert.match(msg, /Sky Sports/, 'and named it');
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM vod_requests").get().n, before, 'no VOD request filed');
+
+  // A film must still be treated as a film — the channel check is strict.
+  const ctx2 = fakeCtx('do you have the big bang theory', { userId: 99951 });
+  await handleDirectMessage(ctx2, 'do you have the big bang theory');
+  assert.doesNotMatch(ctx2.sent.map((s) => s.msg).join('\n'), /live channel/i);
+  db.prepare('DELETE FROM xc_channels WHERE stream_id IN (9001,9002,9003)').run();
+});
+
+test('a dropped question mark does not let a pending ask swallow the next question', async () => {
+  // "have you got tnt sports" read as a statement, so the pending "which
+  // service is that request for?" consumed it and recorded TNT Sports as the
+  // customer's service.
+  const { _looksLikeQuestion } = await import('../src/bot/pipeline.js');
+  for (const q of [
+    'have you got tnt sports', 'got any sky channels', 'could you check that',
+    'did it work', 'has it gone down', 'any chance of severance',
+  ]) assert.equal(_looksLikeQuestion(q), true, `is a question: ${q}`);
+});
+
+test('a word out of a sentence is never filed as the customer\'s username', async () => {
+  // serviceForUsername is a classifier, not a detector — it always returns a
+  // service. Handed the longest word of "have you got tnt sports" it assigned
+  // "sports" to one and recorded it.
+  const { _plausibleUsername } = await import('../src/bot/pipeline.js');
+  for (const w of ['sports', 'football', 'please', 'channel', 'tonight']) {
+    assert.equal(_plausibleUsername(w), false, `not a username: ${w}`);
+  }
+  for (const w of ['THM4821', 'john99', 'x9k2p7']) {
+    assert.equal(_plausibleUsername(w), true, `is a username: ${w}`);
+  }
+});
+
+test('blunt complaints are problem reports, not banter', async () => {
+  // "Nothing works" got "Anyway — service stuff is where I shine 😄".
+  const { _looksLikeProblem } = await import('../src/bot/pipeline.js');
+  for (const q of ['nothing works', 'its broke', 'not working', 'everything is down', 'nowt works']) {
+    assert.equal(_looksLikeProblem(q), true, `is a problem: ${q}`);
+  }
+  for (const q of ['how do i install purple', 'hello', 'whats the wallet address']) {
+    assert.equal(_looksLikeProblem(q), false, `not a problem: ${q}`);
+  }
+});
+
+test('"you there?" gets a hello, not the banter brush-off', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.greetingMessage', 'Hey! What can I sort for you?');
+  _resetProblemTriage();
+  for (const q of ['you there', 'anyone there?', 'anybody about']) {
+    const ctx = fakeCtx(q, { userId: 99952 });
+    await handleDirectMessage(ctx, q);
+    assert.match(ctx.sent.map((s) => s.msg).join('\n'), /What can I sort/, `presence check: ${q}`);
+  }
+});
+
+test('the credential warning does not say "message message @admin"', async () => {
+  const { CREDENTIAL_WARNING } = await import('../src/bot/credentials.js');
+  const { withAdminContact } = await import('../src/bot/helpers.js');
+  setSetting('bot.adminContact', '@TheAdmin');
+  assert.doesNotMatch(withAdminContact(CREDENTIAL_WARNING), /message message/i);
+});

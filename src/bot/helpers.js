@@ -168,7 +168,41 @@ const STRONG_SCOPE_TERMS = new Set([
   'channel', 'channels', 'epg',
 ]);
 
+// Someone trying to give you money. These are the highest-value messages the
+// bot ever receives and they were the worst handled: "how much is it" and
+// "what do you charge" carry no support vocabulary at all — no app, no device,
+// no symptom — so the scope gate filed them as banter and answered the one
+// question a prospective customer always asks with "Can't help with that one
+// 😂 I'm strictly service support". "How do I sign up" got silence.
+//
+// Phrases, not words, because that is how the gap shows up: "how much" is two
+// words that mean nothing apart and only one thing together.
+const PRESALES_RE =
+  /\bhow many\b[^.?!\n]{0,20}\b(?:cost|a month|per month)\b|\bwhat(?:'?s| is| are)?\b[^.?!\n]{0,15}\b(?:the )?(?:price|prices|cost|costs|charge|charges|damage|rate|rates)\b|\bdo (?:you|u|yous|yas)\b[^.?!\n]{0,15}\b(?:charge|cost)\b|\bhow (?:do|can|would) (?:i|we|you)\b[^.?!\n]{0,20}\b(?:sign ?up|signup|join|subscribe|get (?:it|this|started|set ?up|on ?board)|become a member)\b|\b(?:sign ?me ?up|signing up|sign ?up)\b|\bfree trial\b|\btrial\b[^.?!\n]{0,20}\b(?:available|first|before)\b|\b(?:monthly|yearly|annual|3 month|6 month|12 month)\b[^.?!\n]{0,20}\b(?:price|cost|plan|package|sub|subscription|option)\b|\bwhat (?:do|does) (?:it|this|yous?) cost\b|\bhow (?:do|can) (?:i|we) (?:pay|order|buy)\b|\b(?:want|like) to (?:join|subscribe|sign ?up|get (?:a )?(?:sub|subscription|account))\b|\bwhat (?:packages?|plans?|options?|deals?)\b|\bwhat channels (?:do|have) (?:you|yous|u)\b|\bwhat(?:'?s| is)? included\b|\bwhat do (?:you|u) (?:offer|do|provide)\b|\bwhat (?:devices?|boxes?)\b[^.?!\n]{0,25}\b(?:work|support|use|run|on)\b/i;
+
+// "How much" is how most people ask the price, and it is also how they ask
+// the price of a pint. It only counts when the message is short enough to be
+// about the obvious subject — us — or names something of ours.
+const HOW_MUCH = /\bhow much\b|\bwhats? the damage\b/i;
+const OURS = /\b(sub|subs|subscription|month|months|monthly|year|yearly|annual|service|package|packages|plan|plans|line|lines|connection|account|channels?|sports?|iptv|it|this)\b/i;
+
+export function looksLikePreSales(text) {
+  const t = String(text || '');
+  if (PRESALES_RE.test(t)) return true;
+  if (HOW_MUCH.test(t)) {
+    const words = t.trim().split(/\s+/).length;
+    const rest = t.replace(HOW_MUCH, ' ');
+    // "how much is it" (4 words) yes; "how much is a pint" no — that needs a
+    // word of ours in it to count.
+    return words <= 4 || OURS.test(rest);
+  }
+  return false;
+}
+
 export function isLikelyInScope(text) {
+  // A sales question is in scope by definition — it is about buying the thing
+  // this bot exists to support.
+  if (looksLikePreSales(text)) return true;
   const vocab = scopeVocab();
   let hits = 0;
   for (const t of new Set(tokens(text))) {
@@ -185,6 +219,7 @@ export function isLikelyInScope(text) {
 // all — a message with zero vocabulary, no problem signal and no
 // conversation context gives the model nothing on-topic to work with.
 export function hasScopeSignal(text) {
+  if (looksLikePreSales(text)) return true;
   const vocab = scopeVocab();
   const toks = new Set(tokens(text));
   for (const t of toks) if (vocab.has(t)) return true;
