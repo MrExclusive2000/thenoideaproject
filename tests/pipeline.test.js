@@ -5032,3 +5032,42 @@ test('a customer who switches services can say so in plain English', async () =>
   await handleDirectMessage(asking, 'is big bang theory on exclusive');
   assert.equal(recallService(98002).service, 2, 'still on Flix — they asked, they did not tell');
 });
+
+test('a hello does not swallow the question stuck to it', async () => {
+  // "hola, como instalo la aplicacion" opens with hello and then asks how to
+  // install — and got the English welcome message, with the question thrown
+  // away. The language is incidental; the bug is that a greeting was allowed
+  // to eat whatever followed it.
+  const { _looksLikeStatusQuestion } = await import('../src/bot/pipeline.js');
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.greetingMessage', 'Hey! What can I sort for you?');
+  _resetProblemTriage();
+
+  const asking = fakeCtx('hola, como instalo la aplicacion', { userId: 99820 });
+  const r = await answer(asking, 'hola, como instalo la aplicacion', { isDm: true, logId: null });
+  assert.notEqual(r, 'greeting', 'the question survives the hello');
+
+  // A greeting with a form of address stuck on is still just a greeting.
+  for (const hello of ['good morning sir', 'yo big man', 'hello there chief', 'alright boss']) {
+    const ctx = fakeCtx(hello, { userId: 99821 });
+    assert.equal(await answer(ctx, hello, { isDm: true, logId: null }), 'greeting', hello);
+  }
+});
+
+test('"all good" ends a conversation instead of starting one', async () => {
+  // Both "all" and "good" are greeting words — for "hi all" and "good
+  // morning" — so together they made "all good" a greeting, and finishing a
+  // conversation with it got the bot introducing itself from scratch.
+  setSetting('bot.cooldownSeconds', 0);
+  _resetProblemTriage();
+  for (const done of ['all good', 'all sorted', 'sorted']) {
+    const ctx = fakeCtx(done, { userId: 99822 });
+    await handleDirectMessage(ctx, done);
+    assert.doesNotMatch(ctx.sent.map((s) => s.msg).join('\n'), /I'm the team's support bot|What can I sort/i,
+      `should not introduce itself: ${done}`);
+  }
+  // A real greeting still is one.
+  const hi = fakeCtx('hi all', { userId: 99823 });
+  await handleDirectMessage(hi, 'hi all');
+  assert.ok(hi.sent.length, 'hi all is still a greeting');
+});

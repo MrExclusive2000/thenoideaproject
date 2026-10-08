@@ -52,13 +52,30 @@ export function coinsSentence() {
 const ADDRESS_WORD = /\b(address|addy)\b/i;
 // Phrasings that are a request to pay on their own, with no other context.
 const WHERE_TO_SEND = /\bwhere\s+(do|should|shall|can)\s+i\s+send\b|\bwho\s+do\s+i\s+(pay|send\s+it\s+to)\b|\bhow\s+do\s+i\s+pay\s+(you|yous|ya)\b/i;
+
+// How people actually ask, which is almost never with the word "address".
+// Every one of these was going to the model or the off-topic brush-off while
+// walletMessage() sat ready to answer it — including the case it already
+// handles properly, "we don't take Monero, here's what we do take".
+// A customer asking how to give you money is the last message that should
+// ever get "I'm not totally sure on that one".
+const HOW_TO_PAY =
+  /\b(?:can|could|do|does|will|is it possible to)\s+(?:i|we|you|yous|ya)\b[^.?!\n]{0,24}\b(?:pay|paying|send|accept|take)\b/i;
+const WHAT_ACCEPTED =
+  /\bwhat\s+(?:coins?|crypto|currenc\w+|payments?|methods?)\b|\bwhich\s+(?:coins?|crypto|currenc\w+)\b|\bhow\s+(?:do|can|should)\s+(?:i|we)\s+pay\b|\bpayment\s+(?:options?|methods?|details?)\b|\bhow\s+(?:do|can)\s+(?:i|we)\s+(?:renew|subscribe|top\s?up)\b/i;
 // What the address would be FOR. "address" alone could be an email address.
-const MONEY_WORD = /\b(wallet|pay|paying|payment|renew|renewal|crypto|litecoin|ltc|bitcoin|btc|coins?|funds|money|transfer|send)\b/i;
+// Coins we do NOT take are listed deliberately: "do you take Monero?" is
+// answered best by walletMessage, which says we do not and names what we do.
+// Silence or a guess sends somebody off to buy the wrong thing.
+const MONEY_WORD = /\b(wallet|pay|paying|payment|renew|renewal|crypto|litecoin|ltc|bitcoin|btc|coins?|funds|money|transfer|send|monero|xmr|ethereum|eth|usdt|tether|usdc|doge|dogecoin|solana|sol|cash|card|paypal|revolut|bank)\b/i;
 
 export function looksLikeWalletRequest(text) {
   const s = String(text || '');
   if (s.length > 200) return false;
-  if (WHERE_TO_SEND.test(s)) return true;
+  if (WHERE_TO_SEND.test(s) || WHAT_ACCEPTED.test(s)) return true;
+  // "Can I pay in Bitcoin?", "do you take BTC" — a coin or money word in a
+  // can-I-pay shape.
+  if (HOW_TO_PAY.test(s) && MONEY_WORD.test(s)) return true;
   // "my wallet app crashed" is a support question — it never asks for an
   // address. "whats the email address" is not about money.
   return ADDRESS_WORD.test(s) && MONEY_WORD.test(s);
@@ -72,10 +89,35 @@ export function requestedCoin(text) {
   return null;
 }
 
+// Things people ask to pay with that we do not take. Named so the answer can
+// say so outright — "here are our addresses" in reply to "do you take PayPal?"
+// reads as a yes, and somebody goes and buys the wrong thing.
+const NOT_TAKEN = [
+  [/\bmonero|xmr\b/i, 'Monero'], [/\beth(ereum)?\b/i, 'Ethereum'],
+  [/\busdt|tether\b/i, 'USDT'], [/\busdc\b/i, 'USDC'],
+  [/\bdoge(coin)?\b/i, 'Dogecoin'], [/\bsolana|\bsol\b/i, 'Solana'],
+  [/\bpaypal\b/i, 'PayPal'], [/\brevolut\b/i, 'Revolut'],
+  [/\bbank\s*transfer|\bbacs\b/i, 'bank transfer'],
+  [/\bcash\b/i, 'cash'], [/\b(credit|debit)?\s*card\b/i, 'card'],
+];
+
 export function walletMessage(text = '') {
   const coins = acceptedCoins();
   if (!coins.length) return null;
   const wanted = requestedCoin(text);
+  // Asked about something we do not take, and it is not one of ours.
+  if (!wanted) {
+    const refused = NOT_TAKEN.find(([re]) => re.test(text));
+    if (refused) {
+      const lines = [`We don't take ${refused[1]}, sorry — it's crypto only. Here's what we do take:`, ''];
+      for (const c of coins) lines.push(`${c.name} (${c.code}) — send to this address only:`, c.address, '');
+      lines.push(
+        'Double-check the address before you send, and make sure you are sending the right coin to the right address — a transfer to the wrong address cannot be reversed.',
+        "Send the exact amount the admin gives you, then post a screenshot of the confirmation here and we'll activate or renew you."
+      );
+      return lines.join('\n').trim();
+    }
+  }
   const show = wanted && coins.some((c) => c.id === wanted)
     ? coins.filter((c) => c.id === wanted)
     : coins;

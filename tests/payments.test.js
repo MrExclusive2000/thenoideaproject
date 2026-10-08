@@ -106,3 +106,34 @@ test('redaction leaves ordinary support text alone', () => {
     'Restart the app, then clear the cache from Manage Installed Applications.',
   ]) assert.equal(pay.redactWalletAddresses(text), text, text);
 });
+
+test('however someone asks to pay, they get the addresses', async () => {
+  // Only the word "address" worked. "Can I pay in bitcoin instead", "do you
+  // take bitcoin", "how do i pay", "what coins do you take" all went to the
+  // model or the brush-off — while walletMessage sat ready to answer every
+  // one of them. A customer asking how to give you money is the last message
+  // that should ever get "I'm not totally sure on that one".
+  const { setSetting } = await import('../src/settings.js');
+  const { looksLikeWalletRequest, walletMessage } = await import('../src/payments.js');
+  setSetting('payments.ltcAddress', 'LZK1cZ6KHgB3Mt9kKpWVQNC6rMoDfEnRYy');
+  setSetting('payments.btcAddress', 'bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh');
+
+  for (const q of [
+    'whats the ltc address', 'can i pay in bitcoin instead', 'do you take bitcoin',
+    'can i pay with btc', 'how do i pay', 'what coins do you take',
+    'do you accept crypto', 'payment options', 'how do i renew',
+  ]) assert.equal(looksLikeWalletRequest(q), true, `should answer: ${q}`);
+
+  for (const q of ['my wallet app crashed', 'whats the email address', 'how much is it', 'my app wont load']) {
+    assert.equal(looksLikeWalletRequest(q), false, `not a payment question: ${q}`);
+  }
+
+  // Naming a coin gives that coin.
+  assert.match(walletMessage('can i pay in bitcoin instead'), /^Bitcoin/);
+  // Something we do not take is refused OUTRIGHT — handing over addresses in
+  // reply to "do you take PayPal?" reads as a yes, and somebody goes and buys
+  // the wrong thing.
+  assert.match(walletMessage('can i pay by paypal'), /don't take PayPal/i);
+  assert.match(walletMessage('do you take monero'), /don't take Monero/i);
+  assert.match(walletMessage('do you take monero'), /Litecoin/, 'and says what we do take');
+});

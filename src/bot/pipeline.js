@@ -883,7 +883,13 @@ export const _verbatimLines = () => VERBATIM_LINES;
 
 function looksLikeGreeting(text) {
   const w = plainWords(text);
-  return w.length > 0 && w.length <= 5 && w.every((x) => GREETING_WORDS.has(x));
+  if (!w.length || w.length > 5) return false;
+  if (!w.every((x) => GREETING_WORDS.has(x))) return false;
+  // At least one word that means hello and NOTHING else. The list has to
+  // carry contextual words — "all" for "hi all", "good" for "good morning" —
+  // and together they made "all good" a greeting, so finishing a conversation
+  // with it got the bot introducing itself from scratch.
+  return w.some((x) => CORE_GREETING.has(x));
 }
 
 // Words that mean hello and nothing else. The full list above includes
@@ -908,12 +914,31 @@ const CORE_GREETING = new Set([
 const PRESENCE_RE =
   /^\s*(?:is\s+)?(?:any\s?(?:one|body)|u|you|ya|anyone\s+there|hello|helloo+)\s*(?:there|about|around|online|on|awake|in|up|home)?\s*\??\s*$/i;
 
+// Words that carry no meaning of their own, so a greeting plus one or two of
+// them is still just a greeting.
+const GREETING_FILLER = new Set([
+  'sir', 'mate', 'm8', 'pal', 'bud', 'buddy', 'boss', 'lads', 'guys', 'team',
+  'folks', 'all', 'there', 'you', 'ya', 'yall', 'everyone', 'again', 'bot',
+  'good', 'morning', 'afternoon', 'evening', 'night', 'to', 'and', 'the',
+]);
+
 function mostlyGreeting(text) {
   if (PRESENCE_RE.test(String(text || ''))) return true;
   const w = plainWords(text);
   if (!w.length || w.length > 5) return false;
   if (String(text).includes('?')) return false;
-  return w.some((x) => CORE_GREETING.has(x));
+  if (!w.some((x) => CORE_GREETING.has(x))) return false;
+  // A greeting with a REAL question stuck to it is not a greeting. "Hola,
+  // como instalo la aplicacion" opens with hello and then asks how to install
+  // — and got the English welcome message, with the question thrown away.
+  // The language is incidental; the bug is that a hello was allowed to
+  // swallow whatever came after it.
+  // "Yo big man" and "hello there chief" are greetings with an address stuck
+  // on; "hola, como instalo la aplicacion" is a greeting with a QUESTION stuck
+  // on. The giveaway is not how many extra words there are but how
+  // substantial they are — a form of address is short, a verb usually is not.
+  const content = w.filter((x) => !CORE_GREETING.has(x) && !GREETING_FILLER.has(x));
+  return content.length <= 2 && content.every((x) => x.length <= 5);
 }
 
 // "Okay", "right", "cool" — the end of a conversation, not a new question.
@@ -929,6 +954,9 @@ const ACK_WORDS = new Set([
   // back with the banter line. During triage a short "yes" is caught earlier,
   // as a confirmation, so this only affects the quiet path.
   'yes', 'yea', 'aye', 'maybe', 'later', 'sure', 'nice', 'ta',
+  // "all good" after a fix is an acknowledgement, and it was getting the full
+  // welcome message — the bot introducing itself to someone mid-conversation.
+  'all', 'sorted', 'done', 'perfect', 'lovely', 'grand', 'champion',
   // Laughing along is the end of a joke, not a new question. "fair enough ha"
   // was spending an AI call to reply to someone chuckling.
   'ha', 'haha', 'hah', 'lol', 'lmao', 'heh', 'hehe', 'true', 'indeed', 'same',
@@ -3031,6 +3059,13 @@ export async function handleDirectMessage(ctx) {
 
   // A wave back beats the topic police: greetings and thanks get warm canned
   // replies (configurable) and never reach the AI or the off-topic path.
+  // Acknowledgement BEFORE greeting: "all good" is both, by word list, and
+  // the greeting test ran first — so finishing a conversation with "all good"
+  // got the bot introducing itself from scratch.
+  if (looksLikeAcknowledgement(text)) {
+    setLogSource(logId, 'acknowledged');
+    return;
+  }
   if (looksLikeGreeting(text)) {
     setLogSource(logId, 'greeting');
     const msg = await spoken('bot.greetingMessage', text);
