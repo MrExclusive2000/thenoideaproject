@@ -795,3 +795,37 @@ test('"what time is it" is about the clock, not about our lineup', () => {
     'what time is kick off',
   ]) assert.equal(xc.looksLikeFixtureQuestion(fixture), true, fixture);
 });
+
+test('SD, HD and FHD of one channel are one channel to a customer', async () => {
+  // Live: "what's on sky sports news right now" came back "The current show on
+  // Sky Sports News SD, HD, and FHD is Sports Desk", and "what's on bbc 1"
+  // became a paragraph repeating the same programme across three variants.
+  const { dedupeVariants, baseChannelName, cleanTitle } = await import('../src/xc.js');
+
+  const rows = [
+    { name: 'Sky Sports News SD', score: 6 },
+    { name: 'Sky Sports News HD', score: 6 },
+    { name: 'Sky Sports News FHD', score: 6 },
+    { name: 'Sky Sports Main Event HD', score: 4 },
+  ];
+  const out = dedupeVariants(rows);
+  assert.equal(out.length, 2, 'two real channels, not four rows');
+  // Equal match, better picture wins — SD is the one nobody watches.
+  assert.equal(out[0].name, 'Sky Sports News FHD');
+
+  // "+1" is an hour behind, which is a different channel, not a variant.
+  assert.notEqual(baseChannelName('ITV 2'), baseChannelName('ITV 2 +1'));
+  assert.equal(baseChannelName('BBC ONE SD'), baseChannelName('BBC ONE FHD'));
+});
+
+test('panel decoration is stripped from programme names', async () => {
+  // "Sports Desk ᴸᴵᵛᴱ" reached the customer as mangled little capitals,
+  // because the model is told to use the names exactly as written.
+  const { cleanTitle } = await import('../src/xc.js');
+  assert.equal(cleanTitle('Sports Desk ᴸᴵᵛᴱ'), 'Sports Desk');
+  assert.equal(cleanTitle('BBC One ᴴᴰ'), 'BBC One');
+  // An undecorated title is left exactly alone — including a real "Live" in a
+  // programme's actual name.
+  assert.equal(cleanTitle('Live at the Apollo'), 'Live at the Apollo');
+  assert.equal(cleanTitle('Pointless'), 'Pointless');
+});

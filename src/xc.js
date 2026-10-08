@@ -348,6 +348,82 @@ export function programmesOnChannel(service, epgChannelId, { limit = 4, from = n
   `).all(service, epgChannelId, t, limit);
 }
 
+// Panels decorate names with unicode letterforms — "Sports Desk ᴸᴵᵛᴱ", "BBC
+// One ᴴᴰ". They render as mangled little capitals in Telegram and the model
+// repeats them verbatim because it is told to use the names exactly. NFKD maps
+// those modifier letters back to plain ASCII.
+export function cleanTitle(text) {
+  const raw = String(text || '');
+  const flat = raw.normalize('NFKD').replace(/\s+/g, ' ').trim();
+  // A decorated tag comes back mixed-case because the panel mixes modifier
+  // capitals and smalls — "Sports Desk ᴸᴵᵛᴱ" flattens to "Sports Desk LIvE".
+  // When the original WAS decorated, the tag is panel decoration rather than
+  // part of the programme's name, so it goes.
+  if (flat !== raw.replace(/\s+/g, ' ').trim()) {
+    return flat.replace(/[\s|•·-]*\b(?:live|new|hd|fhd|uhd|4k)\b[\s|•·-]*$/i, '').trim() || flat;
+  }
+  return flat;
+}
+
+// SD, HD and FHD of the same channel are three rows in the lineup and ONE
+// channel to a customer. Left alone, "what's on Sky Sports News" fetched
+// listings for all three and the answer came back "The current show on Sky
+// Sports News SD, HD, and FHD is...", and "what's on bbc 1" turned into a
+// paragraph repeating the same programme three times. "+1" is deliberately
+// NOT stripped: an hour behind is a different channel.
+const VARIANT_WORDS = /\b(?:sd|hd|fhd|uhd|4k|8k|hevc|h265|h\.265|raw|vip|backup|alt|multi|low|lq|hq)\b/gi;
+
+export function baseChannelName(name) {
+  return cleanTitle(name)
+    .replace(/[|[\]()]/g, ' ')
+    .replace(VARIANT_WORDS, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+// One row per real channel, keeping whichever matched best — the name shown is
+// still a real one from the lineup, because that is what they will see in the
+// app when they go looking for it.
+export function dedupeVariants(rows) {
+  const seen = new Map();
+  // Every variant scores the same, so first-past-the-post handed back whatever
+  // the panel happened to list first — usually the SD one, which is the one
+  // nobody watches. Prefer the better picture when the match is just as good.
+  const rank = (name) => {
+    const n = String(name).toUpperCase();
+    if (/\bFHD\b/.test(n)) return 0;
+    if (/\b(?:UHD|4K)\b/.test(n)) return 1;
+    if (/\bHD\b/.test(n)) return 2;
+    if (/\bSD\b/.test(n)) return 4;
+    return 3; // unlabelled: a real name, better than SD
+  };
+  for (const r of rows) {
+    const key = baseChannelName(r.name);
+    if (!key) continue;
+    const held = seen.get(key);
+    if (!held || (r.score ?? 0) > (held.score ?? 0)
+        || ((r.score ?? 0) === (held.score ?? 0) && rank(r.name) < rank(held.name))) {
+      seen.set(key, r);
+    }
+  }
+  return [...seen.values()];
+}
+
+// The same programme on the SD/HD/FHD rows of one channel is one listing.
+// "What's on" matched a title across all three and the answer named each.
+function dedupeProgrammeRows(rows) {
+  const seen = new Set();
+  const out = [];
+  for (const p of rows) {
+    const key = `${baseChannelName(p.channel)}|${cleanTitle(p.title).toLowerCase()}|${p.start_ts}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(p);
+  }
+  return out;
+}
+
 export async function channelGrounding(question, { service = 1 } = {}) {
   if (!xcConfigured(service)) return null;
   const lines = [];
@@ -355,20 +431,38 @@ export async function channelGrounding(question, { service = 1 } = {}) {
   // Searching the WHOLE guide by title is what answers "who's playing Derby
   // tonight?" and "what channel is the Arsenal game on?" — questions where
   // the channel is the answer, not part of the question.
-  const programmes = findProgrammes(question, { service, limit: 6 });
+  // When the customer NAMED a channel, searching every programme title as
+  // well is noise: "what's on sky sports news" matched "BBC News at Six" on
+  // the word "news" and offered it up as a listing. The title search exists
+  // for the opposite case — "who's playing Derby tonight", where the channel
+  // is the answer rather than the question.
+  const namedChannels = dedupeVariants(findChannels(question, { service, limit: 12 }));
+  // Compared squashed and with the number spelled both ways, because people
+  // type "bbc 1" for a channel the panel calls "BBC ONE".
+  const WORD_NUMBER = { one: '1', two: '2', three: '3', four: '4', five: '5' };
+  const askedKey = squash(baseChannelName(question));
+  const namedOne = namedChannels.some((c) => {
+    const base = baseChannelName(c.name);
+    const forms = [base, base.replace(/\b(one|two|three|four|five)\b/g, (m) => WORD_NUMBER[m])];
+    return forms.some((f) => squash(f).length >= 4 && askedKey.includes(squash(f)));
+  });
+
+  const programmes = namedOne ? [] : findProgrammes(question, { service, limit: 6 });
   if (programmes.length) {
     lines.push('From OUR TV guide — what is on, and the channel carrying it (exact, use as written):');
-    for (const p of programmes) {
-      lines.push(`- ${timeOfDay(p.start_ts)} ${p.title} — on ${p.channel}`);
+    for (const p of dedupeProgrammeRows(programmes)) {
+      lines.push(`- ${timeOfDay(p.start_ts)} ${cleanTitle(p.title)} — on ${cleanTitle(p.channel)}`);
     }
     lines.push('(These come from the guide and are the only listings available.)');
   }
 
-  const hits = findChannels(question, { service, limit: 6 });
+  // Deduped BEFORE the limit, or six results are the same channel six times
+  // and the genuinely different ones never make the list.
+  const hits = namedChannels.slice(0, 6);
   if (hits.length) {
     if (lines.length) lines.push('');
     lines.push('Channels in OUR lineup matching what they asked about (these names are exact — use them as written):');
-    for (const h of hits) lines.push(`- ${h.name}${h.category ? ` — ${h.category}` : ''}`);
+    for (const h of hits) lines.push(`- ${cleanTitle(h.name)}${h.category ? ` — ${cleanTitle(h.category)}` : ''}`);
 
     // Listings for the best few matches rather than only the top one. "What's
     // on sky sports" can match half a dozen channels, and now that the guide
@@ -377,24 +471,37 @@ export async function channelGrounding(question, { service = 1 } = {}) {
       // The downloaded guide first — it is already here, costs nothing, and
       // covers every channel. The per-channel API call is the fallback for
       // channels the bulk guide happens not to carry.
-      const stored = programmesOnChannel(service, h.epg_channel_id, { limit: 3 });
+      const stored = programmesOnChannel(service, h.epg_channel_id, { limit: 4 });
       if (stored.length) {
         const t = now();
-        lines.push('', `What the guide shows on ${h.name}:`);
+        lines.push('', `What the guide shows on ${cleanTitle(h.name)}:`);
+        // Back-to-back entries for the same programme are one programme. The
+        // guide splits a rolling news block into half-hour slots, which came
+        // out as "Sports Desk is on now until 17:00, and after that it will be
+        // Sports Desk".
+        const merged = [];
         for (const p of stored) {
+          const last = merged[merged.length - 1];
+          if (last && cleanTitle(last.title).toLowerCase() === cleanTitle(p.title).toLowerCase()) {
+            last.stop_ts = Math.max(last.stop_ts, p.stop_ts);
+            continue;
+          }
+          merged.push({ ...p });
+        }
+        for (const p of merged.slice(0, 3)) {
           // Say which one is actually ON — otherwise the model announces a
           // programme already half over as "next up".
           const when = p.start_ts <= t && p.stop_ts > t
             ? `ON NOW until ${timeOfDay(p.stop_ts)}`
             : `from ${timeOfDay(p.start_ts)}`;
-          lines.push(`- ${when}: ${p.title}`);
+          lines.push(`- ${when}: ${cleanTitle(p.title)}`);
         }
         continue;
       }
       const epg = await shortEpg(h.stream_id, { service, limit: 3 });
       if (!epg.length) continue;
-      lines.push('', `What the guide shows next on ${h.name}:`);
-      for (const e of epg) lines.push(`- ${hhmm(e.start)} ${e.title}`.trim());
+      lines.push('', `What the guide shows next on ${cleanTitle(h.name)}:`);
+      for (const e of epg) lines.push(`- ${hhmm(e.start)} ${cleanTitle(e.title)}`.trim());
     }
     if (lines.some((l) => l.startsWith('What the guide shows'))) {
       lines.push('(These times come from the channel guide.)');
