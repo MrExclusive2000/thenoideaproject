@@ -964,7 +964,13 @@ function stripMention(text) {
 // Rewording a list mangles it: "installs, logins, buffering fixes, requests"
 // came back as "those service stuff bits I excel at". These lines are short,
 // deliberate and already in the house voice, so they go out as written.
-const VERBATIM_LINES = new Set(['bot.smallTalkSteer', 'bot.capabilityMessage', 'bot.offtopicMessage']);
+const VERBATIM_LINES = new Set([
+  'bot.smallTalkSteer', 'bot.capabilityMessage', 'bot.offtopicMessage',
+  // "Flagged to the team" came back as "You're all set now" — which is not
+  // true of a problem nobody has fixed yet. A status line is a statement of
+  // fact and must survive intact.
+  'bot.problemFlaggedNote', 'bot.problemFollowupNote', 'bot.problemMoreFixesNote',
+]);
 
 async function spoken(key) {
   const msg = withAdminContact(String(getSetting(key) || '').trim());

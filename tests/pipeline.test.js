@@ -3772,3 +3772,38 @@ test('a guide request naming no app gets the guide unchanged', async () => {
   // And a lead-in only makes sense on the install guide.
   assert.equal(guideLeadIn('purple payment guide', { slug: 'pay-with-crypto' }), '');
 });
+
+test('no round of troubleshooting ends by sending them to the admin', async () => {
+  const { stripPrematureHandoff } = await import('../src/ai/guardrails.js');
+  // Live final round: a numbered list of fixes ending "4. Message
+  // @ExclusiveDoctor for further assistance with your account issue." — while
+  // the line underneath said "reply here and I'll flag it straight to the
+  // team". The system owns escalation; the answer must not pre-empt it.
+  const live = '1. Restart your device.\n2. Try a different browser or device to log in.\n3. Verify your username and password for any extra spaces or capital letters.\n4. Message @ExclusiveDoctor for further assistance with your account issue.';
+  const out = stripPrematureHandoff(live);
+  assert.doesNotMatch(out, /@ExclusiveDoctor/);
+  assert.match(out, /extra spaces or capital letters/, 'the real steps survive');
+});
+
+test('status lines are never reworded into something untrue', async () => {
+  // "Flagged to the team — they'll look into it" came back as "Got it
+  // flagged... You're all set now", which is not true of an open problem.
+  setSetting('bot.problemFlaggedNote', '✅ Flagged to the team — they will look into it.');
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.problemFixRounds', 1);
+  setSetting('reports.adminTelegramIds', [777]);
+  _resetProblemTriage();
+
+  aiResponse = 'Restart the app and clear its cache, then try the same login in XC.';
+  const first = fakeCtx('my login says invalid', { userId: 99995 });
+  await handleDirectMessage(first, first.message.text);
+
+  const second = fakeCtx("I've done that", { userId: 99995 });
+  await handleDirectMessage(second, "I've done that");
+  const msg = second.sent.map((s) => s.msg).join('\n');
+  if (/flagged/i.test(msg)) {
+    assert.match(msg, /they will look into it/i, 'the note goes out as written');
+    assert.doesNotMatch(msg, /all set now/i, 'nothing is fixed yet, so nothing says it is');
+  }
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});

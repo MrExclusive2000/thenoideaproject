@@ -599,10 +599,11 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
   // Reciting the brief at the customer is worse than not answering: it reads
   // as a broken machine and tells them nothing.
   if (echoesInstructions(reply)) return null;
-  // First go at a problem: the model works the playbook, the system decides
-  // when a human gets involved. A handoff here would contradict the follow-up
-  // line the system is about to add.
-  if (grounding && !secondRound) reply = stripPrematureHandoff(reply);
+  // While troubleshooting, the SYSTEM decides when a human gets involved and
+  // says so in its own line underneath. A handoff written into the answer
+  // contradicts it: the reply ends "message the admin" and the next line says
+  // "reply here and I'll flag it straight to the team".
+  if (grounding) reply = stripPrematureHandoff(reply);
 
   const bannedWords = db.prepare('SELECT word FROM banned_words').all().map((r) => r.word);
   if (containsBannedWord(reply, bannedWords)) return null;
