@@ -830,6 +830,30 @@ const normName = (s) => String(s || '')
 
 const dropArticle = (n) => String(n || '').replace(/^(?:the|a|an)/, '');
 
+// The same normalisation but keeping word boundaries. normName above squeezes
+// every space out, which makes "MobLand" and "Mob Land" the identical string —
+// and they are two different titles: a 2025 series and a 2023 film. Asked
+// about the series, the bot answered "Good news, Mob Land - 2023 is already on
+// the service, open the Movies section", with total confidence, about
+// something we do not carry. Spacing alone is not enough to claim certainty.
+// Quality and format tags a panel bolts onto a name. "Oppenheimer (2023) 4K"
+// is Oppenheimer; the 4K is how it was encoded, not what it is called.
+const DECOR = /\b(?:4k|uhd|fhd|hd|sd|imax|remux|hevc|x26[45]|h\.?26[45]|[0-9]{3,4}p|bluray|blu-ray|bdrip|dvdrip|webrip|web-?dl|web|multi|dual|vip|raw)\b/g;
+
+const normWords = (s) => String(s || '')
+  .toLowerCase()
+  .replace(/\b(19|20)\d{2}\b/g, ' ')
+  .replace(/\b(s\d{1,2}|season\s*\d{1,2}|complete|collection|saga)\b/g, ' ')
+  .replace(DECOR, ' ')
+  .replace(/[^a-z0-9]+/g, ' ')
+  .trim();
+
+const dropArticleWords = (n) => String(n || '').replace(/^(?:the|a|an)\s+/, '');
+
+// The year the library row carries, if any — the one piece of information that
+// tells a customer which "Mob Land" we actually hold.
+const yearIn = (name) => (String(name || '').match(/\b(19|20)\d{2}\b/) || [null])[0];
+
 export async function refreshVod(service = 1) {
   const movies = await call(service, { action: 'get_vod_streams' });
   const series = await call(service, { action: 'get_series' });
@@ -890,8 +914,26 @@ export function findVodTitle(title, { service = 1, limit = 3 } = {}) {
   // plainly the one they asked for. Compared rather than stored that way, so
   // it works against rows written by an older version too.
   const loose = dropArticle(norm);
-  const exact = rows.filter((r) => r.norm_name === norm || dropArticle(r.norm_name) === loose);
-  if (exact.length) return exact.slice(0, limit).map((r) => ({ ...r, exact: true }));
+  const words = normWords(title);
+  const looseWords = dropArticleWords(words);
+
+  // Certain only when the words line up too. "The Big Bang Theory" for "big
+  // bang theory" still counts; "Mob Land" for "MobLand" does not.
+  const sure = rows.filter((r) => {
+    const rw = normWords(r.name);
+    return rw === words || dropArticleWords(rw) === looseWords;
+  });
+  if (sure.length) {
+    return sure.slice(0, limit).map((r) => ({ ...r, exact: true, year: yearIn(r.name) }));
+  }
+
+  // Matches once the spaces are squeezed out — probably right, possibly a
+  // different title that happens to collapse to the same letters. Offered as
+  // a suggestion with its year and kind, so the customer can tell at a glance.
+  const squashed = rows.filter((r) => r.norm_name === norm || dropArticle(r.norm_name) === loose);
+  if (squashed.length) {
+    return squashed.slice(0, limit).map((r) => ({ ...r, exact: false, year: yearIn(r.name) }));
+  }
 
   // A library name usually carries extra decoration ("Oppenheimer 4K",
   // "The Batman [2022] IMAX"), so a contained match counts — but only when
@@ -902,5 +944,5 @@ export function findVodTitle(title, { service = 1, limit = 3 } = {}) {
     .filter((r) => r.norm_name.includes(norm))
     .sort((a, b) => a.norm_name.length - b.norm_name.length)
     .slice(0, limit)
-    .map((r) => ({ ...r, exact: false }));
+    .map((r) => ({ ...r, exact: false, year: yearIn(r.name) }));
 }

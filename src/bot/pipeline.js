@@ -548,9 +548,21 @@ function alreadyInLineup(ctx, title, asked = '') {
 
 function libraryHitText(hit) {
   const where = hit.kind === 'series' ? 'Series' : 'Movies';
-  return hit.exact
-    ? `✅ Good news — "${hit.name}" is already on the service. Open the ${where} section in your app and search for it. If it won't play, tell me and I'll get it looked at.`
-    : `✅ I think we already have that — it's listed as "${hit.name}". Have a look in the ${where} section of your app. Not the one you meant? Reply with the exact title and year and I'll put a request in.`;
+  const kind = hit.kind === 'series' ? 'a series' : 'a film';
+  if (hit.exact) {
+    return `✅ Good news — "${hit.name}" is already on the service. Open the ${where} section in your app and search for it. If it won't play, tell me and I'll get it looked at.`;
+  }
+  // An unsure hit must say WHAT it found, not just that it found something.
+  // "Mob Land - 2023" was offered for "MobLand" as a certainty: same letters
+  // once the spaces come out, a different title, a different year, and a film
+  // rather than the series they asked about. The year and the kind are what
+  // let the customer spot that in a second — and the offer to request the
+  // right one has to come with it, or being told the wrong thing is where it
+  // ends for them.
+  const year = hit.year ? ` (${hit.year})` : '';
+  return `🤔 Closest I've got is "${hit.name}"${year} — ${kind}, in the ${where} section. `
+    + `If that's the one, you're sorted. If you meant a different one, say so with the year `
+    + `and I'll get it requested for you.`;
 }
 
 // "Do you have The Big Bang Theory?" has a factual answer, and the model used

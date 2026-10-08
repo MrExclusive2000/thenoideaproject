@@ -829,3 +829,37 @@ test('panel decoration is stripped from programme names', async () => {
   assert.equal(cleanTitle('Live at the Apollo'), 'Live at the Apollo');
   assert.equal(cleanTitle('Pointless'), 'Pointless');
 });
+
+test('a different title that collapses to the same letters is not "good news"', async () => {
+  // Live: asked about MobLand (the 2025 series), the bot answered "✅ Good
+  // news — Mob Land - 2023 is already on the service. Open the Movies
+  // section." Different title, different year, a film rather than a series,
+  // stated as certainty. normName squeezes every space out, which made
+  // "MobLand" and "Mob Land" the identical string.
+  const { findVodTitle } = await import('../src/xc.js');
+  const { db } = await import('../src/db/db.js');
+  const t = Math.floor(Date.now() / 1000);
+  const add = (name, kind) => db.prepare(
+    'INSERT INTO xc_vod (service, kind, name, norm_name, category, updated_at) VALUES (?,?,?,?,?,?)'
+  ).run(7, kind, name, name.toLowerCase().replace(/\b(19|20)\d{2}\b/g, ' ').replace(/[^a-z0-9]/g, ''), 'x', t);
+
+  add('Mob Land - 2023', 'movie');
+  add('The Big Bang Theory', 'series');
+  add('Oppenheimer (2023) 4K', 'movie');
+
+  const spaced = findVodTitle('Mobland', { service: 7 })[0];
+  assert.ok(spaced, 'still offered as the closest thing');
+  assert.equal(spaced.exact, false, 'but never as a certainty');
+  assert.equal(spaced.year, '2023', 'and the year is surfaced so they can tell');
+  assert.equal(spaced.kind, 'movie', 'as is the kind — they asked about a series');
+
+  // Written the way the library has it, it IS that title.
+  assert.equal(findVodTitle('Mob Land', { service: 7 })[0].exact, true);
+
+  // The ordinary cases stay confident: a dropped article, and the quality and
+  // year tags a panel bolts on are decoration, not a different film.
+  assert.equal(findVodTitle('big bang theory', { service: 7 })[0].exact, true);
+  assert.equal(findVodTitle('Oppenheimer', { service: 7 })[0].exact, true);
+
+  db.prepare('DELETE FROM xc_vod WHERE service = 7').run();
+});
