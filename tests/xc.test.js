@@ -663,3 +663,33 @@ test('a dropped leading "The" is still an exact match, not a hedge', () => {
   assert.equal(hit.exact, true, 'the article is not part of what anyone means');
   assert.equal(xc.findVodTitle('The Big Bang Theory', { service: 1 })[0].exact, true);
 });
+
+test('a channel question stays fast against a full-size stored guide', async () => {
+  // This is the one that took the bot down. Programmes join channels on
+  // epg_channel_id and nothing indexed it, so every question scanned the
+  // whole channel list once per programme — 2.9 SECONDS of blocked event
+  // loop each time. better-sqlite3 is synchronous, so for those seconds the
+  // bot cannot poll Telegram or answer anybody: indistinguishable from dead.
+  const base = Math.floor(Date.now() / 1000);
+  const insC = db.prepare('INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (9,?,?,NULL,?,1)');
+  const insP = db.prepare('INSERT INTO xc_programmes (service, channel_id, title, start_ts, stop_ts) VALUES (9,?,?,?,?)');
+  db.transaction(() => {
+    for (let c = 0; c < 400; c++) {
+      insC.run(c + 1, c === 0 ? 'UK: BBC One HD' : `UK: Channel ${c}`, `p${c}.uk`);
+      for (let s = 0; s < 96; s++) {
+        insP.run(`p${c}.uk`, `Programme ${c}-${s} Some Longish Title`, base + s * 1800, base + s * 1800 + 1800);
+      }
+    }
+  })();
+  assert.equal(xc.programmeCount(9), 38400, 'a realistic amount of guide');
+
+  const started = Date.now();
+  for (let i = 0; i < 20; i++) xc.findProgrammes("what's on bbc 1", { service: 9 });
+  const elapsed = Date.now() - started;
+  // Generous: this was ~38 seconds for 20 before the index and the SQL-side
+  // filter. Anything near that means the join has lost its index again.
+  assert.ok(elapsed < 3000, `20 lookups took ${elapsed}ms — the guide join is scanning again`);
+
+  db.prepare('DELETE FROM xc_programmes WHERE service = 9').run();
+  db.prepare('DELETE FROM xc_channels WHERE service = 9').run();
+});

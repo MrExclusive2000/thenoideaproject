@@ -600,12 +600,21 @@ export function findProgrammes(question, { service = 1, limit = 6 } = {}) {
   // are holding, just because they picked the wrong word for 5pm. The window
   // ranks instead — asked-for time first, then everything else.
   const [wantFrom, wantTo] = timeWindow(question);
+  // The title filter runs in SQLite, not in JS. Pulling every unfinished
+  // programme back and sieving them here meant tens of thousands of row
+  // objects built per question, on top of a join that had no index to use.
+  // An INNER JOIN also drops programmes whose channel is not in the lineup,
+  // which were being discarded a moment later anyway.
+  const likes = terms.slice(0, 4);
   const rows = db.prepare(`
     SELECT p.title, p.start_ts, p.stop_ts, c.name AS channel
     FROM xc_programmes p
-    LEFT JOIN xc_channels c ON c.service = p.service AND c.epg_channel_id = p.channel_id
+    JOIN xc_channels c ON c.service = p.service AND c.epg_channel_id = p.channel_id
     WHERE p.service = ? AND p.stop_ts > ?
-  `).all(service, now() - 3600);
+      AND (${likes.map(() => 'p.title LIKE ?').join(' OR ')})
+    ORDER BY p.start_ts
+    LIMIT 400
+  `).all(service, now() - 3600, ...likes.map((t) => `%${t}%`));
 
   const scored = [];
   for (const r of rows) {
@@ -613,8 +622,6 @@ export function findProgrammes(question, { service = 1, limit = 6 } = {}) {
     let score = 0;
     for (const term of terms) if (title.includes(term)) score += term.length >= 5 ? 3 : 1;
     if (!score) continue;
-    // A programme we cannot name a channel for is no use as an answer.
-    if (!r.channel) continue;
     if (r.start_ts < wantTo && r.stop_ts > wantFrom) score += 2;
     scored.push({ ...r, score });
   }

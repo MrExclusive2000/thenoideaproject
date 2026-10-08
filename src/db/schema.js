@@ -594,6 +594,18 @@ const migrations = [
   );
   CREATE INDEX IF NOT EXISTS idx_xc_prog_stage ON xc_programmes_staging(service);
   `,
+  // v27 — the index the guide join needs.
+  //
+  // Programmes join channels on epg_channel_id, and nothing indexed it. Every
+  // channel question therefore scanned the whole channel list once per
+  // programme: 600 channels x 57,600 programmes is 34 million comparisons,
+  // 2.9 SECONDS of blocked event loop per question. better-sqlite3 is
+  // synchronous, so for those seconds the bot cannot poll Telegram, answer
+  // anyone, or do anything at all — a few of those in a row and it is
+  // indistinguishable from a dead bot.
+  `
+  CREATE INDEX IF NOT EXISTS idx_xc_channels_epg ON xc_channels(service, epg_channel_id);
+  `,
 ];
 
 export function migrate(db) {
