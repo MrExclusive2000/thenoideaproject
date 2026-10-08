@@ -738,8 +738,10 @@ export async function rephraseCanned(message, { question = null } = {}) {
           role: 'system',
           content: asked
             ? 'You are a support bot replying to a customer. Below you get THEIR MESSAGE and the REPLY you must send. ' +
-              'Rewrite the reply so it is addressed to them and reads as a direct answer to what they asked — ' +
-              'acknowledge their actual words in the opening few words where it fits naturally. ' +
+              'Rewrite the reply so it is addressed to them and reads as a direct answer to what they asked. ' +
+              'Do NOT quote, repeat or paraphrase their message back at them — opening with their own words ' +
+              '("Hey how we doing brother — ...") reads like a machine echoing, not a person replying. ' +
+              'Match their tone instead: if they were casual, be casual. ' +
               'Keep EVERY fact, offer and instruction from the reply, and add none of your own: no new promises, ' +
               'no new steps, no questions the reply does not already ask. ' +
               'Keep every /command, {placeholder} and @handle exactly as written. Keep it about the same length. ' +

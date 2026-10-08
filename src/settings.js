@@ -22,7 +22,12 @@ const DEFAULTS = {
   'bot.offtopicChatMinutes': 30,
   // Appended in code to every banter answer — always pushes back to support.
   // Empty = banter goes out bare.
-  'bot.smallTalkSteer': "Anyway — service stuff is where I shine 😄 installs, logins, buffering fixes, requests. Try me!",
+  // Short, and only used when the banter did NOT already steer. The long
+  // version was being stapled onto an answer that had already said the same
+  // thing, and the personalised rewrite then opened by parroting the
+  // customer's own words back: "Hey how we doing brother — I'm right here to
+  // help with installs, logins, buffering fixes, and requests."
+  'bot.smallTalkSteer': "What can I help you with?",
   // Canned answer for "which service is the best?" when two services are
   // configured ({name1}/{name2}). Biased to service 1 on purpose — the model
   // is never allowed to freestyle a comparison of your own products.
@@ -138,7 +143,11 @@ const DEFAULTS = {
   'bot.aiRephrase': true,
   // Canned warmth: a bare "hey" or "cheers" gets these instead of the
   // off-topic brush-off. Empty = silent.
-  'bot.greetingMessage': "Hey! 👋 I'm the team's support bot — ask me anything about the service: installs, buffering fixes, logins, what to watch it on. /help shows all my tricks. What can I sort for you?",
+  // Short on purpose. The old one was a four-line introduction with a feature
+  // list and a /help plug, sent to someone who typed "hey bro" — it reads
+  // like a brochure, and a returning customer gets the same brochure every
+  // time. A person would say hello back and ask what is up.
+  'bot.greetingMessage': "Hey 👋 What can I sort for you?",
   'bot.thanksMessage': 'Anytime! 👍 Shout if you need anything else.',
   // "I need help" with nothing else in it. No service vocabulary, so the
   // scope gate used to call it off-topic and brush off the one person who had

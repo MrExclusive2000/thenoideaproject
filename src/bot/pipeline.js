@@ -635,7 +635,48 @@ async function sendAvailability(ctx, result, replyParams) {
   await ctx.api.sendMessage(ctx.chat.id, text, replyParams).catch(() => {});
 }
 
+// The title they just asked about, so "is it on Flix too?" has an antecedent.
+// Without one that question had no title in it, fell through to the model
+// with whatever was left in the conversation history, and came back "I do not
+// have the exact channel information for the last F1 race" — an answer to a
+// question asked twenty minutes earlier in a different chat.
+const lastTitleAsked = new Map(); // chatId:userId -> { title, at }
+const TITLE_MEMORY_MS = 15 * 60 * 1000;
+
+// "Is it on Flix too?", "what about Exclusive?", "and on Flix?" — a question
+// about the SAME title on the other service. It has to name a service, or
+// "is it working?" would drag the last film into an unrelated answer.
+const SAME_TITLE_OTHER_SERVICE =
+  /^\s*(?:and\s+|but\s+|ok\s+|so\s+)?(?:is|are|its|it'?s)?\s*(?:it|that|this|they|the same)?\s*(?:on|in|for)\b|^\s*(?:what|how)\s+about\b|^\s*(?:and|what about)\s/i;
+
+function recallTitleAsked(ctx) {
+  const key = `${ctx.chat?.id}:${ctx.from?.id}`;
+  const held = lastTitleAsked.get(key);
+  if (!held) return null;
+  if (Date.now() - held.at > TITLE_MEMORY_MS) { lastTitleAsked.delete(key); return null; }
+  return held.title;
+}
+
+function rememberTitleAsked(ctx, title) {
+  const key = `${ctx.chat?.id}:${ctx.from?.id}`;
+  lastTitleAsked.set(key, { title, at: Date.now() });
+  if (lastTitleAsked.size > 1000) lastTitleAsked.delete(lastTitleAsked.keys().next().value);
+}
+
+export function _resetTitleMemory() { lastTitleAsked.clear(); }
+
+// Did they just ask about the same title on the other service?
+function followUpAboutLastTitle(ctx, question) {
+  const q = String(question || '').trim();
+  if (!q || q.length > 60) return null;
+  if (!serviceNamedIn(q)) return null;          // must name a service
+  if (!SAME_TITLE_OTHER_SERVICE.test(q)) return null;
+  if (parseAvailabilityQuestion(q) || anyVodRequest(q)) return null; // names its own title
+  return recallTitleAsked(ctx);
+}
+
 async function answerAvailability(ctx, title, asked = '') {
+  rememberTitleAsked(ctx, title);
   // A CHANNEL first. "Do you have Sky Sports" was being filed as a request for
   // a film while two Sky Sports channels sat in the lineup the bot owns — the
   // customer was told "I can't check" about something it could check, and the
@@ -708,6 +749,15 @@ async function captureVodRequest(ctx, title) {
     const withYear = hit.canonical.toLowerCase().replace(/[^a-z0-9]/g, '');
     if (tNorm === noYear || tNorm === withYear) useTitle = hit.canonical;
     else confirm = hit.canonical;
+    // Check the library AGAIN under the name IMDb gave us. The first check
+    // used whatever they typed — "wolf of wall street" misses a library row
+    // called "The Wolf of Wall Street" on the article alone — so a request
+    // was filed, confirmed, and routed to a service for a film that was
+    // sitting there all along.
+    const byProperName = alreadyInLibrary(ctx, hit.title);
+    if (byProperName && (!hit.kind || byProperName.kind === hit.kind)) {
+      return libraryHitText(byProperName, hit);
+    }
   }
   const { ack, requestId, deduped } = recordVodRequest(ctx, useTitle);
   if (confirm && !deduped) {
@@ -1902,6 +1952,16 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
     }
   }
 
+  // "Is it on Flix too?" — the same title, the other service.
+  {
+    const carried = followUpAboutLastTitle(ctx, question);
+    if (carried) {
+      setLogSource(logId, 'vod-request');
+      await sendAvailability(ctx, await answerAvailability(ctx, carried, question), replyParams);
+      return 'vod-request';
+    }
+  }
+
   // "I want to invite my friend." Handled entirely in code, because the model
   // cannot make an invite link and proved what it does instead: it asked the
   // customer for their username AND password, then returned an invented
@@ -2336,7 +2396,15 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
             // in front of everybody. If the answer already named what we do,
             // repeating it is not a steer, it is a stammer.
             const steer = alreadySteers(banter) ? '' : await spoken('bot.smallTalkSteer', question);
-            await ctx.api.sendMessage(ctx.chat.id, steer ? `${banter}\n\n${steer}` : banter, replyParams);
+            // One message, not two stuck together. "Hey there! Just chillin'."
+            // followed by a blank line and a second paragraph read as the bot
+            // answering itself; what was wanted was "Hey, just chillin' — what
+            // can I help you with?". A short steer joins on the same line; a
+            // long one the admin has written still gets its own paragraph.
+            const joined = !steer ? banter
+              : steer.length <= 60 ? `${banter.replace(/\s+$/, '')} ${steer}`
+              : `${banter}\n\n${steer}`;
+            await ctx.api.sendMessage(ctx.chat.id, joined, replyParams);
             return 'smalltalk';
           }
           setLogSource(logId, 'offtopic');

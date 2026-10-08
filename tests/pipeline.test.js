@@ -1613,7 +1613,13 @@ test('small-talk answers get trailing conversation-bait questions stripped', asy
   const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
   assert.equal(result, 'smalltalk');
   assert.ok(!ctx.sent[0].msg.includes('favourite team'), 'bait question removed');
-  assert.ok(!ctx.sent[0].msg.trimEnd().endsWith('?'), 'never ends on a question');
+  // The rule is "no fishing for more chat", not "no question marks". The
+  // steer the admin configures is allowed to ask what they need — "Hey, just
+  // chillin' — what can I help you with?" is the wanted shape, and a flat
+  // "never ends on a question" banned it. What must not survive is the
+  // MODEL's own bait.
+  assert.ok(!/favourite|what about you|how about you|tell me about/i.test(ctx.sent[0].msg),
+    'no fishing for more conversation');
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
 
@@ -5070,4 +5076,96 @@ test('"all good" ends a conversation instead of starting one', async () => {
   const hi = fakeCtx('hi all', { userId: 99823 });
   await handleDirectMessage(hi, 'hi all');
   assert.ok(hi.sent.length, 'hi all is still a greeting');
+});
+
+// --- from the group: four things wrong in four screenshots ------------------
+
+test('a request for something already on the service says so, not "noted"', async () => {
+  // Live: "I want to request Wolf of Wall Street on exclusive" was filed as a
+  // request for a film called "Wolf of Wall Street ON EXCLUSIVE", so the
+  // library check looked for that exact string, missed, and the admin got a
+  // request for something already there. Asking about the same film a minute
+  // later answered "already on the service".
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+  setSetting('vod.imdbCheck', false);
+  _resetProblemTriage();
+  const t = Math.floor(Date.now() / 1000);
+  db.prepare('INSERT INTO xc_vod (service, kind, name, norm_name, category, updated_at) VALUES (1,?,?,?,?,?)')
+    .run('movie', 'The Wolf of Wall Street (2013)', 'thewolfofwallstreet', 'x', t);
+
+  const before = db.prepare('SELECT COUNT(*) n FROM vod_requests').get().n;
+  const ctx = fakeCtx('I want to request Wolf of Wall Street on exclusive', { userId: 99601 });
+  await handleDirectMessage(ctx, 'I want to request Wolf of Wall Street on exclusive');
+  assert.match(ctx.sent.map((s) => s.msg).join('\n'), /already on the service/i);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM vod_requests').get().n, before, 'nothing filed');
+
+  db.prepare("DELETE FROM xc_vod WHERE norm_name = 'thewolfofwallstreet'").run();
+});
+
+test('"is it on Flix too?" is about the title they just asked about', async () => {
+  // Live: it came back "I do not have the exact channel information for the
+  // last F1 race" — an answer to a question asked earlier in another chat.
+  // "it" is correctly rejected as a title, so the question had nothing in it
+  // and fell through to the model with whatever history was lying around.
+  const { _resetTitleMemory } = await import('../src/bot/pipeline.js');
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+  setSetting('vod.imdbCheck', false);
+  _resetTitleMemory();
+  _resetProblemTriage();
+  const t = Math.floor(Date.now() / 1000);
+  db.prepare('INSERT INTO xc_vod (service, kind, name, norm_name, category, updated_at) VALUES (1,?,?,?,?,?)')
+    .run('movie', 'The Wolf of Wall Street (2013)', 'thewolfofwallstreet', 'x', t);
+
+  const first = fakeCtx('Is wolf of Wall Street on exclusive?', { userId: 99602 });
+  await handleDirectMessage(first, 'Is wolf of Wall Street on exclusive?');
+  assert.match(first.sent.map((s) => s.msg).join('\n'), /already on the service/i);
+
+  const followUp = fakeCtx('Is it on Flix too?', { userId: 99602 });
+  await handleDirectMessage(followUp, 'Is it on Flix too?');
+  const msg = followUp.sent.map((s) => s.msg).join('\n');
+  assert.match(msg, /wolf of wall street/i, 'carries the title over');
+  assert.doesNotMatch(msg, /F1|race|channel information/i, 'and is not about something else entirely');
+
+  // A follow-up that names no service must NOT drag the last title in.
+  _resetTitleMemory();
+  db.prepare("DELETE FROM xc_vod WHERE norm_name = 'thewolfofwallstreet'").run();
+});
+
+test('a hello gets a hello, not a brochure', async () => {
+  // "Hey bro" got a four-line introduction with a feature list and a /help
+  // plug — every time, including to regulars.
+  setSetting('bot.cooldownSeconds', 0);
+  _resetProblemTriage();
+  const ctx = fakeCtx('Hey bro', { userId: 99603 });
+  await handleDirectMessage(ctx, 'Hey bro');
+  const msg = ctx.sent.map((s) => s.msg).join('\n');
+  assert.ok(msg.length < 90, `short and warm, got ${msg.length} chars: ${msg}`);
+  assert.doesNotMatch(msg, /installs, buffering fixes, logins/, 'no feature list');
+});
+
+test('banter and its steer are one message, and never parrot the customer', async () => {
+  // Live: "Yo bot how we doing brother" came back as two paragraphs — a
+  // banter line, then "Hey how we doing brother — I'm right here to help
+  // with installs, logins, buffering fixes, and requests. Give me a try!",
+  // which is the bot repeating their own words back at them.
+  _resetSmallTalk();
+  setSetting('bot.offtopicBehavior', 'redirect');
+  setSetting('bot.smallTalkSteer', 'What can I help you with?');
+  const previous = aiResponse;
+  aiResponse = "Hey there! Just chillin'.";
+  try {
+    const ctx = fakeCtx('yo bot how we doing brother', { userId: 99604 });
+    const r = await answer(ctx, 'yo bot how we doing brother', { isDm: true, logId: null });
+    assert.equal(r, 'smalltalk');
+    const msg = ctx.sent[0].msg;
+    assert.ok(!msg.includes('\n\n'), `one message, not two: ${JSON.stringify(msg)}`);
+    assert.match(msg, /What can I help you with/);
+  } finally {
+    aiResponse = previous;
+    setSetting('bot.offtopicBehavior', 'silent');
+  }
 });

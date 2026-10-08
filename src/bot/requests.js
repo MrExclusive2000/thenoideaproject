@@ -12,10 +12,14 @@ import { alertAdmins } from './reports.js';
 const NOT_A_TITLE = /^(a |an |the |my |to |for )*\s*(refund|refunds|cancel|cancell?ed|cancell?ing|cancellation|money|payment|pay|callback|call ?back|help|support|assistance|password|login|log ?in|account|invoice|receipt|chargeback|renewal|renew|upgrade|change)\b/i;
 
 export function parseVodRequest(text) {
-  const m = stripLeadIn(text).match(/^\s*request\b\s*[:\-–]?\s*(.{2,200})/i);
-  if (!m) return null;
-  const title = stripTitleTail(m[1].trim().replace(/\s+/g, ' '));
-  if (title.length < 2) return null;
+  const extract = (msg) => {
+    const hit = msg.match(/^\s*request\b\s*[:\-–]?\s*(.{2,200})/i);
+    if (!hit) return null;
+    const t = stripTitleTail(hit[1].trim().replace(/\s+/g, ' '));
+    return t.length >= 2 ? t : null;
+  };
+  const title = pickByTitle(stripLeadIn(text), extract);
+  if (!title) return null;
   if (NOT_A_TITLE.test(title)) return null; // "Request a refund" etc. — not VOD
   return title;
 }
@@ -140,6 +144,48 @@ const TITLE_TAIL = /\s+(?:the\s+)?(?:tv\s+)?(?:series|show|boxset|box\s?set|coll
 // which matches no library entry and no other request for the same show.
 const TITLE_VERB_TAIL = /\s+(?:added|adding|uploaded|uploading|put\s+(?:on|up)|on\s+(?:here|there|the\s+service|vod)|to\s+(?:the\s+)?(?:vod|service|list)|to\s+be|sorted|please|plz|pls|thanks|ta|cheers)\s*$/i;
 
+// "...on Exclusive" / "...on Flix" names WHICH SERVICE they want it on, not
+// part of the title. Live: "I want to request Wolf of Wall Street on
+// exclusive" was filed as a request for a film called "Wolf of Wall Street on
+// exclusive", so the library check looked for that string, missed, and the
+// admin got a request for something already on the service.
+// Built from the configured names rather than a fixed list, because they are
+// whatever the admin called them.
+//
+// Applied to the whole MESSAGE before a title is pulled out of it, never to
+// the extracted title: "do you have Only On Flix on flix" must lose its
+// trailing service and keep the film, and a strip that runs on the title
+// afterwards takes "On Flix" out of the name too and leaves "Only".
+// Strip the trailing service UNLESS doing so guts the title. "Can we get Only
+// On Flix" is genuinely ambiguous — a film called "Only" on Flix, or a film
+// called "Only On Flix" — and collapsing a title to one short word to honour
+// a service nobody named twice is the worse guess of the two.
+// Decided on the TITLES the two readings produce, not on the message: the
+// question is which title survives, and only the extractor knows that.
+function pickByTitle(message, extract) {
+  const asIs = extract(message);
+  const stripped = stripServiceTail(message);
+  if (stripped === message) return asIs;
+  const cut = extract(stripped);
+  if (!cut) return asIs;
+  if (!asIs) return cut;
+  // Which reading is right turns on the connector. "Wolf of Wall Street on
+  // exclusive" and "severance on Exclusive" name a destination — the "on" is
+  // lowercase, the way people write a preposition. "Only On Flix" is a name,
+  // and its "On" is capitalised because it is part of one. That one signal
+  // separates every real case either way round.
+  const connector = (String(message).match(/\s+(on|for|in|to)\s+(?:the\s+)?[^\s]+\s*$/i) || [])[1] || '';
+  if (/^[A-Z]/.test(connector)) return asIs;
+  return cut.length >= 2 ? cut : asIs;
+}
+
+function stripServiceTail(title) {
+  const names = serviceNames().map((n) => String(n).trim()).filter((n) => n.length >= 3);
+  if (!names.length) return title;
+  const alt = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  return String(title).replace(new RegExp(`\\s+(?:on|for|in|to)\\s+(?:the\\s+)?(?:${alt})\\s*$`, 'i'), '').trim();
+}
+
 export function stripTitleTail(title) {
   let out = String(title).trim();
   for (let i = 0; i < 4; i++) {
@@ -158,11 +204,15 @@ const NOT_VOD_TOPIC = /\b(urls?|codes?|links?|login|logins|password|passwords|ac
 
 export function parseNaturalVodRequest(text) {
   if (/\n/.test(String(text))) return null; // single-line asks only
-  const lead = stripLeadIn(text);
-  const m = lead.match(REQUEST_VERB) || lead.match(NATURAL_REQ);
-  if (!m) return null;
-  let title = m[1].trim().replace(/\s+/g, ' ').replace(/\s*\b(please|pls|plz|thanks|thank you|ta|mate|m8)$/i, '').trim();
-  title = stripTitleTail(title);
+  const extract = (msg) => {
+    const hit = msg.match(REQUEST_VERB) || msg.match(NATURAL_REQ);
+    if (!hit) return null;
+    const t = stripTitleTail(hit[1].trim().replace(/\s+/g, ' ')
+      .replace(/\s*\b(please|pls|plz|thanks|thank you|ta|mate|m8)$/i, '').trim());
+    return t.length >= 2 ? t : null;
+  };
+  let title = pickByTitle(stripLeadIn(text), extract);
+  if (!title) return null;
   if (title.length < 2 || title.length > 100) return null;
   // "can we get this sorted" / "can you add me" — pronouns, not titles.
   if (/^(it|this|that|them|these|those|me|us|my|your|our|in|on|at|to|back|going|him|her)\b/i.test(title)) return null;
