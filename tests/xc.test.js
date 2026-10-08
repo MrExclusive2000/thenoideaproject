@@ -736,3 +736,46 @@ test('a channel number matches however it is written', () => {
   }
   db.prepare('DELETE FROM xc_channels WHERE service = 7').run();
 });
+
+test('"what\'s on BBC1" is answered from the guide we already downloaded', async () => {
+  // The bot told a customer to go and look in the app's TV guide themselves,
+  // while holding 213,000 rows of guide. findProgrammes searches programme
+  // TITLES, and a channel name matches no programme name — so a question
+  // about a channel found nothing and fell back to a live API call.
+  db.prepare('DELETE FROM xc_channels WHERE service = 6').run();
+  db.prepare('DELETE FROM xc_programmes WHERE service = 6').run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (6, 101, 'UK: BBC One HD', 'UK | ENT', 'bbc1.uk', 1)").run();
+  const t = Math.floor(Date.now() / 1000);
+  const ins = db.prepare('INSERT INTO xc_programmes (service, channel_id, title, start_ts, stop_ts) VALUES (6, ?, ?, ?, ?)');
+  ins.run('bbc1.uk', 'Breakfast', t - 600, t + 1800);
+  ins.run('bbc1.uk', 'Homes Under the Hammer', t + 1800, t + 5400);
+
+  const rows = xc.programmesOnChannel(6, 'bbc1.uk', { limit: 3 });
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].title, 'Breakfast', 'in order, starting with what is on');
+  // Finished programmes are not "what's on".
+  ins.run('bbc1.uk', 'Last Night At Ten', t - 7200, t - 3600);
+  assert.equal(xc.programmesOnChannel(6, 'bbc1.uk', { limit: 5 }).length, 2);
+
+  db.prepare('DELETE FROM xc_channels WHERE service = 6').run();
+  db.prepare('DELETE FROM xc_programmes WHERE service = 6').run();
+});
+
+test('the block says which programme is on NOW, not just a list of times', async () => {
+  db.prepare('DELETE FROM xc_channels WHERE service = 6').run();
+  db.prepare('DELETE FROM xc_programmes WHERE service = 6').run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (6, 101, 'UK: BBC One HD', NULL, 'bbc1.uk', 1)").run();
+  setSetting('services.xcUser2', 'u'); setSetting('services.xcPass2', 'p');
+  const t = Math.floor(Date.now() / 1000);
+  const ins = db.prepare('INSERT INTO xc_programmes (service, channel_id, title, start_ts, stop_ts) VALUES (6, ?, ?, ?, ?)');
+  ins.run('bbc1.uk', 'Breakfast', t - 600, t + 1800);
+  ins.run('bbc1.uk', 'Homes Under the Hammer', t + 1800, t + 5400);
+
+  // Service 6 borrows service 1's credentials check, so point them at it.
+  setSetting('services.url1', `http://127.0.0.1:${panel.address().port}`);
+  const g = await xc.channelGrounding("What's on bbc1", { service: 6 });
+  assert.match(g, /ON NOW until \d{2}:\d{2}: Breakfast/, 'what is playing right now');
+  assert.match(g, /from \d{2}:\d{2}: Homes Under the Hammer/, 'and what follows it');
+  db.prepare('DELETE FROM xc_channels WHERE service = 6').run();
+  db.prepare('DELETE FROM xc_programmes WHERE service = 6').run();
+});

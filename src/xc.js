@@ -153,7 +153,7 @@ export function findChannels(query, { service = 1, limit = 8 } = {}) {
   }
   if (!terms.length && !joined.length) return [];
 
-  const rows = db.prepare('SELECT stream_id, name, category FROM xc_channels WHERE service = ?').all(service);
+  const rows = db.prepare('SELECT stream_id, name, category, epg_channel_id FROM xc_channels WHERE service = ?').all(service);
   const scored = [];
   for (const r of rows) {
     const name = String(r.name).toLowerCase();
@@ -329,6 +329,25 @@ const timeOfDay = (ts) => {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
 
+// What is on ONE named channel, straight from the guide already downloaded.
+//
+// findProgrammes searches programme TITLES, which answers "who's playing
+// Derby tonight" but nothing at all for "what's on BBC One" — a channel name
+// matches no programme name, so the whole 213,000-row guide sat there while
+// the bot told the customer to go and look in the app themselves. This reads
+// the rows for that channel instead: local, instant, and no API call.
+export function programmesOnChannel(service, epgChannelId, { limit = 4, from = null } = {}) {
+  if (!epgChannelId) return [];
+  const t = from ?? now();
+  return db.prepare(`
+    SELECT title, start_ts, stop_ts
+    FROM xc_programmes
+    WHERE service = ? AND channel_id = ? AND stop_ts > ?
+    ORDER BY start_ts
+    LIMIT ?
+  `).all(service, epgChannelId, t, limit);
+}
+
 export async function channelGrounding(question, { service = 1 } = {}) {
   if (!xcConfigured(service)) return null;
   const lines = [];
@@ -355,12 +374,29 @@ export async function channelGrounding(question, { service = 1 } = {}) {
     // on sky sports" can match half a dozen channels, and now that the guide
     // is cached per channel the extra lookups are usually free.
     for (const h of hits.slice(0, 3)) {
+      // The downloaded guide first — it is already here, costs nothing, and
+      // covers every channel. The per-channel API call is the fallback for
+      // channels the bulk guide happens not to carry.
+      const stored = programmesOnChannel(service, h.epg_channel_id, { limit: 3 });
+      if (stored.length) {
+        const t = now();
+        lines.push('', `What the guide shows on ${h.name}:`);
+        for (const p of stored) {
+          // Say which one is actually ON — otherwise the model announces a
+          // programme already half over as "next up".
+          const when = p.start_ts <= t && p.stop_ts > t
+            ? `ON NOW until ${timeOfDay(p.stop_ts)}`
+            : `from ${timeOfDay(p.start_ts)}`;
+          lines.push(`- ${when}: ${p.title}`);
+        }
+        continue;
+      }
       const epg = await shortEpg(h.stream_id, { service, limit: 3 });
       if (!epg.length) continue;
       lines.push('', `What the guide shows next on ${h.name}:`);
       for (const e of epg) lines.push(`- ${hhmm(e.start)} ${e.title}`.trim());
     }
-    if (lines.some((l) => l.startsWith('What the guide shows next'))) {
+    if (lines.some((l) => l.startsWith('What the guide shows'))) {
       lines.push('(These times come from the channel guide.)');
     }
   }
