@@ -31,6 +31,10 @@
     <input id="helpAskMessage" name="helpAskMessage" type="text" maxlength="500" value="<%= s.helpAskMessage %>">
     <p class="hint">Only when the message says nothing else. "Help me install Purple" names an app, so it goes to the AI as a real question.</p>
 
+    <label for="humanRequestMessage">Reply when someone asks to speak to a person — empty = silent</label>
+    <input id="humanRequestMessage" name="humanRequestMessage" type="text" maxlength="500" value="<%= s.humanRequestMessage %>">
+    <p class="hint">Covers "can I speak to a human", "put me through to someone" and "can you ring me". Hands them to you rather than trying again.</p>
+
     <label for="frustrationMessage">Reply when someone swears at the bot or gives up ("balls to it") — empty = silent</label>
     <input id="frustrationMessage" name="frustrationMessage" type="text" maxlength="500" value="<%= s.frustrationMessage %>">
     <p class="hint">Content-free frustration only — "Purple is rubbish on Firestick" is a complaint with a symptom in it and still gets a proper answer. You're DMed every time this fires (toggle in <a href="/admin/reports">Reports</a>), because it's the point where a customer is about to walk. If they already had a problem open, it skips straight past further troubleshooting to a human. A message containing anything on your <strong>Banned words</strong> list (further down this page) is dropped before any of this runs, so don't put swears there if you want these handled.</p>

@@ -4660,3 +4660,68 @@ test('a slow node keeps the typing indicator alive instead of going quiet', asyn
   assert.ok(ctx.sent.length, 'and the answer still arrives');
   aiDelayMs = previousDelay;
 });
+
+// --- the confused customer ---------------------------------------------------
+// Fifteen of twenty-four messages in this persona landed in the banter path,
+// including broken-service complaints. "smalltalk" had become the dumping
+// ground for anything the vocabulary matcher did not recognise.
+
+test('a complaint typed on a phone is still a complaint', async () => {
+  // "bbc wun not wrkin" got "Anyway — service stuff is where I shine 😄".
+  // Matched structurally, not from a dictionary of misspellings: a negator,
+  // then a verb that STARTS like work/connect/load/open/log in.
+  const { _looksLikeProblem } = await import('../src/bot/pipeline.js');
+  for (const q of [
+    'bbc wun not wrkin', 'cnt get in', 'my box dont wrk since last nite',
+    'wont connct', 'cant login in', 'nothing wrks',
+  ]) assert.equal(_looksLikeProblem(q), true, `is a complaint: ${q}`);
+
+  for (const q of ['its working great now', 'all good thanks', 'how much is it', 'can i invite a mate']) {
+    assert.equal(_looksLikeProblem(q), false, `not a complaint: ${q}`);
+  }
+});
+
+test('asking for a person hands them to a person', async () => {
+  // "Can I speak to a human" was answered with "service stuff is where I
+  // shine 😄 Try me!" — the wrong answer to the clearest signal a customer
+  // can send, and a bit insulting to boot.
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.adminContact', '@TheAdmin');
+  setSetting('bot.humanRequestMessage', 'Of course 👍 {admin} — they will sort you out.');
+  _resetProblemTriage();
+
+  for (const q of ['can i speak to a human', 'can you ring me', 'put me through to someone']) {
+    const ctx = fakeCtx(q, { userId: 99970 });
+    const result = await answer(ctx, q, { isDm: true, logId: null });
+    assert.equal(result, 'human-request', `hands over: ${q}`);
+    assert.match(ctx.sent[0].msg, /@TheAdmin/);
+  }
+
+  // Not every sentence with "speak" in it is a request for a human.
+  const ctx = fakeCtx('can i speak to you about my login', { userId: 99971 });
+  const r = await answer(ctx, 'can i speak to you about my login', { isDm: true, logId: null });
+  assert.notEqual(r, 'human-request');
+});
+
+test('"???" and "...." do not spend an AI call on nothing', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  _resetProblemTriage();
+  _resetSmallTalk();
+  for (const q of ['???', '....', 'hmmm', 'ok so', 'yes', 'maybe later']) {
+    const ctx = fakeCtx(q, { userId: 99972 });
+    const result = await answer(ctx, q, { isDm: true, logId: null });
+    assert.equal(result, 'acknowledged', `stays quiet: ${q}`);
+    assert.equal(ctx.sent.length, 0);
+  }
+});
+
+test('"is this a real person" is the same question as "are you a bot"', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.capabilityMessage', "Here's what I can help with: installs, logins, buffering.");
+  _resetProblemTriage();
+  for (const q of ['is this a real person', 'are you there or is this automated']) {
+    const ctx = fakeCtx(q, { userId: 99973 });
+    const result = await answer(ctx, q, { isDm: true, logId: null });
+    assert.equal(result, 'capability', `answered properly: ${q}`);
+  }
+});

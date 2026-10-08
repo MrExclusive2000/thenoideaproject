@@ -141,6 +141,11 @@ const DEFAULTS = {
   // actually asked for help. Sent from code, so it still works with the AI
   // down — which is exactly when people start asking this. Empty = silent.
   'bot.helpAskMessage': "Course 👍 What's up? Tell me what's happening — which app you're using and what you're seeing — and I'll sort it.",
+  // "Can I speak to a human?" — the clearest signal a customer can send that
+  // the bot is not going to be enough. It used to get the banter line. This
+  // also covers "can you ring me": we have no phone, and the honest answer is
+  // where the human actually is. Empty = silent.
+  'bot.humanRequestMessage': "Of course 👍 {admin} — they pick up messages here and will sort you out personally. If you tell me what's up in the meantime I'll have a go myself, but no pressure either way.",
   // Swearing at the bot, or giving up on it. Content-free, so the model has
   // nothing to work with and banter is the worst possible reply. One warm,
   // self-deprecating line that offers a human instead. Empty = silent.

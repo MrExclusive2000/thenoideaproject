@@ -733,11 +733,34 @@ function plainWords(text) {
 // it reads as broken when the user then asks what it IS for.
 const CAPABILITY_RE = /\b(?:what|which|anything)\b.{0,30}\b(?:can|could)\s+(?:you|u)\b|\b(?:can|could)\s+(?:you|u)\b.{0,30}\b(?:answer|help|do|assist)\b|\bwhat(?:'?s| is| are)?\s+(?:your|ur)\s+(?:purpose|job|use|point)\b|\bare\s+(?:you|u)\s+(?:a\s+)?(?:bot|ai|real|human)\b|\bwhat\s+(?:do|are)\s+(?:you|u)\s+(?:do|for)\b/i;
 
+// "Is this a real person?", "are you there or is this automated?" — the same
+// question as "are you a bot", which the line above already answers, just
+// phrased the other way round. Both were going to banter.
+const IS_IT_HUMAN =
+  /\b(?:is|are)\s+(?:this|that|it|you|u)\b[^.?!\n]{0,20}\b(?:real person|actual person|a human|human being|automated|a robot|a machine|ai|bot)\b|\bam i (?:talking|speaking|chatting) (?:to|with)\b[^.?!\n]{0,20}\b(?:a )?(?:bot|human|person|robot|machine|real)\b|\breal person or\b/i;
+
 function looksLikeCapabilityQuestion(text) {
   const t = String(text || '').trim();
   if (t.length > 120) return false; // a long message is a real question with these words in it
-  return CAPABILITY_RE.test(t);
+  return CAPABILITY_RE.test(t) || IS_IT_HUMAN.test(t);
 }
+
+// Asking for a person. The single clearest signal a customer can send that
+// the bot is not going to be enough, and it was answered with "service stuff
+// is where I shine 😄 Try me!" — which is both the wrong answer and a little
+// insulting to someone who has just said they want a human. It is also where
+// phone calls belong: we do not have a phone, and the honest version of that
+// is "the admin, here, by message", not banter.
+const WANTS_A_HUMAN =
+  /\b(?:speak|talk|chat|spk)\b[^.?!\n]{0,20}\b(?:to|with)\b[^.?!\n]{0,15}\b(?:a\s+)?(?:human|person|someone|somebody|real person|agent|advisor|manager|owner|admin|boss|staff)\b|\b(?:get|put)\b[^.?!\n]{0,15}\b(?:me\s+)?(?:through|onto|on)\b[^.?!\n]{0,15}\b(?:a\s+)?(?:human|person|someone|admin|agent)\b|\b(?:can|could|will|would)\s+(?:you|u|someone|somebody)\b[^.?!\n]{0,12}\b(?:ring|call|phone)\s+me\b|\b(?:i want|i need|id like|i'd like|gimme)\b[^.?!\n]{0,15}\b(?:a\s+)?(?:human|real person|person to talk)\b|\bhuman (?:please|pls)\b|\breal (?:person|human) please\b/i;
+
+function looksLikeHumanRequest(text) {
+  const t = String(text || '').trim();
+  if (!t || t.length > 160) return false;
+  return WANTS_A_HUMAN.test(t);
+}
+
+export const _looksLikeHumanRequest = (t) => looksLikeHumanRequest(t);
 
 function looksLikeGreeting(text) {
   const w = plainWords(text);
@@ -782,9 +805,30 @@ const ACK_WORDS = new Set([
   'sounds', 'good', 'great', 'fine', 'fair', 'enough', 'gotcha', 'got', 'it',
   'understood', 'noted', 'alright', 'np', 'no', 'worries', 'problem', 'yep',
   'yeah', 'yh', 'ah', 'oh', 'i', 'see', 'will', 'do',
+  // A bare "yes" or "maybe later" with no case open is the end of a
+  // conversation, not a question. Both were reaching the model and coming
+  // back with the banter line. During triage a short "yes" is caught earlier,
+  // as a confirmation, so this only affects the quiet path.
+  'yes', 'yea', 'aye', 'maybe', 'later', 'sure', 'nice', 'ta',
 ]);
 
+// Noise: "???", "....", "hmmm", "ok so". Not a question, not an answer, not
+// a complaint — someone thinking out loud or prodding the chat. Each one was
+// spending a real AI call AND the per-user banter pass, then coming back with
+// "service stuff is where I shine 😄", which is a strange reply to "....".
+// Treated as an acknowledgement: the bot stays quiet and waits for the actual
+// message, which is what a person would do.
+const NOISE_ONLY = /^[\s.?!,;:\-_~*()[\]"'`]*$/;
+const THINKING_NOISE = /^\s*(?:h+m+|e+r+m+|u+m+|a+h+|o+h+|h+a+h*|lol|haha|hmmm+|erm|well|so|ok so|right so|anyway)\s*[.?!]*\s*$/i;
+
+function looksLikeNoise(text) {
+  const t = String(text || '');
+  if (!t.trim()) return false;
+  return NOISE_ONLY.test(t) || THINKING_NOISE.test(t);
+}
+
 function looksLikeAcknowledgement(text) {
+  if (looksLikeNoise(text)) return true;
   const w = plainWords(text);
   if (!w.length || w.length > 3) return false;
   if (String(text).includes('?')) return false;
@@ -812,6 +856,8 @@ const HELP_FILLER = new Set([
   'quick', 'quickly', 'bud', 'buddy', 'hi', 'hey', 'hello', 'yo', 'to', 'is',
   'bit', 'able', 'free', 'spare', 'minute', 'sec', 'second', 'there',
   'm', 's', 're', 'd', 'll',
+  // Typed on a phone, in a hurry: "nee help plz".
+  'nee', 'ned', 'neeed', 'wnt', 'wud', 'cud', 'u', 'ur', 'abit',
 ]);
 
 function looksLikeHelpRequest(text) {
@@ -934,6 +980,7 @@ function looksLikeProblem(text) {
   // Listing the fixes they already tried is a problem report by definition —
   // nobody restarts an app four times for fun.
   if (mentionsTriedAlready(text)) return true;
+  if (looksLikeSloppyProblem(text)) return true;
   return WEAK_PROBLEM.test(text) && isLikelyInScope(text);
 }
 
@@ -1199,6 +1246,33 @@ const TRIED_ALREADY =
 
 function mentionsTriedAlready(text) {
   return TRIED_ALREADY.test(String(text || ''));
+}
+
+// The same complaint, typed the way people actually type it on a phone with
+// no punctuation. "bbc wun not wrkin", "cnt get in", "my box dont wrk since
+// last nite", "wont connct" are all broken-service reports, and every one of
+// them was answered with "Anyway — service stuff is where I shine 😄",
+// because the vocabulary matcher is looking for words spelled correctly.
+//
+// Matched structurally rather than from a dictionary of misspellings: a
+// negator, then within a few characters a verb that STARTS like work /
+// connect / load / open / play / log in. The spelling after the stem does not
+// matter, which is the whole point — no list of typos is ever complete.
+const SLOPPY_BROKEN = new RegExp(
+  String.raw`\b(?:not|no|nt|dont|dnt|don't|doesnt|doesn't|cant|cnt|can't|wont|wnt|won't|isnt|isn't|aint|ain't|hasnt|havent|stopped|stoped|quit|refuses?)\b[^.?!\n]{0,14}` +
+  String.raw`\b(?:w[o0]?rk\w*|wrk\w*|wokr\w*|conn?e?c?t\w*|cnnct\w*|lo[ao]?d\w*|op[ae]n\w*|pla[iy]\w*|st[ae]?rt\w*|bo+t\w*|log\s?i?n\w*|sign\s?in\w*|get\s+(?:in|on)\b|in\b|on\b|up\b)`,
+  'i'
+);
+// The verb on its own in a sentence that is plainly a complaint — "its wrkin
+// funny", "nowt wrks".
+const SLOPPY_VERB = /\b(?:wrkin|wrking|wrkng|wrks|wrk|workin|workng|wokring|connct|connet|conect)\b/i;
+
+function looksLikeSloppyProblem(text) {
+  const t = String(text || '');
+  if (SLOPPY_BROKEN.test(t)) return true;
+  // The bare misspelled verb only counts alongside a negator somewhere, or
+  // "wrkin" in "its wrkin great" would be a fault report.
+  return SLOPPY_VERB.test(t) && /\b(?:not|no|nt|dont|dnt|cant|cnt|wont|wnt|isnt|aint|stopped|nowt|nothing)\b/i.test(t);
 }
 
 function negatesFixes(text) {
@@ -1547,6 +1621,19 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
       setLogSource(logId, 'greeting');
       await ctx.api.sendMessage(ctx.chat.id, hello, replyParams);
       return 'greeting';
+    }
+  }
+
+  // Asking for a person. Checked before the scope gate, which had this down
+  // as banter — "can I speak to a human" answered with "service stuff is
+  // where I shine 😄 Try me!" is the wrong answer to the clearest signal a
+  // customer can send. Hand them over, and say so in one line.
+  if (looksLikeHumanRequest(question)) {
+    const msg = await spoken('bot.humanRequestMessage');
+    if (msg) {
+      setLogSource(logId, 'human-request', msg);
+      await ctx.api.sendMessage(ctx.chat.id, msg, replyParams).catch(() => {});
+      return 'human-request';
     }
   }
 
