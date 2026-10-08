@@ -14,14 +14,14 @@ import { alertAdmins } from './reports.js';
 import { embed, retrieveFaqs, embeddingsProven } from '../ai/embeddings.js';
 import { lookupAnswer, rememberAnswer, cacheable } from '../ai/answer-cache.js';
 import { circuitOpen } from '../ai/breaker.js';
-import { looksLikeChannelQuestion, looksLikeFixtureQuestion, channelGrounding, channelCount, findVodTitle, vodKnown } from '../xc.js';
+import { looksLikeChannelQuestion, looksLikeFixtureQuestion, channelGrounding, channelCount, findVodTitle, vodKnown, xcConfigured } from '../xc.js';
 import { looksLikeGuideRequest, findGuide, visibleGuides, mdToPlain } from '../guides.js';
 import { looksLikeWalletRequest, walletMessage } from '../payments.js';
 import {
   queueProblemAlert, setProblemRearmHook, maybeAutoDegrade,
   looksLikeCaseClose, caseNumbersIn, closeCaseAsAdmin,
 } from './problems.js';
-import { parseVodRequest, parseNaturalVodRequest, recordVodRequest, setRequestService, lookupImdb, canonicalizeRequest } from './requests.js';
+import { parseVodRequest, parseNaturalVodRequest, parseAvailabilityQuestion, recordVodRequest, setRequestService, lookupImdb, canonicalizeRequest } from './requests.js';
 import { hub } from './hub.js';
 
 // Both request shapes: the taught "Request: Title" and natural "can we get X".
@@ -204,14 +204,30 @@ async function handleUrlServiceReply(ctx, text, logId, replyParams) {
 const pendingVodService = new Map(); // chatId:userId -> { requestId, at, attempts }
 const knownVodService = new Map();   // userId -> { name, at }
 
+// Two services exist whether or not the admin has got round to NAMING them.
+// Gating the which-service follow-up on the names being filled in meant a
+// half-configured install silently never asked — which looks like the bot
+// not caring, not like a setting being blank.
 function twoServicesNamed() {
   const s = serviceConfig();
-  return Boolean(s.one.name && s.two.name);
+  if (s.one.name && s.two.name) return true;
+  if (s.one.url && s.two.url) return true;
+  return xcConfigured(1) && xcConfigured(2);
 }
+
+const servicesAreNamed = () => {
+  const s = serviceConfig();
+  return Boolean(s.one.name && s.two.name);
+};
+
+// Without names there is no "X or Y?" to ask, but the username answers the
+// same question and is the authoritative source anyway.
+const USERNAME_ASK = "What's the username you log in with? (just the username, never the password) — I'll work out which service you're on.";
 
 function vodServiceAskText() {
   const s = serviceConfig();
   const q = String(getSetting('bot.requestServiceQuestion') || '').trim();
+  if (!servicesAreNamed()) return `${q} ${USERNAME_ASK}`.trim();
   return `${q} ${s.one.name} or ${s.two.name}?`.trim();
 }
 
@@ -252,13 +268,11 @@ function serviceNumberFor(ctx) {
 
 // With only one service configured there is nothing to ask about, so the
 // question would be pure friction.
-function serviceAmbiguous() {
-  const s = serviceConfig();
-  return Boolean(s.one.name && s.two.name);
-}
+const serviceAmbiguous = () => twoServicesNamed();
 
 function serviceAskText(why) {
   const s = serviceConfig();
+  if (!servicesAreNamed()) return `${why} ${USERNAME_ASK}`;
   return `${why} Which service are you on — ${s.one.name} or ${s.two.name}? (Not sure? Reply with the username you log in with — never the password — and I'll work it out.)`;
 }
 
@@ -386,6 +400,29 @@ function libraryHitText(hit) {
     : `✅ I think we already have that — it's listed as "${hit.name}". Have a look in the ${where} section of your app. Not the one you meant? Reply with the exact title and year and I'll put a request in.`;
 }
 
+// "Do you have The Big Bang Theory?" has a factual answer, and the model used
+// to invent one — "it is available in our VOD section" — for a show nobody had
+// checked. The customer then hunts through the app for something we may not
+// carry. Only the library may answer this; when there is no library cached,
+// it becomes a request, because a duplicate request is cheap and a wrong
+// "yes we have it" is not.
+async function answerAvailability(ctx, title) {
+  const already = alreadyInLibrary(ctx, title);
+  if (already) return already;
+
+  const service = serviceNumberFor(ctx);
+  const checked = service ? vodKnown(service) : (vodKnown(1) && vodKnown(2));
+  if (checked) {
+    const { ack, requestId, deduped } = recordVodRequest(ctx, title);
+    const head = `Not in there at the moment — I've checked. ${ack}`;
+    return deduped ? head : head + maybeArmServiceAsk(ctx, requestId);
+  }
+  // No library to check against. Say so rather than guessing either way.
+  const { ack, requestId, deduped } = recordVodRequest(ctx, title);
+  const head = `I can't check the library from here, so I've put it on the request list — if we already have it the admin will say so. ${ack}`;
+  return deduped ? head : head + maybeArmServiceAsk(ctx, requestId);
+}
+
 async function captureVodRequest(ctx, title) {
   const already = alreadyInLibrary(ctx, title);
   if (already) return already;
@@ -471,14 +508,21 @@ async function handleVodServiceReply(ctx, text, logId, replyParams) {
     pendingVodService.delete(key);
     return false;
   }
-  const svc = serviceFromReply(text);
+  let svc = serviceFromReply(text);
+  if (!svc) {
+    // They may have answered with their username, which is what we asked for
+    // when the services have no names configured.
+    const cand = plainWords(text).sort((a, b) => b.length - a.length)[0] || '';
+    if (cand.length >= 4) svc = serviceForUsername(cand);
+  }
   const send = (msg) => ctx.api.sendMessage(ctx.chat.id, msg, replyParams).catch(() => {});
   setLogSource(logId, 'vod-request');
   if (svc) {
     pendingVodService.delete(key);
-    setRequestService(st.requestId, svc.name);
-    rememberVodService(ctx.from.id, svc.name);
-    await send(`👍 Got it — noted for ${svc.name}.`);
+    const label = svc.name || (svc === serviceConfig().two ? 'service 2' : 'service 1');
+    setRequestService(st.requestId, label);
+    rememberVodService(ctx.from.id, label);
+    await send(`👍 Got it — noted for ${label}.`);
   } else if (st.attempts < 1) {
     st.attempts++;
     await send(`Which one — ${vodServiceAskText()}`);
@@ -1349,6 +1393,12 @@ export async function handleGroupMessage(ctx) {
   // Capture it: save for the panel, ack the requester (asking which service
   // it's for when two are configured), DM the admins.
   {
+    const asking = parseAvailabilityQuestion(text);
+    if (asking) {
+      setLogSource(logId, 'vod-request');
+      await ctx.api.sendMessage(ctx.chat.id, await answerAvailability(ctx, asking), groupReplyParams).catch(() => {});
+      return;
+    }
     const vodTitle = anyVodRequest(text);
     if (vodTitle) {
       setLogSource(logId, 'vod-request');
@@ -1828,6 +1878,12 @@ export async function handleDirectMessage(ctx) {
 
   // "Request: Title (Year)" works in DMs too.
   {
+    const asking = parseAvailabilityQuestion(text);
+    if (asking) {
+      setLogSource(logId, 'vod-request');
+      await ctx.reply(await answerAvailability(ctx, asking)).catch(() => {});
+      return;
+    }
     const vodTitle = anyVodRequest(text);
     if (vodTitle) {
       setLogSource(logId, 'vod-request');

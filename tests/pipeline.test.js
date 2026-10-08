@@ -3028,12 +3028,138 @@ test('answering which service re-runs the original question — they never repea
 test('with only one service configured the question is never asked', async () => {
   const { _resetServiceAsk } = await import('../src/bot/pipeline.js');
   _resetServiceAsk();
+  // A genuinely single-service install: no second name, no second URL and no
+  // second lookup account. Any ONE of those existing means there really are
+  // two services and the question is worth asking.
+  const url2 = getSetting('services.url2');
   setSetting('services.name2', '');
+  setSetting('services.url2', '');
+  setSetting('services.xcUser2', '');
+  setSetting('services.xcPass2', '');
   try {
     const ctx = fakeCtx('what channel is the f1 on', { userId: 554435 });
     const r = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
     assert.notEqual(r, 'service-ask', 'nothing to disambiguate, so no friction');
   } finally {
     setSetting('services.name2', 'Flix');
+    setSetting('services.url2', url2);
   }
+});
+
+test('an unnamed second service still gets asked about, via the username', async () => {
+  // Gating the follow-up on the NAMES being filled in meant a half-configured
+  // install silently never asked — which reads as the bot not caring, rather
+  // than as a blank settings field.
+  const { _resetServiceAsk } = await import('../src/bot/pipeline.js');
+  _resetServiceAsk();
+  const name1 = getSetting('services.name1');
+  setSetting('services.name1', '');
+  setSetting('services.name2', '');
+  setSetting('services.url2', 'http://127.0.0.1:1');
+  try {
+    const ctx = fakeCtx('what channel is the f1 on', { userId: 554436 });
+    const r = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+    assert.equal(r, 'service-ask');
+    assert.match(ctx.sent[0].msg, /username you log in with/i, 'asks the thing it can actually use');
+    assert.match(ctx.sent[0].msg, /never the password/i, 'and warns them off the password');
+  } finally {
+    setSetting('services.name1', name1);
+    setSetting('services.name2', 'Flix');
+  }
+});
+
+// --- from the group: "I'd like to request The Big Bang Theory series" --------
+// The bot replied with the literal text "Request: The Big Bang Theory" — the
+// model telling the customer the format to type, because nothing had captured
+// the request. No ack, no service question. Then "Yes" reached the model and
+// it announced the show "is available in our VOD section", which nobody had
+// checked.
+
+test('"I\'d like to request X series" is captured like any other request', async () => {
+  db.prepare('DELETE FROM xc_vod').run();
+  db.prepare('DELETE FROM vod_requests').run();
+  setSetting('vod.imdbCheck', false);
+  lastAiRequest = null;
+
+  const ctx = fakeCtx("I'd like to request The Big Bang Theory series", { userId: 99301 });
+  await handleDirectMessage(ctx, ctx.message.text);
+
+  const row = db.prepare('SELECT * FROM vod_requests ORDER BY id DESC LIMIT 1').get();
+  assert.ok(row, 'recorded');
+  assert.equal(row.title, 'The Big Bang Theory', '"series" is a description, not part of the name');
+  assert.equal(lastAiRequest, null, 'and the model was never asked to handle it');
+  assert.match(ctx.sent.map((s) => s.msg).join('\n'), /request list|Noted/i, 'the customer got an acknowledgement');
+});
+
+test('the request ack asks which service it is for', async () => {
+  db.prepare('DELETE FROM vod_requests').run();
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+  setSetting('bot.requestServiceQuestion', 'Which service is this for?');
+  const { _resetServiceAsk } = await import('../src/bot/pipeline.js');
+  _resetServiceAsk();
+
+  const ctx = fakeCtx('I want to request Dune Part Two', { userId: 99302 });
+  await handleDirectMessage(ctx, ctx.message.text);
+  assert.match(ctx.sent.map((s) => s.msg).join('\n'), /Which service is this for\?.*Exclusive or Flix/s);
+});
+
+test('every natural way of saying "request" is captured', async () => {
+  setSetting('vod.imdbCheck', false);
+  const phrasings = [
+    ["I'd like to request The Office", 'The Office'],
+    ['I would like to request Breaking Bad', 'Breaking Bad'],
+    ['can i request Succession please', 'Succession'],
+    ['requesting Peaky Blinders', 'Peaky Blinders'],
+    ['Request The Bear complete series', 'The Bear'],
+  ];
+  for (const [text, expected] of phrasings) {
+    db.prepare('DELETE FROM vod_requests').run();
+    const ctx = fakeCtx(text, { userId: 99310 });
+    await handleDirectMessage(ctx, text);
+    const row = db.prepare('SELECT * FROM vod_requests ORDER BY id DESC LIMIT 1').get();
+    assert.ok(row, `not captured: ${text}`);
+    assert.equal(row.title, expected, `wrong title from: ${text}`);
+  }
+});
+
+test('"do you have X" is answered from the library, never by the model', async () => {
+  db.prepare('DELETE FROM xc_vod').run();
+  const ins = db.prepare('INSERT INTO xc_vod (service, kind, name, norm_name, category, updated_at) VALUES (?, ?, ?, ?, NULL, 1)');
+  for (const svc of [1, 2]) ins.run(svc, 'series', 'The Big Bang Theory', 'thebigbangtheory');
+  lastAiRequest = null;
+
+  const ctx = fakeCtx('do you have The Big Bang Theory?', { userId: 99320 });
+  await handleDirectMessage(ctx, ctx.message.text);
+  assert.equal(lastAiRequest, null, 'the model must not be the one answering this');
+  assert.match(ctx.sent.map((s) => s.msg).join('\n'), /already on the service/i);
+});
+
+test('a title we do not carry is said to be missing, and requested', async () => {
+  db.prepare('DELETE FROM xc_vod').run();
+  db.prepare('DELETE FROM vod_requests').run();
+  const ins = db.prepare('INSERT INTO xc_vod (service, kind, name, norm_name, category, updated_at) VALUES (?, ?, ?, ?, NULL, 1)');
+  for (const svc of [1, 2]) ins.run(svc, 'movie', 'Oppenheimer', 'oppenheimer');
+
+  const ctx = fakeCtx('have you got Breaking Bad', { userId: 99321 });
+  await handleDirectMessage(ctx, ctx.message.text);
+  const msg = ctx.sent.map((s) => s.msg).join('\n');
+  assert.match(msg, /not in there at the moment/i, 'checked, and said so');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM vod_requests').get().n, 1, 'and put on the list in the same breath');
+});
+
+test('with no library cached the bot says it cannot check rather than guessing', async () => {
+  db.prepare('DELETE FROM xc_vod').run();
+  db.prepare('DELETE FROM vod_requests').run();
+  const ctx = fakeCtx('do you have Breaking Bad', { userId: 99322 });
+  await handleDirectMessage(ctx, ctx.message.text);
+  const msg = ctx.sent.map((s) => s.msg).join('\n');
+  assert.match(msg, /can't check the library/i);
+  assert.doesNotMatch(msg, /is available|we have it|already on the service/i, 'no claim either way');
+});
+
+test('the model is told it does not know what is in the VOD library', () => {
+  const prompt = buildSystemPrompt('do you have the big bang theory');
+  assert.match(prompt, /do NOT know what is in the VOD library/);
+  assert.match(prompt, /sends them hunting through the app/, 'with the reason, not just the rule');
 });

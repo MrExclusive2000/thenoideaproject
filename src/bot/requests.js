@@ -14,15 +14,61 @@ const NOT_A_TITLE = /^(a |an |the |my |to |for )*\s*(refund|refunds|cancel|cance
 export function parseVodRequest(text) {
   const m = String(text).match(/^\s*request\b\s*[:\-–]?\s*(.{2,200})/i);
   if (!m) return null;
-  const title = m[1].trim().replace(/\s+/g, ' ');
+  const title = stripTitleTail(m[1].trim().replace(/\s+/g, ' '));
   if (title.length < 2) return null;
   if (NOT_A_TITLE.test(title)) return null; // "Request a refund" etc. — not VOD
   return title;
 }
 
+// "Do you have The Big Bang Theory?" is not a request — it is a question with
+// a factual answer, and the model used to invent one ("it is available in our
+// VOD section"). Someone then goes looking for a show we may not carry. The
+// library knows; the model does not.
+const AVAILABILITY = /^\s*(?:(?:do|have)\s+(?:you|yous|u|ya|we)\s+(?:have|got|carry)|(?:is|are)\s+(?:there\s+)?|(?:got|have)\s+(?:you\s+)?(?:got\s+)?|(?:any\s+sign\s+of)|(?:where\s+(?:can|do)\s+i\s+(?:find|watch)))\s*(.{2,100}?)\s*(?:on(?:\s+(?:here|there|the\s+service|vod))?|available|in\s+(?:the\s+)?vod|on\s+demand|anywhere)?\s*[?!.]*\s*$/i;
+
+export function parseAvailabilityQuestion(text) {
+  if (/\n/.test(String(text))) return null;
+  const s = String(text).trim();
+  if (s.length > 120) return null;
+  // It has to actually be asking whether we HAVE something.
+  if (!/\b(have|got|carry|available|on here|on there|in vod|on demand|where can i (?:find|watch))\b/i.test(s)) return null;
+  const m = s.match(AVAILABILITY);
+  if (!m) return null;
+  let title = stripTitleTail(m[1].trim().replace(/\s+/g, ' '));
+  if (title.length < 2 || title.length > 100) return null;
+  if (/^(it|this|that|them|these|those|me|us|my|your|our|any|anything|everything|a|an|the)$/i.test(title)) return null;
+  if (NOT_A_TITLE.test(title)) return null;
+  if (NOT_VOD_TOPIC.test(title)) return null;
+  return title;
+}
+
 // Natural-language requests: "can we get The Batman", "can you add Dune 2",
 // "any chance of adding Oppenheimer", "please add severance season 3".
+// The word "request" used like a human uses it. This was the gap that let
+// "I'd like to request The Big Bang Theory" fall through to the model, which
+// answered by telling the customer the format to type — so nothing was
+// captured, nothing was acked, and nobody was asked which service it was for.
+const REQUEST_VERB = /^\s*(?:please |pls |plz )?(?:(?:i(?:'| a|a)?d like to|i would like to|i want to|i wanna|id like to|(?:can|could|may|might) i|(?:can|could) we|wanting to|looking to|here to)\s+request|requesting|request(?:ing)? for)\s+(.{2,100}?)[\s?!.]*$/i;
+
 const NATURAL_REQ = /^\s*(?:please |pls |plz )?(?:any chance (?:of |we can |you can )?(?:getting |adding |putting (?:on |up )?)?|(?:can|could|cud) (?:we|you|u|i) (?:get|add|have|put on|put up|upload) |(?:please|pls|plz) add )\s*(.{2,100}?)[\s?!.]*$/i;
+
+// Trailing words that describe the KIND of thing, not its name. "The Big Bang
+// Theory series" is a request for "The Big Bang Theory"; left on, the title
+// never matches the library and never matches another request for the same
+// show.
+const TITLE_TAIL = /\s+(?:the\s+)?(?:tv\s+)?(?:series|show|boxset|box\s?set|collection|movie|film|all\s+(?:the\s+)?seasons?|complete(?:\s+series)?)\s*$/i;
+
+export function stripTitleTail(title) {
+  let out = String(title).trim();
+  for (let i = 0; i < 3; i++) {
+    const next = out.replace(TITLE_TAIL, '').trim();
+    if (next === out) break;
+    // Never strip it away to nothing — "The Movie" is a title in its own right.
+    if (next.length < 2) break;
+    out = next;
+  }
+  return out;
+}
 
 // Words that mean a "can we get ..." is about the SERVICE, not a title —
 // URLs, logins, devices, refunds. These flow to the normal FAQ/AI handling.
@@ -30,9 +76,10 @@ const NOT_VOD_TOPIC = /\b(urls?|codes?|links?|login|logins|password|passwords|ac
 
 export function parseNaturalVodRequest(text) {
   if (/\n/.test(String(text))) return null; // single-line asks only
-  const m = String(text).match(NATURAL_REQ);
+  const m = String(text).match(REQUEST_VERB) || String(text).match(NATURAL_REQ);
   if (!m) return null;
   let title = m[1].trim().replace(/\s+/g, ' ').replace(/\s*\b(please|pls|plz|thanks|thank you|ta|mate|m8)$/i, '').trim();
+  title = stripTitleTail(title);
   if (title.length < 2 || title.length > 100) return null;
   // "can we get this sorted" / "can you add me" — pronouns, not titles.
   if (/^(it|this|that|them|these|those|me|us|my|your|our|in|on|at|to|back|going|him|her)\b/i.test(title)) return null;
