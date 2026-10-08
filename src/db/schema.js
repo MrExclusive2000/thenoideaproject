@@ -622,6 +622,16 @@ const migrations = [
     updated_at INTEGER NOT NULL
   );
   `,
+  // v29 — give the reporter their case number. It only ever appeared in the
+  // admin's digest, so the person who reported the fault had nothing to quote
+  // and the admin could not say "that's #12" and be understood. Only moves a
+  // note still on the old default; an edited one is left alone and gets the
+  // reference appended at send time instead.
+  `
+  UPDATE settings SET value = '"\u2705 Flagged to the team \u2014 they''ll look into it. No need to report it again. Your reference is #{case}."'
+  WHERE key = 'bot.problemFlaggedNote'
+    AND value = '"\u2705 Flagged to the team \u2014 they''ll look into it. No need to report it again."';
+  `,
 ];
 
 export function migrate(db) {

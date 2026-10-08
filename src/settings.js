@@ -79,7 +79,11 @@ const DEFAULTS = {
   // promising a flag there would be a lie. Empty = use the note above.
   'bot.problemMoreFixesNote': "Still happening after trying these? Reply here and I'll dig up the next things to try.",
   // Sent when a confirmed problem is escalated to the admins. Empty = off.
-  'bot.problemFlaggedNote': "✅ Flagged to the team — they'll look into it. No need to report it again.",
+  // {case} is the reporter's own reference number. Without one they have
+  // nothing to quote, and the admin cannot say "that's #12" and be understood
+  // — the number only ever appeared in the admin's digest. Leave it out and
+  // it is added on its own line anyway.
+  'bot.problemFlaggedNote': "✅ Flagged to the team — they'll look into it. No need to report it again. Your reference is #{case}.",
   // Asked right after the flagged note so the admin knows which system to
   // check; the user's next reply is captured and forwarded. Empty = off.
   'bot.problemServiceQuestion': 'One more thing for the team — which service is this on? Reply with the service name, or the username you log in with (never the password).',

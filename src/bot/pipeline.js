@@ -958,6 +958,29 @@ function stripMention(text) {
   return username ? text.replace(new RegExp(`@${username}`, 'gi'), '').trim() : text;
 }
 
+// The customer's own reference for a report. It only ever appeared in the
+// admin digest and /case, so the person who reported it had nothing to quote
+// and the admin could not say "that's #12" and be understood. Write {case} in
+// the note to place it; without the placeholder it is added on its own line,
+// so it works without anyone editing settings.
+function caseNumberFor(ctx, st) {
+  return st?.caseId
+    ?? db.prepare('SELECT id FROM problem_reports WHERE tg_user_id = ? AND resolved = 0 ORDER BY id DESC LIMIT 1')
+      .get(ctx.from?.id)?.id
+    ?? null;
+}
+
+function withCaseNumber(text, caseId, { append = false } = {}) {
+  const body = String(text || '');
+  // No case to quote: drop the placeholder rather than printing "#{case}".
+  if (!caseId) return body.replace(/\s*\(?#?\{case\}\)?/gi, '').trim();
+  if (/\{case\}/i.test(body)) return body.replace(/\{case\}/gi, String(caseId));
+  // Only the "we have flagged it" note gets the reference added for them. On
+  // a note closing a case, "quote this if you come back" is the wrong thing
+  // to say, so an admin who wants it there writes {case} where they want it.
+  return append && body ? `${body}\nYour reference is #${caseId} — quote that if you come back about it.` : body;
+}
+
 // Canned replies pass through the AI reworder so the bot doesn't repeat
 // itself word-for-word; the saved setting text is the meaning contract and
 // the fallback (AI off/busy/slow/wrong → saved text goes out unchanged).
@@ -1699,7 +1722,7 @@ export async function handleGroupMessage(ctx) {
       // The admin was pinged earlier — close that loop too.
       hub.notifyAdmins(`✅ @${ctx.from?.username || ctx.from?.first_name} says their issue is now fixed: "${text.slice(0, 120)}"`).catch(() => {});
     }
-    const note = await spoken('bot.problemResolvedNote');
+    const note = withCaseNumber(await spoken('bot.problemResolvedNote'), caseNumberFor(ctx, st));
     if (note) {
       await ctx.api.sendMessage(ctx.chat.id, note, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
     }
@@ -1807,7 +1830,7 @@ export async function handleGroupMessage(ctx) {
       topic: extractProblemTopic(st?.firstText || '') || extractProblemTopic(text),
     });
     setLogSource(logId, 'escalated');
-    const ack = await spoken('bot.problemFlaggedNote');
+    const ack = withCaseNumber(await spoken('bot.problemFlaggedNote'), caseNumberFor(ctx, st), { append: true });
     // Ask which service it's on — the answer goes to the admins too.
     // (Kept verbatim: it's an instruction, and it must stay a question.)
     const serviceQ = getSetting('bot.problemServiceQuestion');
@@ -1924,7 +1947,7 @@ async function handleDmProblemReply(ctx, text, logId) {
     if (alreadyEscalated) {
       hub.notifyAdmins(`✅ @${ctx.from?.username || ctx.from?.first_name} says their issue is now fixed: "${text.slice(0, 120)}"`).catch(() => {});
     }
-    const note = await spoken('bot.problemResolvedNote');
+    const note = withCaseNumber(await spoken('bot.problemResolvedNote'), caseNumberFor(ctx, st));
     if (note) await send(note);
     return true;
   }
@@ -2004,7 +2027,7 @@ async function handleDmProblemReply(ctx, text, logId) {
       topic: extractProblemTopic(st.firstText || '') || extractProblemTopic(text),
     });
     setLogSource(logId, 'escalated');
-    const ack = await spoken('bot.problemFlaggedNote');
+    const ack = withCaseNumber(await spoken('bot.problemFlaggedNote'), caseNumberFor(ctx, st), { append: true });
     const serviceQ = getSetting('bot.problemServiceQuestion');
     const ackFull = [ack, serviceQ].filter(Boolean).join('\n');
     if (ackFull) await send(ackFull);

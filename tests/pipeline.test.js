@@ -3956,3 +3956,68 @@ test('/teach keeps what the admin wrote when the writer is unreachable', async (
     setSetting('ai.baseUrl', realUrl);
   }
 });
+
+// --- the reporter gets their own case number --------------------------------
+
+test('a flagged problem tells the customer their reference number', async () => {
+  // #1 only ever appeared in the admin digest and /case, so the person who
+  // reported the fault had nothing to quote, and the admin could not say
+  // "that's #12" and be understood.
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.problemFixRounds', 1);
+  setSetting('reports.adminTelegramIds', [777]);
+  setSetting('bot.problemFlaggedNote', "✅ Flagged to the team — they'll look into it. Your reference is #{case}.");
+  setSetting('bot.problemServiceQuestion', '');
+  _resetProblemTriage();
+  db.prepare('DELETE FROM problem_reports').run();
+
+  aiResponse = 'Restart the app and clear its cache, then try the same login in XC.';
+  const first = fakeCtx('my picture keeps freezing on sky sports', { userId: 99940 });
+  await handleDirectMessage(first, first.message.text);
+  const second = fakeCtx("it's still happening", { userId: 99940 });
+  await handleDirectMessage(second, "it's still happening");
+
+  const row = db.prepare('SELECT * FROM problem_reports WHERE tg_user_id = 99940 ORDER BY id DESC LIMIT 1').get();
+  assert.ok(row, 'a case exists');
+  const msg = second.sent.map((s) => s.msg).join('\n');
+  assert.match(msg, new RegExp(`#${row.id}\\b`), `the customer is told case #${row.id}`);
+  assert.doesNotMatch(msg, /\{case\}/, 'and never the raw placeholder');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('a note with no placeholder still gets the reference added', async () => {
+  setSetting('bot.problemFlaggedNote', 'Flagged to the team.');
+  setSetting('bot.problemFixRounds', 1);
+  setSetting('bot.problemServiceQuestion', '');
+  _resetProblemTriage();
+  db.prepare('DELETE FROM problem_reports').run();
+
+  aiResponse = 'Restart the app and clear its cache.';
+  const a = fakeCtx('my streams keep freezing', { userId: 99941 });
+  await handleDirectMessage(a, a.message.text);
+  const b = fakeCtx('still happening', { userId: 99941 });
+  await handleDirectMessage(b, 'still happening');
+
+  const row = db.prepare('SELECT * FROM problem_reports WHERE tg_user_id = 99941 ORDER BY id DESC LIMIT 1').get();
+  const msg = b.sent.map((s) => s.msg).join('\n');
+  assert.match(msg, new RegExp(`#${row.id}\\b`), 'works without anyone editing settings');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('an install still on the old flagged note is moved to one with a number', async () => {
+  const { migrate } = await import('../src/db/schema.js');
+  const old = "✅ Flagged to the team — they'll look into it. No need to report it again.";
+  setSetting('bot.problemFlaggedNote', old);
+  db.pragma('user_version = 28');
+  migrate(db);
+  const stored = db.prepare("SELECT value FROM settings WHERE key = 'bot.problemFlaggedNote'").get().value;
+  assert.match(JSON.parse(stored), /#\{case\}/, 'the shipped default moves');
+
+  setSetting('bot.problemFlaggedNote', 'We are on it, give us an hour.');
+  db.pragma('user_version = 28');
+  migrate(db);
+  assert.equal(
+    JSON.parse(db.prepare("SELECT value FROM settings WHERE key = 'bot.problemFlaggedNote'").get().value),
+    'We are on it, give us an hour.', 'a note someone wrote is left alone'
+  );
+});
