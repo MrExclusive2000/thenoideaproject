@@ -84,6 +84,31 @@ export function findGuide(question, { context = [] } = {}) {
   return scored[0].score > 0 ? scored[0].guide : null;
 }
 
+// Which app they named, when they named one. "Can I have the install guide
+// for purple" is answered with the Firestick guide — correct, since every app
+// installs the same way — but that guide leads with the Sky Glass code and
+// mentions Purple at step four. They asked about Purple; the answer to THEIR
+// question should not have to be hunted for.
+const APP_IN_REQUEST = [
+  { app: 'purple', re: /\bpurple\b/i, label: 'the Purple App', code: '{purple}' },
+  { app: 'skyglass', re: /\bsky\s?glass\b/i, label: 'Sky Glass', code: '{skyglass}' },
+];
+
+export function appNamedInRequest(text) {
+  const s = String(text || '');
+  const hits = APP_IN_REQUEST.filter((a) => a.re.test(s));
+  return hits.length === 1 ? hits[0] : null;
+}
+
+// A line that answers the app they asked about before the guide itself. The
+// steps are identical whichever app you want, so the only thing that differs
+// is the code — say that, rather than making them read for it.
+export function guideLeadIn(text, guide) {
+  const app = appNamedInRequest(text);
+  if (!app || !guide || guide.slug !== 'install-firestick') return '';
+  return `For ${app.label}, the Downloader code is ${app.code} (or open https://aftv.news/${app.code} in a browser). Everything else below is the same.`;
+}
+
 export const visibleGuides = () =>
   db.prepare('SELECT id, title FROM guides WHERE visible = 1 ORDER BY sort, id LIMIT 20').all();
 

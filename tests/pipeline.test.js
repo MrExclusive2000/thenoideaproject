@@ -3741,3 +3741,34 @@ test('an empty second round escalates to a human instead of looping', async () =
   assert.equal(row?.escalated, 1, 'handed to a human rather than looped');
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
+
+test('asking for one app\'s guide answers about THAT app first', async () => {
+  // "Can I have the install guide for purple" sent the Firestick guide —
+  // right, since every app installs the same way — but that guide's step 2 is
+  // the Sky Glass code, with Purple at step 4. They asked about Purple.
+  setSetting('apps.purpleCode', '3775005');
+  setSetting('apps.skyGlassCode', '3793766');
+  setSetting('bot.cooldownSeconds', 0);
+  db.prepare('DELETE FROM guides').run();
+  db.prepare('INSERT INTO guides (title, slug, body_md, sort, visible, updated_at) VALUES (?, ?, ?, 0, 1, 0)')
+    .run('Install on Firestick (step by step)', 'install-firestick', '## Get the apps\n\nEnter this code: **{skyglass}** and install Sky Glass.');
+
+  const ctx = fakeCtx('Can I have the install guide for purple', { userId: 99990 });
+  const r = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.equal(r, 'guide');
+  const msg = ctx.sent.map((s) => s.msg).join('\n');
+  assert.match(msg, /For the Purple App, the Downloader code is 3775005/,
+    'their question is answered before the guide, not buried in it');
+  assert.match(msg, /aftv\.news\/3775005/, 'and the browser route too');
+  assert.match(msg, /Install on Firestick/, 'the guide still follows');
+});
+
+test('a guide request naming no app gets the guide unchanged', async () => {
+  const { guideLeadIn } = await import('../src/guides.js');
+  const guide = { slug: 'install-firestick' };
+  assert.equal(guideLeadIn('can i have the firestick guide', guide), '');
+  // Naming BOTH is ambiguous — the guide covers both anyway.
+  assert.equal(guideLeadIn('whats the difference between purple and sky glass', guide), '');
+  // And a lead-in only makes sense on the install guide.
+  assert.equal(guideLeadIn('purple payment guide', { slug: 'pay-with-crypto' }), '');
+});

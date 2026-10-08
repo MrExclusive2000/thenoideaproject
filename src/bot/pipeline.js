@@ -15,7 +15,7 @@ import { embed, retrieveFaqs, embeddingsProven } from '../ai/embeddings.js';
 import { lookupAnswer, rememberAnswer, cacheable } from '../ai/answer-cache.js';
 import { circuitOpen } from '../ai/breaker.js';
 import { looksLikeChannelQuestion, looksLikeFixtureQuestion, channelGrounding, channelCount, findVodTitle, vodKnown, xcConfigured } from '../xc.js';
-import { looksLikeGuideRequest, findGuide, visibleGuides, mdToPlain } from '../guides.js';
+import { looksLikeGuideRequest, findGuide, visibleGuides, mdToPlain, guideLeadIn } from '../guides.js';
 import { looksLikeWalletRequest, walletMessage } from '../payments.js';
 import { recallService, rememberService, forgetService } from '../service-memory.js';
 import {
@@ -1139,8 +1139,9 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
     const guide = findGuide(question, { context: recent });
     if (guide) {
       setLogSource(logId, 'guide');
+      const lead = guideLeadIn(question, guide);
       await sendChunked(ctx.api, ctx.chat.id,
-        redactServiceUrls(withAdminContact(`📖 ${guide.title}\n\n${mdToPlain(guide.body_md)}`)), replyParams);
+        redactServiceUrls(withAdminContact(`📖 ${guide.title}\n${lead ? `\n${lead}\n` : ''}\n${mdToPlain(guide.body_md)}`)), replyParams);
       return 'guide';
     }
     // Nothing stood out. A menu is a real answer; guessing the wrong guide is
