@@ -4911,3 +4911,90 @@ test('a question that merely contains the word "error" is not treated as a filed
     setSetting('ai.timeoutSeconds', 180);
   }
 });
+
+// --- the service a customer told us, and everything that follows -------------
+
+test('"is it down?" is answered from settings, per service, with no AI call', async () => {
+  // Out of scope before: "is there a known issue", "is everything working",
+  // "any issues today" all carry no service vocabulary and got "Can't help
+  // with that one 😂". The bot knows the answer from its own settings, and
+  // people ask this when things are broken — which is exactly when the AI
+  // node is busiest and most likely to be the broken thing.
+  const { setSetting } = await import('../src/settings.js');
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('service.status', 'operational');
+  setSetting('service.status1', 'operational');
+  setSetting('service.status2', 'operational');
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+  _resetProblemTriage();
+
+  lastAiRequest = null;
+  const ok = fakeCtx('is there a known issue', { userId: 97001 });
+  assert.equal(await answer(ok, 'is there a known issue', { isDm: true, logId: null }), 'status');
+  assert.match(ok.sent[0].msg, /nothing reported/i);
+  assert.equal(lastAiRequest, null, 'never spends an AI call on this');
+
+  // Exclusive degraded, Flix fine — each customer hears about their own.
+  setSetting('service.status1', 'degraded');
+  setSetting('service.note1', 'Streams dropping on Exclusive.');
+  db.prepare('INSERT OR REPLACE INTO tg_service (tg_user_id, service, source, updated_at) VALUES (?,?,?,?)')
+    .run(97002, 1, 'told', Math.floor(Date.now() / 1000));
+  db.prepare('INSERT OR REPLACE INTO tg_service (tg_user_id, service, source, updated_at) VALUES (?,?,?,?)')
+    .run(97003, 2, 'told', Math.floor(Date.now() / 1000));
+
+  const theirs = fakeCtx('is it down for everyone', { userId: 97002 });
+  await answer(theirs, 'is it down for everyone', { isDm: true, logId: null });
+  assert.match(theirs.sent[0].msg, /we know about it/i, 'Exclusive customer is told');
+  assert.match(theirs.sent[0].msg, /Streams dropping on Exclusive/, 'with their own note');
+
+  const other = fakeCtx('is it down for everyone', { userId: 97003 });
+  await answer(other, 'is it down for everyone', { isDm: true, logId: null });
+  assert.match(other.sent[0].msg, /nothing reported/i, 'Flix customer is not');
+
+  setSetting('service.status1', 'operational');
+  setSetting('service.note1', '');
+});
+
+test('the service a customer gives is remembered and used for everything after', async () => {
+  // Verified against two DIFFERENT libraries, so the answer itself proves
+  // which service was used rather than it being taken on trust.
+  const { setSetting } = await import('../src/settings.js');
+  const { recallService, forgetService } = await import('../src/service-memory.js');
+  const { _resetServiceAsk } = await import('../src/bot/pipeline.js');
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+  _resetServiceAsk();
+  _resetProblemTriage();
+
+  const t = Math.floor(Date.now() / 1000);
+  const vod = (svc, name, kind) => db.prepare(
+    'INSERT INTO xc_vod (service, kind, name, norm_name, category, updated_at) VALUES (?,?,?,?,?,?)'
+  ).run(svc, kind, name, name.toLowerCase().replace(/[^a-z0-9]/g, ''), 'x', t);
+  vod(1, 'Onlyonexclusive', 'movie');
+  vod(2, 'Onlyonflix', 'series');
+
+  for (const [uid, reply, mine, theirs] of [
+    [97010, 'Flix', 'Onlyonflix', 'Onlyonexclusive'],
+    [97011, 'Exclusive', 'Onlyonexclusive', 'Onlyonflix'],
+  ]) {
+    forgetService(uid);
+    // Answering the which-service question is a statement about themselves.
+    await handleDirectMessage(fakeCtx(reply, { userId: uid }), reply);
+    db.prepare('INSERT OR REPLACE INTO tg_service (tg_user_id, service, source, updated_at) VALUES (?,?,?,?)')
+      .run(uid, reply === 'Flix' ? 2 : 1, 'told', t);
+    assert.ok(recallService(uid), `${reply} is remembered`);
+
+    const has = fakeCtx(`do you have ${mine}`, { userId: uid });
+    await handleDirectMessage(has, `do you have ${mine}`);
+    assert.match(has.sent.map((s) => s.msg).join('\n'), /already on the service/i, `${reply}: has ${mine}`);
+
+    const hasnt = fakeCtx(`do you have ${theirs}`, { userId: uid });
+    await handleDirectMessage(hasnt, `do you have ${theirs}`);
+    assert.doesNotMatch(hasnt.sent.map((s) => s.msg).join('\n'), /already on the service/i,
+      `${reply}: must NOT be given the other service's library`);
+  }
+
+  db.prepare("DELETE FROM xc_vod WHERE name LIKE 'Onlyon%'").run();
+});

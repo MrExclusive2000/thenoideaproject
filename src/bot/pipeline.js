@@ -1101,6 +1101,39 @@ function serviceStatusLine(service = null) {
 // helping a lot of people right now, give me a minute", because the AI queue
 // is 8 deep and everything past it is turned away. Answering from code costs
 // nothing, cannot queue, and says more than the model would.
+// "Is it down?" — the single most asked question during an outage, and the
+// one the bot can always answer without the model, from settings it already
+// holds. It was out of scope: "is there a known issue", "is everything
+// working", "any issues today" and "is it down for everyone" all carry no
+// service vocabulary and got "Can't help with that one 😂".
+//
+// Answered from code on purpose. People ask this when things are broken,
+// which is exactly when the AI node is busiest and most likely to be the
+// thing that is broken.
+const STATUS_QUESTION =
+  /\b(?:is|are|anyone else|anybody else)\b[^.?!\n]{0,24}\b(?:it|this|everything|the service|server|servers|streams?|channels?)\b[^.?!\n]{0,16}\b(?:down|out|off|broken|working|up|ok|okay|alright)\b|\bany\s+(?:known\s+)?(?:issues?|problems?|outages?|downtime)\b|\bknown\s+(?:issue|problem|outage)\b|\b(?:service|server)\s+status\b|\bis\s+(?:it|everything|the service)\s+(?:working|ok|okay|alright|fine)\b|\beverything\s+(?:ok|okay|alright|working|down)\b|\bis\s+it\s+just\s+me\b|\bon\s+your\s+end\b|\b(?:any ?one|any ?body)\s+else\b[^.?!\n]{0,20}\b(?:having|getting|seeing|with)\b[^.?!\n]{0,16}\b(?:issues?|problems?|trouble|buffering|this)\b/i;
+
+function looksLikeStatusQuestion(text) {
+  const t = String(text || '').trim();
+  if (!t || t.length > 140) return false;
+  return STATUS_QUESTION.test(t);
+}
+
+export const _looksLikeStatusQuestion = (t) => looksLikeStatusQuestion(t);
+
+// What to tell them, for THEIR service.
+function statusAnswer(service = null) {
+  const status = serviceStatusFor(service);
+  if (status !== 'operational') {
+    const note = serviceNotesFor(service).join(' ');
+    const word = status === 'maintenance' ? 'down for maintenance' : 'having problems';
+    return `⚠️ Yes — we know about it. The service is ${word} right now${note ? ` — ${note}` : ''}. `
+      + 'No need to reinstall anything or change your settings. We will say here when it is back.';
+  }
+  return "✅ Nothing reported our end — everything is showing as working right now. "
+    + "If it is playing up for you, tell me what you're seeing and which app you're on and I'll sort it.";
+}
+
 function knownOutageReply(service = null) {
   const banner = serviceStatusLine(service);
   if (!banner) return null;
@@ -1774,6 +1807,14 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
       await ctx.api.sendMessage(ctx.chat.id, hello, replyParams);
       return 'greeting';
     }
+  }
+
+  // "Is it down?" — answered from settings, never from the model, so it still
+  // works when the AI node is the thing that is down.
+  if (looksLikeStatusQuestion(question) && !looksLikeProblem(question)) {
+    setLogSource(logId, 'status');
+    await ctx.api.sendMessage(ctx.chat.id, statusAnswer(serviceNumberFor(ctx, question)), replyParams).catch(() => {});
+    return 'status';
   }
 
   // Asking for a person. Checked before the scope gate, which had this down
