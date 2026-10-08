@@ -4725,3 +4725,67 @@ test('"is this a real person" is the same question as "are you a bot"', async ()
     assert.equal(result, 'capability', `answered properly: ${q}`);
   }
 });
+
+// --- canned replies, written to the person who sent the message -------------
+
+test('a canned reply is rewritten against what the customer actually said', async () => {
+  // Before, the rewriter only ever saw the stock line, so it could shuffle
+  // synonyms and nothing more — every reply still read as canned however many
+  // it found. It now gets their message too.
+  const { rephraseCanned } = await import('../src/ai/client.js');
+  setSetting('bot.aiRephrase', true);
+  const previous = aiResponse;
+  aiResponse = 'Morning! Just ask me anything about the service.';
+
+  await rephraseCanned("Hey! I'm the support bot — ask me anything.", { question: 'morning, bbc1 was rough last night' });
+  const sent = JSON.stringify(lastAiRequest);
+  assert.match(sent, /THEIR MESSAGE/, 'their message reaches the rewriter');
+  assert.match(sent, /bbc1 was rough/, 'verbatim');
+
+  aiResponse = previous;
+  setSetting('bot.aiRephrase', false);
+});
+
+test('a rewritten canned line cannot ask for a password or invent a link', async () => {
+  // The personalised rewrite has more room to improvise, so it goes through
+  // the same checks as a full answer.
+  const { rephraseCanned } = await import('../src/ai/client.js');
+  setSetting('bot.aiRephrase', true);
+  const previous = aiResponse;
+  const saved = 'Hey! Ask me anything about the service.';
+
+  aiResponse = 'Hey! Send me your username and password and I will take a look.';
+  assert.equal(await rephraseCanned(saved, { question: 'hi' }), saved, 'credential request rejected');
+
+  aiResponse = 'Hey! Have a look at https://totally-invented-domain.example for help.';
+  assert.equal(await rephraseCanned(saved, { question: 'hi' }), saved, 'invented link rejected');
+
+  aiResponse = previous;
+  setSetting('bot.aiRephrase', false);
+});
+
+test('"a brief overview of what you can do" is a capability question', async () => {
+  // Live, in the group: it was filed as banter and answered with a chatty
+  // paragraph plus "Anyway — service stuff is where I shine 😄" stapled on.
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.capabilityMessage', 'Here is what I can help with: installs, logins, buffering.');
+  _resetProblemTriage();
+  for (const q of [
+    'Bot give everyone a brief overview what you can do',
+    'tell everyone what you can do',
+    'give us a rundown of what you do',
+  ]) {
+    const ctx = fakeCtx(q, { userId: 99980 });
+    assert.equal(await answer(ctx, q, { isDm: true, logId: null }), 'capability', q);
+  }
+});
+
+test('the steer is not stapled onto an answer that already steers', async () => {
+  const { _alreadySteers } = await import('../src/bot/pipeline.js');
+  assert.equal(
+    _alreadySteers("I can help with installing the app, fixing playback issues, and questions about your service."),
+    true,
+    'already named what we do — the canned steer would just repeat it',
+  );
+  assert.equal(_alreadySteers('Ha, good one!'), false, 'plain banter still gets steered back');
+});

@@ -689,31 +689,51 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
 // failing a check — sends the saved text unchanged. Callers must never use
 // this for messages carrying URLs/codes, or for the auto-close notice (its
 // literal text is matched by the triage re-entry).
-export async function rephraseCanned(message) {
+export async function rephraseCanned(message, { question = null } = {}) {
   if (!message) return message;
   if (!getSetting('bot.aiRephrase') || !getSetting('ai.enabled')) return message;
   if (aiBudgetExceeded()) return message;
   // Only spice replies when the AI is idle — a greeting must never queue
   // behind (or delay) someone's real answer.
   if (activeCalls > 0 || aiQueue.length > 0) return message;
+  // Written TO this person about what they actually said, rather than a
+  // generic line reworded in a vacuum. Without their message the rewrite can
+  // only shuffle the same stock sentence, which is why every reply still read
+  // as canned no matter how many synonyms it found.
+  //
+  // The saved text stays the meaning contract: same facts, same offer, same
+  // commands and handles, nothing added. The model is allowed to greet them
+  // by what they asked and to drop a bullet that does not apply — not to
+  // invent a new answer.
+  const asked = String(question || '').trim().slice(0, 300);
   try {
     const { text } = await withAiSlot(() => chatCompletion(
       [
         {
           role: 'system',
-          content:
-            "Rewrite the user's message in fresh words with EXACTLY the same meaning and tone: a short, warm, casual chat reply from a support bot. " +
-            'Keep the same language. Keep every /command and every {placeholder} exactly as written. Keep roughly the same length. ' +
-            'Do not add questions the original does not have. Do not add new promises, offers or instructions. Plain text, no markdown. ' +
-            'Reply with the rewritten message only.',
+          content: asked
+            ? 'You are a support bot replying to a customer. Below you get THEIR MESSAGE and the REPLY you must send. ' +
+              'Rewrite the reply so it is addressed to them and reads as a direct answer to what they asked — ' +
+              'acknowledge their actual words in the opening few words where it fits naturally. ' +
+              'Keep EVERY fact, offer and instruction from the reply, and add none of your own: no new promises, ' +
+              'no new steps, no questions the reply does not already ask. ' +
+              'Keep every /command, {placeholder} and @handle exactly as written. Keep it about the same length. ' +
+              'Plain text, no markdown. Reply with the rewritten message only.'
+            : "Rewrite the user's message in fresh words with EXACTLY the same meaning and tone: a short, warm, casual chat reply from a support bot. " +
+              'Keep the same language. Keep every /command and every {placeholder} exactly as written. Keep roughly the same length. ' +
+              'Do not add questions the original does not have. Do not add new promises, offers or instructions. Plain text, no markdown. ' +
+              'Reply with the rewritten message only.',
         },
-        { role: 'user', content: String(message) },
+        {
+          role: 'user',
+          content: asked ? `THEIR MESSAGE:\n${asked}\n\nREPLY TO REWRITE:\n${String(message)}` : String(message),
+        },
       ],
       // A reworded one-liner is short — cap output tight. The timeout tracks
       // the node's real speed (canned replies are brief, so half the answer
       // budget is plenty) but never below 40s, or a slow CPU node would fail
       // every rephrase. Failure just falls back to the saved text.
-      { maxTokens: 80, temperature: 0.9, timeoutMs: Math.max(40000, (Number(getSetting('ai.timeoutSeconds')) || 180) * 500) }
+      { maxTokens: asked ? 220 : 80, temperature: 0.9, timeoutMs: Math.max(40000, (Number(getSetting('ai.timeoutSeconds')) || 180) * 500) }
     ));
     const out = cleanReply(text, { maxChars: 500 });
     if (!out) return message;
@@ -726,10 +746,19 @@ export async function rephraseCanned(message) {
       if (!out.includes(t)) return message;
     }
     if (!endsWithQuestion(message) && endsWithQuestion(out)) return message;
-    if (out.length > Math.max(String(message).length * 2, String(message).length + 80)) return message;
+    // A personalised rewrite earns a little more room than a plain reword,
+    // but it is still a rewrite of this line and not a new essay.
+    const roomFor = asked ? 2.4 : 2;
+    if (out.length > Math.max(String(message).length * roomFor, String(message).length + 120)) return message;
     const bannedWords = db.prepare('SELECT word FROM banned_words').all().map((r) => r.word);
     if (containsBannedWord(out, bannedWords)) return message;
-    return out;
+    // A personalised rewrite has more room to improvise than a plain reword,
+    // so it goes through the same safety checks as a full answer: it may not
+    // ask for a password, and it may not introduce a link the saved text did
+    // not already contain. Failing either, the saved text goes out unchanged.
+    if (asksForCredentials(out)) return message;
+    if (inventsLink(out, `${message} ${asked}`)) return message;
+    return redactCredentialUrls(out);
   } catch {
     return message;
   }

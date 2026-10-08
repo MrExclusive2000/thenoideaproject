@@ -731,7 +731,12 @@ function plainWords(text) {
 // these off with "can't help with that, I'm strictly service support" is the
 // worst of both: it refuses the one question the bot can always answer, and
 // it reads as broken when the user then asks what it IS for.
-const CAPABILITY_RE = /\b(?:what|which|anything)\b.{0,30}\b(?:can|could)\s+(?:you|u)\b|\b(?:can|could)\s+(?:you|u)\b.{0,30}\b(?:answer|help|do|assist)\b|\bwhat(?:'?s| is| are)?\s+(?:your|ur)\s+(?:purpose|job|use|point)\b|\bare\s+(?:you|u)\s+(?:a\s+)?(?:bot|ai|real|human)\b|\bwhat\s+(?:do|are)\s+(?:you|u)\s+(?:do|for)\b/i;
+// "...what you can do" is the same question as "what can you do", and the
+// word order defeated it: live, "Bot give everyone a brief overview what you
+// can do" was filed as banter and answered with a chatty line plus the
+// "service stuff is where I shine" steer bolted on the end — in a group, as
+// an introduction to everybody.
+const CAPABILITY_RE = /\b(?:what|which|anything)\b.{0,30}\b(?:can|could)\s+(?:you|u)\b|\b(?:what|anything|everything|all)\b[^.?!\n]{0,20}\b(?:you|u)\s+(?:can|could)\s+(?:do|help|offer|assist)\b|\b(?:overview|summary|rundown|run down|intro(?:duction)?|list)\b[^.?!\n]{0,30}\b(?:what|you|your)\b[^.?!\n]{0,20}\b(?:can|do|does|offer)\b|\btell\b[^.?!\n]{0,20}\b(?:what|everything)\b[^.?!\n]{0,15}\b(?:you|u)\s+(?:can|do)\b|\b(?:can|could)\s+(?:you|u)\b.{0,30}\b(?:answer|help|do|assist)\b|\bwhat(?:'?s| is| are)?\s+(?:your|ur)\s+(?:purpose|job|use|point)\b|\bare\s+(?:you|u)\s+(?:a\s+)?(?:bot|ai|real|human)\b|\bwhat\s+(?:do|are)\s+(?:you|u)\s+(?:do|for)\b/i;
 
 // "Is this a real person?", "are you there or is this automated?" — the same
 // question as "are you a bot", which the line above already answers, just
@@ -761,6 +766,7 @@ function looksLikeHumanRequest(text) {
 }
 
 export const _looksLikeHumanRequest = (t) => looksLikeHumanRequest(t);
+export const _alreadySteers = (t) => alreadySteers(t);
 
 function looksLikeGreeting(text) {
   const w = plainWords(text);
@@ -1389,16 +1395,30 @@ const VERBATIM_LINES = new Set([
   'bot.problemFlaggedNote', 'bot.problemFollowupNote', 'bot.problemMoreFixesNote',
 ]);
 
-async function spoken(key) {
+// `question` is the customer's own message. Passing it turns the rewrite from
+// "say this stock line differently" into "say this to THIS person about what
+// they just asked", which is the difference between a bot that sounds canned
+// and one that doesn't. Omitting it falls back to a plain reword.
+async function spoken(key, question = null) {
   const msg = withAdminContact(String(getSetting(key) || '').trim());
   if (!msg) return '';
-  return VERBATIM_LINES.has(key) ? msg : rephraseCanned(msg);
+  return VERBATIM_LINES.has(key) ? msg : rephraseCanned(msg, { question });
 }
 
 // Off-topic banter free pass: per user, the FIRST off-topic question in a
 // while gets one short friendly AI answer (small-talk mode — no questions
 // back); anything more inside the window falls through to the brush-off.
 const smallTalkUsed = new Map(); // userId -> timestamp the pass was spent
+
+// Did the banter already point them back at support? Two of these words
+// together means it named what we actually do, and the canned steer after it
+// is just the same sentence again in a worse voice.
+const STEER_WORDS = /\b(install\w*|logins?|log ?in|buffer\w*|playback|stream\w*|channels?|requests?|firestick|android|iphone|device|support|service|account|payments?|renewals?)\b/gi;
+
+function alreadySteers(reply) {
+  const hits = new Set((String(reply || '').match(STEER_WORDS) || []).map((w) => w.toLowerCase()));
+  return hits.size >= 2;
+}
 
 async function maybeSmallTalk(ctx, question) {
   const minutes = Number(getSetting('bot.offtopicChatMinutes')) || 0;
@@ -1616,7 +1636,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
   // AFTER the shortcuts above, because "morning, whats the wallet address" is
   // a wallet request wearing a greeting.
   if (mostlyGreeting(question) && !getProblemState(ctx.from?.id)) {
-    const hello = await spoken('bot.greetingMessage');
+    const hello = await spoken('bot.greetingMessage', question);
     if (hello) {
       setLogSource(logId, 'greeting');
       await ctx.api.sendMessage(ctx.chat.id, hello, replyParams);
@@ -1629,7 +1649,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
   // where I shine 😄 Try me!" is the wrong answer to the clearest signal a
   // customer can send. Hand them over, and say so in one line.
   if (looksLikeHumanRequest(question)) {
-    const msg = await spoken('bot.humanRequestMessage');
+    const msg = await spoken('bot.humanRequestMessage', question);
     if (msg) {
       setLogSource(logId, 'human-request', msg);
       await ctx.api.sendMessage(ctx.chat.id, msg, replyParams).catch(() => {});
@@ -1668,7 +1688,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
   // off-topic brush-off. Live, with a case open from testing, "I need
   // assistance" got "Can't help with that one 😂".
   if (looksLikeHelpRequest(question)) {
-    const ask = await spoken('bot.helpAskMessage');
+    const ask = await spoken('bot.helpAskMessage', question);
     if (ask) {
       setLogSource(logId, 'help-ask');
       // With a case already open, "I need assistance" is ambiguous — same
@@ -1694,7 +1714,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
     const who = ctx.from?.username ? `@${ctx.from.username}`
       : [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(' ') || `id ${ctx.from?.id}`;
     alertAdmins('frustrated', `${upset === 'giving-up' ? '🚪' : '😤'} ${who} ${upset === 'giving-up' ? 'is giving up' : 'is not happy'} in ${isDm ? 'a DM' : 'the group'}: "${String(question).slice(0, 200)}" — worth a personal message.`);
-    const msg = await spoken('bot.frustrationMessage');
+    const msg = await spoken('bot.frustrationMessage', question);
     if (msg) {
       setLogSource(logId, 'frustrated', msg);
       await ctx.api.sendMessage(ctx.chat.id, msg, replyParams).catch(() => {});
@@ -1925,7 +1945,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
               // "sort it out" answered with nothing at all, mid-case, which
               // is the worst moment to go quiet.
               if (!deepen) {
-                const msg = await spoken('bot.unsureMessage');
+                const msg = await spoken('bot.unsureMessage', question);
                 if (msg) await ctx.api.sendMessage(ctx.chat.id, withSuffix(msg), replyParams).catch(() => {});
               }
               return 'no-new-help';
@@ -2016,7 +2036,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         if (aiUnavailable && (isDm || directed)) {
           setLogSource(logId, 'ai-down');
           recordUnanswered(question, ctx, 'ai-refused', null);
-          const msg = await spoken('bot.aiDownMessage');
+          const msg = await spoken('bot.aiDownMessage', question);
           if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, replyParams);
           return 'ai-down';
         }
@@ -2027,14 +2047,23 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
           const banter = await maybeSmallTalk(ctx, question);
           if (banter) {
             setLogSource(logId, 'smalltalk');
-            // Always steer back to support after banter — an admin-editable
-            // line appended in code, never left to the model.
-            const steer = await spoken('bot.smallTalkSteer');
+            // Steer back to support after banter — an admin-editable line
+            // appended in code, never left to the model.
+            //
+            // Skipped when the banter already did the steering. Live, in the
+            // group: "Bot give everyone a brief overview what you can do" was
+            // answered with a perfectly good paragraph about installs,
+            // playback and devices, and then had "Anyway — service stuff is
+            // where I shine 😄 installs, logins, buffering fixes" stapled to
+            // it. Two messages saying the same thing, the second one canned,
+            // in front of everybody. If the answer already named what we do,
+            // repeating it is not a steer, it is a stammer.
+            const steer = alreadySteers(banter) ? '' : await spoken('bot.smallTalkSteer');
             await ctx.api.sendMessage(ctx.chat.id, steer ? `${banter}\n\n${steer}` : banter, replyParams);
             return 'smalltalk';
           }
           setLogSource(logId, 'offtopic');
-          const msg = await spoken('bot.offtopicMessage');
+          const msg = await spoken('bot.offtopicMessage', question);
           if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, replyParams);
           return 'offtopic';
         }
@@ -2171,13 +2200,13 @@ export async function handleGroupMessage(ctx) {
   if (mentioned && !getProblemState(ctx.from.id)) {
     if (looksLikeGreeting(question)) {
       setLogSource(logId, 'greeting');
-      const msg = await spoken('bot.greetingMessage');
+      const msg = await spoken('bot.greetingMessage', text);
       if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
       return;
     }
     if (looksLikeThanks(question)) {
       setLogSource(logId, 'thanks');
-      const msg = await spoken('bot.thanksMessage');
+      const msg = await spoken('bot.thanksMessage', text);
       if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
       return;
     }
@@ -2259,7 +2288,7 @@ export async function handleGroupMessage(ctx) {
   // (saysStillBroken wins on ambiguity like "still not fixed".)
   if (st && looksLikeThanks(text) && !saysResolved(text) && alreadyEscalated) {
     setLogSource(logId, 'thanks');
-    const msg = await spoken('bot.thanksMessage');
+    const msg = await spoken('bot.thanksMessage', text);
     if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
     return;
   }
@@ -2271,7 +2300,7 @@ export async function handleGroupMessage(ctx) {
       // The admin was pinged earlier — close that loop too.
       hub.notifyAdmins(`✅ @${ctx.from?.username || ctx.from?.first_name} says their issue is now fixed: "${text.slice(0, 120)}"`).catch(() => {});
     }
-    const note = withCaseNumber(await spoken('bot.problemResolvedNote'), caseNumberFor(ctx, st));
+    const note = withCaseNumber(await spoken('bot.problemResolvedNote', text), caseNumberFor(ctx, st));
     if (note) {
       await ctx.api.sendMessage(ctx.chat.id, note, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
     }
@@ -2348,7 +2377,7 @@ export async function handleGroupMessage(ctx) {
     ) {
       setProblemState(ctx.from.id, { at: Date.now(), nudgedAt: Date.now() });
       setLogSource(logId, 'nudged');
-      const nudge = await spoken('bot.problemNudgeMessage');
+      const nudge = await spoken('bot.problemNudgeMessage', text);
       if (nudge) {
         await ctx.api.sendMessage(ctx.chat.id, nudge, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
       }
@@ -2414,7 +2443,7 @@ export async function handleGroupMessage(ctx) {
   // (Clear resolutions got the warm close above; still-broken escalated.)
   if (st?.fromAutoClose && isFollowUp && !looksLikeQuestion(text) && answersIsItSorted(text)) {
     setLogSource(logId, 'soft-close');
-    const msg = await spoken('bot.problemSoftCloseMessage');
+    const msg = await spoken('bot.problemSoftCloseMessage', text);
     if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
     return;
   }
@@ -2502,7 +2531,7 @@ async function handleDmProblemReply(ctx, text, logId) {
   // Thanks after escalation = "thanks for passing it along" — keep it open.
   if (looksLikeThanks(text) && !saysResolved(text) && alreadyEscalated) {
     setLogSource(logId, 'thanks');
-    const msg = await spoken('bot.thanksMessage');
+    const msg = await spoken('bot.thanksMessage', text);
     if (msg) await send(msg);
     return true;
   }
@@ -2513,7 +2542,7 @@ async function handleDmProblemReply(ctx, text, logId) {
     if (alreadyEscalated) {
       hub.notifyAdmins(`✅ @${ctx.from?.username || ctx.from?.first_name} says their issue is now fixed: "${text.slice(0, 120)}"`).catch(() => {});
     }
-    const note = withCaseNumber(await spoken('bot.problemResolvedNote'), caseNumberFor(ctx, st));
+    const note = withCaseNumber(await spoken('bot.problemResolvedNote', text), caseNumberFor(ctx, st));
     if (note) await send(note);
     return true;
   }
@@ -2585,7 +2614,7 @@ async function handleDmProblemReply(ctx, text, logId) {
     ) {
       setProblemState(ctx.from.id, { at: Date.now(), nudgedAt: Date.now() });
       setLogSource(logId, 'nudged');
-      const nudge = await spoken('bot.problemNudgeMessage');
+      const nudge = await spoken('bot.problemNudgeMessage', text);
       if (nudge) await send(nudge);
       return true;
     }
@@ -2639,7 +2668,7 @@ async function handleDmProblemReply(ctx, text, logId) {
   const softCloseFresh = Date.now() - (st.at || 0) < problemWindowMs();
   if (st.fromAutoClose && softCloseFresh && !looksLikeQuestion(text) && !isProblem && answersIsItSorted(text)) {
     setLogSource(logId, 'soft-close');
-    const msg = await spoken('bot.problemSoftCloseMessage');
+    const msg = await spoken('bot.problemSoftCloseMessage', text);
     if (msg) await send(msg);
     return true;
   }
@@ -2711,13 +2740,13 @@ export async function handleDirectMessage(ctx) {
   // replies (configurable) and never reach the AI or the off-topic path.
   if (looksLikeGreeting(text)) {
     setLogSource(logId, 'greeting');
-    const msg = await spoken('bot.greetingMessage');
+    const msg = await spoken('bot.greetingMessage', text);
     if (msg) await ctx.reply(msg).catch(() => {});
     return;
   }
   if (looksLikeThanks(text)) {
     setLogSource(logId, 'thanks');
-    const msg = await spoken('bot.thanksMessage');
+    const msg = await spoken('bot.thanksMessage', text);
     if (msg) await ctx.reply(msg).catch(() => {});
     return;
   }
