@@ -400,7 +400,10 @@ export function registerCommands(bot) {
     let keywords = '';
     let drafted = false;
 
-    if (arg.includes('|')) {
+    // The pipe form is the "I know exactly what I want it to say" escape
+    // hatch, so it is the one thing the writer never touches.
+    const exact = arg.includes('|');
+    if (exact) {
       [question, answer] = arg.split('|').map((x) => x.trim());
     } else if (replied && arg) {
       // WHO wrote the message decides which half of the pair it is. Replying
@@ -418,24 +421,40 @@ export function registerCommands(bot) {
         answer = arg;         // what to tell them
       }
     } else if (arg.length >= 25) {
-      // A plain instruction with no pipe and nothing replied to: "/teach if
-      // someone gets retry on Sky Glass, tell them to clear data and log back
-      // in." That IS the answer — the model only has to write the question
-      // customers would ask to reach it.
+      // A plain instruction with nothing replied to: "/teach if someone gets
+      // retry on Sky Glass, tell them to clear data and log back in." That IS
+      // the answer; the question has to be written for it.
+      question = 'What should I do about this?';
+      answer = arg;
+    }
+
+    // Everything except the explicit Q | A form goes through the writer. The
+    // raw material is never a good entry on its own: a customer's own words
+    // ("my sky glass just keeps saying retry when ive logged in") carry their
+    // typos and their specifics, and an instruction written to an admin
+    // ("tell them to...") is not phrased as an answer to a customer. It also
+    // produces the keywords, which otherwise stayed empty until someone went
+    // into the panel to add them by hand.
+    if (question && answer && !exact) {
       await ctx.reply('⏳ Writing that up…');
       try {
-        const draft = await composeFaqFromAnswer(
-          [{ question: 'What should I do about this?', answer: arg }],
-          { answeredBy: 'the admin, as a standing instruction' }
-        );
-        if (draft && !draft.skip && draft.question && draft.answer) {
+        const draft = await composeFaqFromAnswer([{ question, answer }], {
+          answeredBy: 'the admin, as a standing instruction for this kind of question',
+        });
+        if (draft?.skip) {
+          return ctx.reply(
+            'That reads as advice for one person rather than something to tell everybody, so I have not saved it.\n\n' +
+            'If it IS general, give me the wording directly:\n/teach <question> | <answer>'
+          );
+        }
+        if (draft?.question && draft?.answer) {
           question = draft.question;
           answer = draft.answer;
           keywords = draft.keywords || '';
           drafted = true;
         }
       } catch {
-        // AI unavailable — fall through to the usage note below.
+        // AI unavailable: store what the admin gave, rather than losing it.
       }
     }
 
@@ -457,10 +476,8 @@ export function registerCommands(bot) {
     await ctx.reply(
       `✅ Learned it (entry #${info.lastInsertRowid}, live now):\n\nQ: ${question}\nA: ${withAdminContact(answer).slice(0, 400)}\n\n` +
       (drafted
-        ? 'I wrote the question and keywords from what you told me — check they read right, and edit it in the panel if not.'
-        : keywords
-          ? 'Keywords saved too.'
-          : 'Add keywords in the panel if you want the fallback to find it too — without them it is only matched by meaning.')
+        ? `I rewrote the question so other people's phrasings reach it${keywords ? ', and added keywords' : ''} — check it reads right, and edit it in the panel if not.`
+        : 'Saved exactly as you wrote it. Add keywords in the panel if you want the fallback to find it too — without them it is only matched by meaning.')
     );
   });
 

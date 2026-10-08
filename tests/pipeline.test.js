@@ -3840,6 +3840,8 @@ test('replying to a CUSTOMER with an instruction stores it the right way round',
 
   const row = db.prepare('SELECT * FROM faqs ORDER BY id DESC LIMIT 1').get();
   assert.ok(row, 'stored');
+  // The writer is unreachable in this test, so the raw halves are stored —
+  // which is exactly what shows the right way round was chosen.
   assert.match(row.question, /keeps saying retry/i, "the customer's words are the question");
   assert.match(row.answer, /clear the app data/i, 'the instruction is the answer');
 });
@@ -3864,4 +3866,85 @@ test('replying to a good ANSWER still works the original way round', async () =>
   const row = db.prepare('SELECT * FROM faqs ORDER BY id DESC LIMIT 1').get();
   assert.match(row.question, /How do I install Sky Glass/);
   assert.match(row.answer, /Open Downloader/);
+});
+
+test('/teach rewrites the question so other phrasings reach it', async () => {
+  // A customer's own words carry their typos and their specifics, and an
+  // instruction written to an admin ("tell them to...") is not phrased as an
+  // answer to a customer. Neither makes a good entry as-is.
+  const { registerCommands } = await import('../src/bot/commands.js');
+  const handlers = {};
+  registerCommands({ command: (n, f) => { handlers[n] = f; }, callbackQuery: () => {}, on: () => {}, use: () => {}, api: {} });
+  setSetting('reports.adminTelegramIds', [4242]);
+  db.prepare('DELETE FROM faqs').run();
+
+  aiResponse = [
+    'QUESTION: Sky Glass says retry after I log in — what should I do?',
+    'ANSWER: Clear the app data for Sky Glass, then log back in with your username and password.',
+    'KEYWORDS: sky glass, retry, login, clear data, buffering, logged in, invalid',
+  ].join('\n');
+
+  await handlers.teach({
+    from: { id: 4242 },
+    chat: { id: 4242, type: 'private' },
+    match: 'if they get retry on Sky Glass, tell them to clear the app data and log back in',
+    message: {
+      message_id: 2,
+      reply_to_message: { message_id: 1, from: { id: 999, is_bot: false }, text: 'my sky glass just keeps sayin retry when ive logged in' },
+    },
+    reply: async () => {},
+  });
+
+  const row = db.prepare('SELECT * FROM faqs ORDER BY id DESC LIMIT 1').get();
+  assert.match(row.question, /Sky Glass says retry after I log in/, 'a question other people would ask');
+  assert.doesNotMatch(row.question, /sayin|ive/, "not one customer's typos");
+  assert.match(row.answer, /Clear the app data/, 'phrased as an answer to a customer');
+  assert.match(row.keywords, /retry/, 'and keywords, which used to be left empty');
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('the pipe form is stored exactly as written', async () => {
+  const { registerCommands } = await import('../src/bot/commands.js');
+  const handlers = {};
+  registerCommands({ command: (n, f) => { handlers[n] = f; }, callbackQuery: () => {}, on: () => {}, use: () => {}, api: {} });
+  setSetting('reports.adminTelegramIds', [4242]);
+  db.prepare('DELETE FROM faqs').run();
+  lastAiRequest = null;
+
+  await handlers.teach({
+    from: { id: 4242 },
+    chat: { id: 4242, type: 'private' },
+    match: 'What is the Sky Glass code? | Enter {skyglass} in Downloader and click Go.',
+    message: { message_id: 2 },
+    reply: async () => {},
+  });
+
+  const row = db.prepare('SELECT * FROM faqs ORDER BY id DESC LIMIT 1').get();
+  assert.equal(row.question, 'What is the Sky Glass code?', 'untouched');
+  assert.equal(row.answer, 'Enter {skyglass} in Downloader and click Go.', 'untouched');
+  assert.equal(lastAiRequest, null, 'and the writer is never called for it');
+});
+
+test('/teach keeps what the admin wrote when the writer is unreachable', async () => {
+  const { registerCommands } = await import('../src/bot/commands.js');
+  const handlers = {};
+  registerCommands({ command: (n, f) => { handlers[n] = f; }, callbackQuery: () => {}, on: () => {}, use: () => {}, api: {} });
+  setSetting('reports.adminTelegramIds', [4242]);
+  db.prepare('DELETE FROM faqs').run();
+  const realUrl = getSetting('ai.baseUrl');
+  setSetting('ai.baseUrl', 'http://127.0.0.1:1');
+  try {
+    await handlers.teach({
+      from: { id: 4242 },
+      chat: { id: 4242, type: 'private' },
+      match: 'if they get retry on Sky Glass, tell them to clear the app data and log back in',
+      message: { message_id: 2 },
+      reply: async () => {},
+    });
+    const row = db.prepare('SELECT * FROM faqs ORDER BY id DESC LIMIT 1').get();
+    assert.ok(row, 'the knowledge is never lost just because the AI is down');
+    assert.match(row.answer, /clear the app data/i);
+  } finally {
+    setSetting('ai.baseUrl', realUrl);
+  }
 });
