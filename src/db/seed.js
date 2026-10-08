@@ -4,7 +4,7 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 26;
+const SEED_VERSION = 27;
 
 export const STARTER_FAQS = [
   {
@@ -32,7 +32,7 @@ export const STARTER_FAQS = [
   },
   {
     question: 'How do I install the app on my Firestick?',
-    answer: 'Install the Downloader app from the Amazon app store, open it, enter code {skyglass} and click Go — that installs Sky Glass, the app we recommend now. The Purple App has its own code, {purple}, and XC or Smarters work as backups (the same login works in all of them).\nIf the Firestick blocks the install: Settings > My Fire TV > About > click the device name 7–10 times to unlock Developer Options, then enable both options in there and go back to Downloader.\nOnce installed, open the app and log in with your service details. Full walkthrough is in the Firestick guide.',
+    answer: 'Install the Downloader app from the Amazon app store, open it, enter code {skyglass} and click Go — that installs Sky Glass, the app we recommend now. The Purple App has its own code, {purple}, and XC or Smarters work as backups (the same login works in all of them).\nIf the Firestick blocks the install: Settings > My Fire TV > About > click the device name 7–10 times to unlock Developer Options, then enable both options in there and go back to Downloader.\nOnce installed, open the app and log in with your service details. Want the full step-by-step? Ask me for the Firestick guide and I\'ll post it here.',
     // No literal code numbers in here: a keyword list is a second place a code
     // has to be kept up to date, and it silently stops matching the day the
     // code changes. The codes live in Bot settings and reach the text as
@@ -72,7 +72,7 @@ export const STARTER_FAQS = [
   },
   {
     question: 'How can my friend join the service?',
-    answer: "Happy to get them set up!\n1. First they need their own login (username + password) — ask the admin here in the group, or {admin} to sort out access and pricing.\n2. Bring them into this group: send me /invite and I'll give you a personal one-use invite link for them.\n3. Once they have their login, installing takes two minutes: enter code {skyglass} in the Downloader app, install Sky Glass and sign in — full steps in the Firestick guide.",
+    answer: "Happy to get them set up!\n1. First they need their own login (username + password) — ask the admin here in the group, or {admin} to sort out access and pricing.\n2. Bring them into this group: send me /invite and I'll give you a personal one-use invite link for them.\n3. Once they have their login, installing takes two minutes: enter code {skyglass} in the Downloader app, install Sky Glass and sign in. Ask me for the Firestick guide and I'll post the full steps here.",
     keywords: 'friend, join, joining, signup, sign up, mate, refer, referral, trial, interested, bring, invite, inviting, group',
   },
   {
@@ -419,6 +419,15 @@ const V25_WHICH_SERVICE =
 const V25_PANEL_FAQ =
   'The customer panel has everything in one place: service maintenance updates, app download links, URLs and setup info, VOD recommendations, the sports guide, your account details, FAQs and payment information. Log in with your account details and everything assigned to you appears automatically. Ask here if you need the panel link.';
 
+// v26: the generation that ended install answers with "full walkthrough is in
+// the Firestick guide". A Telegram customer has no guides section to go to,
+// and the phrasing taught the model to answer a request for a guide by
+// pointing at one — which is exactly what it did, twice, in the group.
+const V26_FIRESTICK =
+  'Install the Downloader app from the Amazon app store, open it, enter code {skyglass} and click Go — that installs Sky Glass, the app we recommend now. The Purple App has its own code, {purple}, and XC or Smarters work as backups (the same login works in all of them).\nIf the Firestick blocks the install: Settings > My Fire TV > About > click the device name 7\u201310 times to unlock Developer Options, then enable both options in there and go back to Downloader.\nOnce installed, open the app and log in with your service details. Full walkthrough is in the Firestick guide.';
+const V26_FRIEND =
+  "Happy to get them set up!\n1. First they need their own login (username + password) \u2014 ask the admin here in the group, or {admin} to sort out access and pricing.\n2. Bring them into this group: send me /invite and I'll give you a personal one-use invite link for them.\n3. Once they have their login, installing takes two minutes: enter code {skyglass} in the Downloader app, install Sky Glass and sign in \u2014 full steps in the Firestick guide.";
+
 function previousDefaults(question) {
   const out = [];
   if (V1_ANSWERS[question]) out.push(V1_ANSWERS[question]);
@@ -426,7 +435,8 @@ function previousDefaults(question) {
   if (question === "A channel or stream isn't working — what do I do?") out.push(V3_CHANNEL);
   if (question === "The app says my login is wrong or my account doesn't work") out.push(V2_LOGIN);
   if (question === 'How do I install the apps?') out.push(V10_INSTALL_ANY, V11_INSTALL_ANY, V21_INSTALL_ANY);
-  if (question === 'How do I install the app on my Firestick?') out.push(V21_FIRESTICK);
+  if (question === 'How do I install the app on my Firestick?') out.push(V21_FIRESTICK, V26_FIRESTICK);
+  if (question === 'How can my friend join the service?') out.push(V26_FRIEND);
   if (question === 'How do I install the app on an Android phone or tablet?') out.push(V10_ANDROID, V21_ANDROID);
   if (question === 'How do I update the app to the latest version?') out.push(V10_UPDATE, V11_UPDATE, V21_UPDATE);
   if (question === 'Which app should I use — Purple, XC or Smarters?') out.push(V11_WHICH_APP, V25_WHICH_APP);

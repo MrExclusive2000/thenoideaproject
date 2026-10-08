@@ -2788,3 +2788,67 @@ test('"what channel is X on" is treated as in scope', async () => {
   // ...while a pure result question still is not.
   assert.equal(isLikelyInScope('who won the match last night'), false);
 });
+
+// --- asking for a guide gets the guide ---------------------------------------
+// Both of these are transcripts from the live group. In each one the bot had
+// the guide in its database and told the customer to go and find it somewhere
+// else, then — when pushed — said it had no access to it.
+
+test('"can I have the payment guide?" sends the payment guide', async () => {
+  db.prepare('DELETE FROM guides').run();
+  db.prepare('INSERT INTO guides (title, slug, body_md, sort, visible, updated_at) VALUES (?, ?, ?, 0, 1, 0)')
+    .run('How to pay with crypto (Litecoin)', 'pay-with-crypto', '## Step 1\n\nDownload **Exodus** from exodus.com and set it up.\n\n## Step 2\n\nTap Buy Crypto and pick Litecoin.');
+  db.prepare('INSERT INTO guides (title, slug, body_md, sort, visible, updated_at) VALUES (?, ?, ?, 1, 1, 0)')
+    .run('Install on Firestick (step by step)', 'install-firestick', '## 1. Set up your Firestick\n\nInstall **Downloader** from the Amazon store.');
+
+  const ctx = fakeCtx('Can i have the payment guide ?');
+  const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.equal(result, 'guide');
+  const msg = ctx.sent.map((s) => s.msg).join('\n');
+  assert.match(msg, /Exodus/, 'the actual steps, not a pointer to them');
+  assert.doesNotMatch(msg, /guides section|you can find it|check the/i,
+    'never send someone looking for a document that does not exist in Telegram');
+});
+
+test('a bare "can you send me the guide" follows the conversation', async () => {
+  // The live failure: the customer had just been given the Sky Glass link and
+  // asked for "the guide for it on downloader". The message alone names no
+  // guide, so the one they were already talking about is the answer.
+  const ctx = fakeCtx('Well can you send me the guide');
+  const history = [
+    { role: 'user', content: 'I need to install the sky glass app' },
+    { role: 'assistant', content: 'open your browser and go to https://aftv.news/3793766' },
+    { role: 'user', content: 'Can you send the guide for it on downloader?' },
+  ];
+  const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null, history });
+  assert.equal(result, 'guide');
+  assert.match(ctx.sent.map((s) => s.msg).join('\n'), /Downloader/,
+    'the Firestick/Downloader guide, from what they were just asking about');
+});
+
+test('an ambiguous guide request offers the list instead of guessing', async () => {
+  const ctx = fakeCtx('can you send me the guide please');
+  const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.equal(result, 'guide');
+  assert.ok(ctx.sent[0].extra?.reply_markup, 'a menu of real guides');
+  assert.doesNotMatch(ctx.sent[0].msg, /cannot|can't|don't have/i, 'never a refusal');
+});
+
+test('the model is given the guide whenever it might be the one asked about', () => {
+  // The root cause: selection required a 4+ character TITLE word to appear in
+  // the question, so "payment" never reached "How to pay with crypto" and the
+  // model was left holding an FAQ that pointed at a guide it had never seen.
+  for (const q of ['can i have the payment guide', 'how do i pay', 'whats the crypto wallet process']) {
+    assert.match(buildSystemPrompt(q), /Exodus/, `payment guide missing from the prompt for: ${q}`);
+  }
+  for (const q of ['send the guide for it on downloader', 'firestick install steps']) {
+    assert.match(buildSystemPrompt(q), /Downloader/, `firestick guide missing from the prompt for: ${q}`);
+  }
+});
+
+test('a statement about a guide is not a request for one', async () => {
+  // "the guide says to clear the cache" must still reach the normal pipeline.
+  const ctx = fakeCtx('the guide says to clear the cache but it still buffers');
+  const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+  assert.notEqual(result, 'guide');
+});

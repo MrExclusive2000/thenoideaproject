@@ -15,6 +15,7 @@ import { embed, retrieveFaqs, embeddingsProven } from '../ai/embeddings.js';
 import { lookupAnswer, rememberAnswer, cacheable } from '../ai/answer-cache.js';
 import { circuitOpen } from '../ai/breaker.js';
 import { looksLikeChannelQuestion, channelGrounding } from '../xc.js';
+import { looksLikeGuideRequest, findGuide, visibleGuides, mdToPlain } from '../guides.js';
 import {
   queueProblemAlert, setProblemRearmHook, maybeAutoDegrade,
   looksLikeCaseClose, caseNumbersIn, closeCaseAsAdmin,
@@ -795,6 +796,37 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
       setLogSource(logId, 'capability');
       await ctx.api.sendMessage(ctx.chat.id, withAdminContact(msg), replyParams);
       return 'capability';
+    }
+  }
+
+  // "Can you send me the guide?" is answered by SENDING THE GUIDE. It used to
+  // go to the model, which had not been given the guide (title-word matching
+  // missed "payment" → "How to pay with crypto") and so pointed the customer
+  // at a guides section that does not exist in Telegram, then said it had no
+  // access to it. Both were true from where it sat. Nothing here involves the
+  // model, so it also works when the endpoint is down.
+  if (looksLikeGuideRequest(question)) {
+    const historyKey = `${ctx.chat.id}:${ctx.from.id}`;
+    const recent = (providedHistory ?? (isDm ? (dmHistory.get(historyKey) || []) : []))
+      .filter((m) => m.role === 'user')
+      .map((m) => m.content)
+      .reverse();
+    const guide = findGuide(question, { context: recent });
+    if (guide) {
+      setLogSource(logId, 'guide');
+      await sendChunked(ctx.api, ctx.chat.id,
+        redactServiceUrls(withAdminContact(`📖 ${guide.title}\n\n${mdToPlain(guide.body_md)}`)), replyParams);
+      return 'guide';
+    }
+    // Nothing stood out. A menu is a real answer; guessing the wrong guide is
+    // not, and neither is telling them to go and look somewhere.
+    const all = visibleGuides();
+    if (all.length) {
+      const kb = new InlineKeyboard();
+      all.forEach((g) => kb.text(g.title.slice(0, 40), `guide:${g.id}`).row());
+      setLogSource(logId, 'guide');
+      await ctx.api.sendMessage(ctx.chat.id, 'Which one do you need?', { ...replyParams, reply_markup: kb });
+      return 'guide';
     }
   }
 

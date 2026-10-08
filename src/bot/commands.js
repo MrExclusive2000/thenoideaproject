@@ -12,20 +12,9 @@ import { hub } from './hub.js';
 import { state } from '../state.js';
 import { localBuild, updateCheck, describeUpdate, applyUpdate } from '../build.js';
 import { xcConfigured, refreshChannels, channelCount, channelsUpdatedAt, findChannels, xcLastError, epgCacheStats } from '../xc.js';
+import { mdToPlain } from '../guides.js';
 
 const isPrivate = (ctx) => ctx.chat?.type === 'private';
-
-// Very small markdown → plain text for sending guides in chat.
-function mdToPlain(md) {
-  return String(md)
-    .replace(/```[\s\S]*?```/g, (m) => m.replace(/```\w*\n?/g, ''))
-    .replace(/^#{1,6}\s+(.+)$/gm, (m, h) => `\n${h.toUpperCase()}\n`)
-    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '$1: $2')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1 ($2)')
-    .replace(/[*_`]/g, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
 
 function statusText() {
   const status = getSetting('service.status');
