@@ -162,6 +162,9 @@ const STRONG_SCOPE_TERMS = new Set([
   'pay', 'payment', 'paying', 'crypto', 'litecoin', 'ltc', 'wallet', 'exodus',
   'vpn', 'router', 'ethernet', 'panel', 'portal', 'developer', 'url',
   'service', 'price', 'prices', 'cost', 'costs', 'trial', 'ufc', 'ppv',
+  // A refund or cancellation is a real commercial request with a real answer
+  // (the admin handles it). It was getting the off-topic brush-off.
+  'refund', 'refunds', 'refunded', 'cancel', 'cancelled', 'cancellation', 'chargeback',
   // "What channel is the F1 on?" is a question about OUR lineup, so it is a
   // service question — it was landing out of scope while "who's playing Derby
   // tonight" landed in it, which is exactly backwards.

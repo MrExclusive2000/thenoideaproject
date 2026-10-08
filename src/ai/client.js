@@ -485,7 +485,7 @@ export function _aiQueueState() {
 // `smallTalk`: the caller is spending the user's one off-topic free pass —
 // permit ONE brief friendly answer to an off-topic message. Replies that are
 // (or end as) a question are suppressed: banter must never fish for more chat.
-export async function askAi(question, { history = [], assumeOnTopic = false, smallTalk = false, playback = null, grounding = null, secondRound = false, knowledgeFaqs = null, knownOutage = false, channels = null, service = null } = {}) {
+export async function askAi(question, { history = [], assumeOnTopic = false, smallTalk = false, playback = null, grounding = null, secondRound = false, knowledgeFaqs = null, knownOutage = false, channels = null, service = null, alreadyTried = false } = {}) {
   if (!getSetting('ai.enabled')) return null;
   if (aiBudgetExceeded()) {
     const err = new Error('Daily AI budget reached');
@@ -531,6 +531,17 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
             'inviting them back if these steps do not work, and a handoff here contradicts it and reads as not bothering. ' +
             'The only exception is something no troubleshooting can fix: an expired subscription, a payment, or a change to ' +
             'their account. Mention the admin for those and nothing else.',
+        }]
+      : []),
+    ...(alreadyTried
+      ? [{
+          role: 'system',
+          content:
+            'The user has ALREADY TOLD YOU what they tried — read their message and do not suggest any of it back. ' +
+            'Restarting the app, rebooting the box, clearing the cache, reinstalling, logging out and in: if they named it, it is done, ' +
+            'and repeating it reads as not having read what they wrote. Go straight to the steps they have NOT tried (a different ' +
+            'link or stream for the same channel, the backup app with the same login, turning off a VPN, a wired connection), ' +
+            'and acknowledge in a few words that they have already done the basics.',
         }]
       : []),
     ...(secondRound

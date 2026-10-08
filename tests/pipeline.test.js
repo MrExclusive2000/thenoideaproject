@@ -4638,3 +4638,25 @@ test('the credential warning does not say "message message @admin"', async () =>
   setSetting('bot.adminContact', '@TheAdmin');
   assert.doesNotMatch(withAdminContact(CREDENTIAL_WARNING), /message message/i);
 });
+
+test('a slow node keeps the typing indicator alive instead of going quiet', async () => {
+  // Live transcript: "I want sky glass code" was answered, "How do I install
+  // it" went silent, "Hello?" came back instantly a minute later (canned
+  // reply, no model) and the next install question went silent too. Nothing
+  // was broken — Telegram's typing indicator lasts ~5s, the node needs far
+  // longer, and with ai.maxConcurrent at 1 the second question waits for the
+  // first. The bot had no way of saying "still writing".
+  setSetting('bot.cooldownSeconds', 0);
+  _resetProblemTriage();
+  const previousDelay = aiDelayMs;
+  aiDelayMs = 900;
+
+  const ctx = fakeCtx('how do i install it on my firestick', { userId: 99960 });
+  let typingPings = 0;
+  ctx.replyWithChatAction = async () => { typingPings++; };
+
+  await answer(ctx, 'how do i install it on my firestick', { isDm: true, logId: null });
+  assert.ok(typingPings >= 1, 'typing shown at all');
+  assert.ok(ctx.sent.length, 'and the answer still arrives');
+  aiDelayMs = previousDelay;
+});

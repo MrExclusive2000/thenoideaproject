@@ -125,6 +125,38 @@ function plausibleUsername(word) {
   return /\d/.test(w) || (/[a-z]/.test(w) && /[A-Z]/.test(w.slice(1)));
 }
 
+// What the "which service is this on?" question actually asked for: a service
+// name, or the username they log in with. Returns the label to record, or null
+// — and null means "they did not answer it", never "record this anyway".
+function serviceAnswerIn(text) {
+  const svc = serviceFromReply(text);
+  if (svc?.name) return svc.name;
+  if (svc) return `service ${svc.num}`;
+  const words = plainWords(text);
+  // A bare username, or one in a short sentence ("im on THM4821").
+  if (words.length <= 6) {
+    const cand = String(text).trim().split(/\s+/).map((w) => w.replace(/[^\w]/g, '')).find((w) => plausibleUsername(w));
+    if (cand) {
+      const guess = serviceForUsername(cand);
+      return guess?.name ? `${cand} (${guess.name})` : cand;
+    }
+  }
+  // Free text, accepted ONLY when the panel has no service names to match
+  // against — then "Exclusive" is a perfectly good answer and there is
+  // nothing to check it with. With names configured, serviceFromReply above
+  // is the only way in: otherwise "refund me then" (three words, no service
+  // named) was filed as the service the fault is on.
+  if (twoServicesNamed()) return null;
+  const ASKING_FOR_SOMETHING = /\b(refund|cancel|money back|help|sort|send|give|want|need|please|when|sorry|fix)\b/i;
+  if (words.length && words.length <= 3
+      && !looksLikeAcknowledgement(text) && !looksLikeThanks(text)
+      && !looksLikeFrustration(text) && !looksLikeQuestion(text)
+      && !mentionsTriedAlready(text) && !ASKING_FOR_SOMETHING.test(text)) {
+    return String(text).trim().slice(0, 100);
+  }
+  return null;
+}
+
 function serviceForUsername(username) {
   const s = serviceConfig();
   const t = String(username).trim();
@@ -818,7 +850,7 @@ const ABUSE_WORDS = new Set([
 // "Cancel my subscription" is deliberately NOT here. It is a real request
 // with a real answer, and answering it with "sorry, I'm not getting this
 // right — tell me what's not working" would be gibberish.
-const GIVING_UP_RE = /\b(?:balls to (?:it|this|that)|(?:fuck|fuk|fck|screw|sack) (?:it|this|that)|forget (?:it|this|that)|can'?t be (?:arsed|bothered)|cba\b|waste of (?:time|money)|wasting my time|i'?m done|im done|done with (?:this|it)|giv(?:e|ing) up|had enough|packing (?:it|this) in|not worth it)\b/i;
+const GIVING_UP_RE = /\b(?:balls to (?:it|this|that)|(?:fuck|fuk|fck|screw|sack) (?:it|this|that)|forget (?:it|this|that)|can'?t be (?:arsed|bothered)|cba\b|waste of (?:time|money)|wasting my time|i'?m done|im done|done with (?:this|it)|giv(?:e|ing) up|had enough|packing (?:it|this) in|not worth it|not (?:waiting|hanging about|sitting here)|sort it out|sort this out|do something|get it sorted|fix it then)\b/i;
 const ABUSE_FILLER = new Set([
   'you', 'youre', 'your', 'ur', 'u', 'this', 'that', 'it', 'its', 'is', 'are',
   'am', 'a', 'an', 'the', 'what', 'whats', 'bloody', 'absolute', 'absolutely',
@@ -827,6 +859,9 @@ const ABUSE_FILLER = new Set([
   'thing', 'ai', 'robot', 'piece', 'junk', 'and', 'off', 'me', 'my', 'for',
   'fuck', 'fck', 'fuk', 'jesus', 'christ', 'god', 'sake', 'mate', 'm8',
   'lads', 'man', 'then', 'all', 'im', 'i', 'to', 'with', 'at', 'now',
+  // "im not waiting all night for this" — the words left over once the
+  // giving-up phrase is removed still have to be filler, or it does not count.
+  'night', 'day', 'for', 'about', 'any', 'more', 'longer', 'here', 'again',
   // "you're" / "it's" split on the apostrophe, so the orphan letters count
   // as filler or the strict test fails on punctuation alone.
   'm', 's', 're', 't', 've', 'll',
@@ -883,7 +918,7 @@ function looksLikeQuestion(text) {
 // count on their own; generic words ("calm DOWN mate", "the PROBLEM with
 // him is...") only count when the message also mentions the service.
 const STRONG_PROBLEM =
-  /\b(buffer(ing|s)?|freez\w*|frozen|lag(gy|ging|s)?|stutter\w*|glitch\w*|crash\w*|playback|black ?screen|no (sound|audio|picture|video|streams?|channels?|epg|vod)|invalid|unauthori[sz]ed|logged (out|off)|wrong password|access denied|wrong (language|audio|sound|version|copy|cut|file)|(us|american|censored|dubbed) (version|copy|cut)|only (one|1) (language|audio( track)?|track)|not work\w*|(doesnt|dont|isnt|aint|stopped) work\w*|wont (work|load|play|open|start)|cant (log ?in|sign in|watch|open|play|stream|connect)|keeps? (stopping|buffering|freezing|crashing|cutting|loading)|(is|are|was|were|gone|went|still) down|offline)\b/i;
+  /\b(buffer(ing|s)?|freez\w*|frozen|lag(gy|ging|s)?|stutter\w*|glitch\w*|crash\w*|playback|black ?screen|no (sound|audio|picture|video|streams?|channels?|epg|vod)|invalid|unauthori[sz]ed|logged (out|off)|wrong password|access denied|wrong (language|audio|sound|version|copy|cut|file)|(us|american|censored|dubbed) (version|copy|cut)|only (one|1) (language|audio( track)?|track)|not work\w*|(doesnt|don'?t|isn'?t|ain'?t|won'?t|can'?t|stopped)( even| still| ever| really| actually)? work\w*|wont (work|load|play|open|start)|cant (log ?in|sign in|watch|open|play|stream|connect)|keeps? (stopping|buffering|freezing|crashing|cutting|loading)|(is|are|was|were|gone|went|still) down|offline)\b/i;
 const WEAK_PROBLEM = /\b(down|error|issues?|problems?|stuck|loading|broken|broke|bust|knackered|useless)\b/i;
 
 // Blunt, whole-message complaints. "Nothing works" and "it's broke" are
@@ -896,6 +931,9 @@ const BLUNT_PROBLEM =
 
 function looksLikeProblem(text) {
   if (STRONG_PROBLEM.test(text) || BLUNT_PROBLEM.test(text)) return true;
+  // Listing the fixes they already tried is a problem report by definition —
+  // nobody restarts an app four times for fun.
+  if (mentionsTriedAlready(text)) return true;
   return WEAK_PROBLEM.test(text) && isLikelyInScope(text);
 }
 
@@ -1149,7 +1187,22 @@ function hasTimeDetail(text) {
 // "username is fine", "already tried that", "nothing works" — the user is
 // telling us the suggested fixes don't apply. That's an implicit "still
 // broken", not a reason to repeat the same FAQ.
+// "I've restarted it 4 times already", "already cleared the cache and
+// reinstalled". Someone listing the fixes they have ALREADY tried, which is
+// both the most useful message a support bot can receive and the one it
+// handled worst: no symptom word and no app name, so it carried no scope
+// signal and got "Can't help with that one 😂" in reply to a customer doing
+// our troubleshooting for us. It counts as a problem, and the steps named
+// here are handed to the model so it stops suggesting them back.
+const TRIED_ALREADY =
+  /\b(?:i'?ve|ive|i have|already|just)\b[^.?!\n]{0,30}\b(?:restart\w*|reboot\w*|reinstall\w*|re-?install\w*|uninstall\w*|clear\w*|clean\w*|delet\w*|reset\w*|unplug\w*|power ?cycl\w*|log(?:ged)? ?(?:in|out)|sign\w* (?:in|out)|tried|try|changed|swapped|checked)\b|\b(?:restart\w*|reboot\w*|reinstall\w*|clear\w* the cache|logged (?:in|out))\b[^.?!\n]{0,25}\b(?:\d+ times?|twice|loads|already|several times|a few times|and it|but it)\b/i;
+
+function mentionsTriedAlready(text) {
+  return TRIED_ALREADY.test(String(text || ''));
+}
+
 function negatesFixes(text) {
+  if (mentionsTriedAlready(text)) return true;
   // "tried it/that/everything" counts — "HAVEN'T tried it" is the opposite
   // (live bug: "Haven't tried it today" escalated as a fix-negation).
   return /\b((is|are|was|were|looks?) (fine|right|correct|ok|okay)|already (tried|did|done|checked)|(?<!\b(?:havent|haven'?t|hadnt|hadn'?t|not|never)\s)(tried|checked|done|did) (it|that|them|those|all|everything)|nothing (works|worked|changed|happens)|(didnt|didn't|doesnt|doesn't) (help|work|change))\b/i.test(text);
@@ -1603,6 +1656,8 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
     if (aiBudgetExceeded()) {
       alertAdmins('budget', '⚠️ The daily AI budget has been reached — until midnight UTC the bot only answers exact FAQ matches.');
     } else {
+      // Outside the try, so the finally that clears it can see it.
+      let stopTyping = null;
       try {
         const historyKey = `${ctx.chat.id}:${ctx.from.id}`;
         const history = providedHistory ?? (isDm ? (dmHistory.get(historyKey) || []) : []);
@@ -1640,7 +1695,24 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         // both reached a verdict the model never gave.
         let aiUnavailable = circuitOpen(String(getSetting('ai.baseUrl') || '').replace(/\/+$/, ''));
         if (!offScript) {
-          await ctx.replyWithChatAction?.('typing')?.catch?.(() => {});
+          // Telegram's typing indicator lasts about five seconds. This node
+          // needs thirty to a hundred and eighty to write an answer, and with
+          // ai.maxConcurrent at 1 a second question waits for the first to
+          // finish — so the customer watched the indicator disappear and then
+          // got nothing at all. Live transcript: "I want sky glass code" was
+          // answered, "How do I install it" went silent, "Hello?" came back
+          // instantly a minute later (canned reply, no model) and the next
+          // install question went silent too. Nothing was broken; the bot
+          // simply had no way of saying "still writing".
+          //
+          // Kept alive for the whole call so a slow node looks like someone
+          // typing instead of a dead bot. Cleared in the finally below —
+          // every path out of here has to stop it, including a throw.
+          const typing = () => ctx.replyWithChatAction?.('typing')?.catch?.(() => {});
+          await typing();
+          stopTyping = setInterval(typing, 4000);
+          // Never hold the process open on an interval nobody cleared.
+          stopTyping.unref?.();
           // Live vs VOD hint for problem reports: pause/rewind advice is
           // nonsense for a live channel, and valid for a film/episode.
           const playback = looksLikeProblem(question)
@@ -1655,6 +1727,11 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
           const grounding = looksLikeProblem(question) && result.nearMiss
             ? String(result.nearMiss.answer).slice(0, 1200)
             : null;
+          // They have told us what they already tried. Handing that to the
+          // model as an instruction is the difference between an answer and
+          // an insult: "I've restarted it 4 times" answered with "try
+          // restarting it" is the single fastest way to lose someone.
+          const alreadyTried = mentionsTriedAlready(question);
 
           // One embedding per message, shared by the cache lookup and FAQ
           // retrieval below.
@@ -1719,6 +1796,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
                 // and asking them to is a waste of their evening.
                 knownOutage: Boolean(prefix) && getSetting('service.status') !== 'operational' && looksLikeProblem(question),
                 knowledgeFaqs: retrieved.length ? retrieved.map((r) => r.faq) : null,
+                alreadyTried,
               });
             } catch (err) {
               // An unreachable endpoint must NOT skip the near-miss FAQ below.
@@ -1755,7 +1833,11 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
             const lastSaid = [...history].reverse().find((m) => m.role === 'assistant')?.content;
             if (reply && lastSaid && repeatsPreviousAnswer(reply, lastSaid)) {
               setLogSource(logId, 'no-new-help');
-              if (!deepen && !getProblemState(ctx.from?.id)) {
+              // Only `deepen` has a caller that catches this and escalates.
+              // Gating on "no case open" instead left an angry customer's
+              // "sort it out" answered with nothing at all, mid-case, which
+              // is the worst moment to go quiet.
+              if (!deepen) {
                 const msg = await spoken('bot.unsureMessage');
                 if (msg) await ctx.api.sendMessage(ctx.chat.id, withSuffix(msg), replyParams).catch(() => {});
               }
@@ -1888,6 +1970,12 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         console.error('AI error:', err.message);
         state.bot.lastError = `AI: ${err.message}`;
         alertAdmins('error', `❌ AI endpoint problem: ${String(err.message).slice(0, 200)}`);
+      } finally {
+        // Every way out of the block above — the early returns for no-listing
+        // and no-new-help, a thrown AI error, or an ordinary answer — has to
+        // stop the typing keepalive, or it ticks forever against a chat
+        // nobody is waiting on.
+        if (stopTyping) { clearInterval(stopTyping); stopTyping = null; }
       }
     }
   }
@@ -2109,13 +2197,14 @@ export async function handleGroupMessage(ctx) {
   // ("why do you need that?") flows through normal answering, and a repeat
   // complaint stays in the quiet already-escalated path — the ask stays
   // armed either way; "that fixed it" was already handled above.
-  // !upset, as in the DM path: this branch takes ANY reply that is not a
-  // question or a problem, so "fuck this" was being recorded as the service
-  // the fault is on.
-  if (st?.awaitingService && !looksLikeQuestion(text) && !isProblem && !looksLikeFrustration(text)
-      && !looksLikeAcknowledgement(text) && !looksLikeThanks(text)) {
+  // A POSITIVE match, as in the DM path: the question asked for a service
+  // name or a username, so only one of those answers it. As a catch-all this
+  // recorded "ok", "fuck this" and "i told you ive done that" as the service
+  // the fault is on, and told the admin so.
+  const serviceAnswer = st?.awaitingService ? serviceAnswerIn(text) : null;
+  if (st?.awaitingService && serviceAnswer) {
     setProblemState(ctx.from.id, { awaitingService: false, at: Date.now() });
-    const info = text.slice(0, 100);
+    const info = serviceAnswer;
     db.prepare('UPDATE problem_reports SET service = ? WHERE tg_user_id = ? AND escalated = 1 AND resolved = 0')
       .run(info, ctx.from.id);
     setLogSource(logId, 'service-info');
@@ -2356,10 +2445,17 @@ async function handleDmProblemReply(ctx, text, logId) {
   const upset = looksLikeFrustration(text);
 
   // Which-service answer for an escalated report.
-  if (st.awaitingService && !looksLikeQuestion(text) && !isProblem && !upset
-      && !looksLikeAcknowledgement(text) && !looksLikeThanks(text)) {
+  //
+  // A POSITIVE match, not "anything that isn't a question". That exclusion
+  // list grew an entry every time this branch ate something it shouldn't —
+  // "ok", "fuck this", "i told you ive done that" were each filed as the
+  // service the fault is on and DMed to the admin as fact. The question asked
+  // for a service name or a username, so nothing but one of those answers it;
+  // anything else falls through to normal handling with the ask still armed.
+  const namedService = st.awaitingService ? serviceAnswerIn(text) : null;
+  if (st.awaitingService && namedService) {
     setProblemState(ctx.from.id, { awaitingService: false, at: Date.now() });
-    const info = text.slice(0, 100);
+    const info = namedService;
     db.prepare('UPDATE problem_reports SET service = ? WHERE tg_user_id = ? AND escalated = 1 AND resolved = 0')
       .run(info, ctx.from.id);
     setLogSource(logId, 'service-info');
