@@ -67,15 +67,24 @@ const WHAT_ACCEPTED =
 // Coins we do NOT take are listed deliberately: "do you take Monero?" is
 // answered best by walletMessage, which says we do not and names what we do.
 // Silence or a guess sends somebody off to buy the wrong thing.
-const MONEY_WORD = /\b(wallet|pay|paying|payment|renew|renewal|crypto|litecoin|ltc|bitcoin|btc|coins?|funds|money|transfer|send|monero|xmr|ethereum|eth|usdt|tether|usdc|doge|dogecoin|solana|sol|cash|card|paypal|revolut|bank)\b/i;
+const MONEY_WORD = /\b(wallet|pay|paying|payment|renew|renewal|crypto|litecoin|ltc|bitcoin|btc|coins?|funds|money|transfer|send|monero|xmr|ethereum|eth|usdt|tether|usdc|doge|dogecoin|solana|sol|cash|card|paypal|revolut|bank|monthly|yearly|annually|annual|weekly|upfront|subscription|sub|subs)\b/i;
 
 export function looksLikeWalletRequest(text) {
   const s = String(text || '');
   if (s.length > 200) return false;
   if (WHERE_TO_SEND.test(s) || WHAT_ACCEPTED.test(s)) return true;
   // "Can I pay in Bitcoin?", "do you take BTC" — a coin or money word in a
-  // can-I-pay shape.
-  if (HOW_TO_PAY.test(s) && MONEY_WORD.test(s)) return true;
+  // can-I-pay shape. The two halves have to be INDEPENDENT evidence, and
+  // "send" was in both: it is the verb in "can you send" and it counts as a
+  // money word, so "can you send me a guide", "can you send the Firestick
+  // instructions" and "Bot can you send iOS instructions" all came back
+  // with the crypto wallet address. Alarming, off-topic, and it makes the
+  // bot look like it is fishing for payments. So the money word has to be
+  // something OTHER than the verb that matched.
+  if (HOW_TO_PAY.test(s)) {
+    const rest = s.replace(/\b(?:pay|paying|send|accept|take)\b/gi, ' ');
+    if (MONEY_WORD.test(rest)) return true;
+  }
   // "my wallet app crashed" is a support question — it never asks for an
   // address. "whats the email address" is not about money.
   return ADDRESS_WORD.test(s) && MONEY_WORD.test(s);

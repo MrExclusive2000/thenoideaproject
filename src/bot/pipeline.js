@@ -20,6 +20,7 @@ import { looksLikeGuideRequest, findGuide, visibleGuides, mdToPlain, guideLeadIn
 import { looksLikeWalletRequest, walletMessage } from '../payments.js';
 import { looksLikeInviteRequest, buildInvite, INVITE_NO_GROUP, INVITE_NO_PERMISSION } from './invites.js';
 import { looksLikeCredentialDump, CREDENTIAL_WARNING } from './credentials.js';
+import { parseCodeRequest, codeMessage, whichCodeMessage } from './appcodes.js';
 import { looksLikeSportsQuestion, sportsGrounding, sportsEnabled } from '../sports.js';
 import { recallService, rememberService, forgetService } from '../service-memory.js';
 import {
@@ -1902,7 +1903,7 @@ function thanksClosesCase(st, text) {
 const ASIDE_OUTCOMES = new Set([
   'invite', 'wallet', 'guide', 'vod-request', 'capability', 'greeting',
   'help-ask', 'human-request', 'status', 'service-set', 'canned',
-  'credential-warning', 'smalltalk', 'offtopic', 'declined', 'service-declined',
+  'credential-warning', 'smalltalk', 'offtopic', 'declined', 'service-declined', 'app-code',
 ]);
 
 function noteAside(ctx, outcome) {
@@ -2031,6 +2032,28 @@ function alsoReportsSomethingNew(text) {
 }
 
 export const _alsoReportsSomethingNew = (t) => alsoReportsSomethingNew(t);
+
+// We just handed over a code, so a bare app name means "that one's code".
+// The window is short: an hour later "purple" is a colour again.
+const CODE_WINDOW_MS = 20 * 60 * 1000;
+const gaveCodeAt = new Map(); // chatId:userId -> ts
+
+function recentlyGaveCode(ctx) {
+  const at = gaveCodeAt.get(`${ctx.chat?.id}:${ctx.from?.id}`) || 0;
+  return Date.now() - at < CODE_WINDOW_MS;
+}
+
+function markGaveCode(ctx) {
+  gaveCodeAt.set(`${ctx.chat?.id}:${ctx.from?.id}`, Date.now());
+  if (gaveCodeAt.size > 1000) gaveCodeAt.delete(gaveCodeAt.keys().next().value);
+}
+
+export function _resetCodeMemory() { gaveCodeAt.clear(); }
+
+// Did the guide request name a device or a topic? "Send me the iOS
+// instructions" did; "can you send me a guide" did not, and only the second
+// one wants a menu.
+const NAMES_A_TOPIC = /\b(?:ios|iphone|ipad|apple|fire\s?stick|firestick|fire\s?tv|android|samsung|lg|smart\s?tv|sky\s?glass|purple|smarters|downloader|vpn|crypto|litecoin|ltc|bitcoin|btc|pay(?:ment)?|renew\w*|buffer\w*|login|log\s?in|epg|guide\s+(?:data|listings)|vod|pc|laptop|mac|windows)\b/i;
 
 // How the admin alert describes what just happened. A customer refusing to
 // troubleshoot and a customer announcing they are leaving need different
@@ -2330,6 +2353,26 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
     }
   }
 
+  // Downloader codes, from settings. A code is a stored fact with one right
+  // value, and a wrong one installs the wrong app — so it is sent by code or
+  // not at all, exactly like the wallet address below. Live, the Purple code
+  // sat in settings while the bot said "I'm not sure" five times running.
+  {
+    const want = parseCodeRequest(question, { recentlyGaveCode: recentlyGaveCode(ctx) });
+    if (want?.app) {
+      setLogSource(logId, 'app-code');
+      markGaveCode(ctx);
+      await ctx.api.sendMessage(ctx.chat.id, codeMessage(want.app), replyParams).catch(() => {});
+      return 'app-code';
+    }
+    if (want?.ambiguous) {
+      setLogSource(logId, 'app-code');
+      markGaveCode(ctx);
+      await ctx.api.sendMessage(ctx.chat.id, whichCodeMessage(want.apps), replyParams).catch(() => {});
+      return 'app-code';
+    }
+  }
+
   // "Where do I send it?" is answered from settings, never by the model. A
   // crypto address is the one value here where a single wrong character costs
   // the customer their money with no way back, so it is sent verbatim by code
@@ -2369,6 +2412,16 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         redactServiceUrls(withAdminContact(`📖 ${guide.title}\n${lead ? `\n${lead}\n` : ''}\n${mdToPlain(guide.body_md)}`)), replyParams);
       return 'guide';
     }
+    // They named something specific and no guide covers it. Asked "can you
+    // send iOS instructions", the bot offered a menu of Firestick, Android
+    // and crypto — there is no iOS guide — when the knowledge held an iOS
+    // entry all along. Showing somebody a menu that does not contain the
+    // thing they just named is worse than not having it, so a specific ask
+    // falls through to normal answering and the model answers it from the
+    // knowledge. The menu is for "send me a guide" with nothing named.
+    if (NAMES_A_TOPIC.test(question)) {
+      // fall through — do not return
+    } else {
     // Nothing stood out. A menu is a real answer; guessing the wrong guide is
     // not, and neither is telling them to go and look somewhere.
     const all = visibleGuides();
@@ -2378,6 +2431,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
       setLogSource(logId, 'guide');
       await ctx.api.sendMessage(ctx.chat.id, 'Which one do you need?', { ...replyParams, reply_markup: kb });
       return 'guide';
+    }
     }
   }
 
@@ -3446,7 +3500,12 @@ export async function handleGroupMessage(ctx) {
   // bed, not tried it today") — the notice asked "is it sorted?", so a reply
   // without still-broken phrasing leans yes: close softly, door left open.
   // (Clear resolutions got the warm close above; still-broken escalated.)
-  if (st?.fromAutoClose && isFollowUp && !looksLikeQuestion(text) && answersIsItSorted(text)) {
+  // A soft close is for somebody drifting away from a fixed problem, not for
+  // somebody walking off to find a human. "No I'm done I'll speak to admin"
+  // was answered with "👍 No problem — shout here if it starts playing up
+  // again" — cheerful, and the exact opposite of what they asked for.
+  if (st?.fromAutoClose && isFollowUp && !looksLikeQuestion(text) && answersIsItSorted(text)
+      && !looksLikeHumanRequest(text) && !looksLikeFrustration(text)) {
     setLogSource(logId, 'soft-close');
     const msg = await spoken('bot.problemSoftCloseMessage', text);
     if (msg) await ctx.api.sendMessage(ctx.chat.id, msg, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
@@ -3741,7 +3800,12 @@ async function handleDmProblemReply(ctx, text, logId) {
   // message hours later: the re-armed state used to live indefinitely and
   // kept claiming unrelated one-word replies.
   const softCloseFresh = Date.now() - (st.at || 0) < problemWindowMs();
-  if (st.fromAutoClose && softCloseFresh && !looksLikeQuestion(text) && !isProblem && answersIsItSorted(text)) {
+  // A soft close is for somebody drifting away from a fixed problem, not for
+  // somebody walking off to find a human. "No I'm done I'll speak to admin"
+  // was answered with "👍 No problem — shout here if it starts playing up
+  // again" — cheerful, and the exact opposite of what they asked for.
+  if (st.fromAutoClose && softCloseFresh && !looksLikeQuestion(text) && !isProblem && answersIsItSorted(text)
+      && !looksLikeHumanRequest(text) && !looksLikeFrustration(text)) {
     setLogSource(logId, 'soft-close');
     const msg = await spoken('bot.problemSoftCloseMessage', text);
     if (msg) await send(msg);

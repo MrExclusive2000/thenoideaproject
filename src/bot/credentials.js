@@ -15,11 +15,15 @@ import { db } from '../db/db.js';
 //   2. A username we actually hold, followed by one more token — the exact
 //      shape of the message in the transcript ("Georgewilliam1 WEe7NdeF").
 const LABELLED =
-  /\b(?:pass(?:word|wd)?|pwd|login|log-?in|credentials)\b\s*(?:is|was|=|:|-)?\s*([^\s,;]{4,})/i;
+  /\b(?:pass(?:word|wd)?|pwd|login|log-?in|credentials)\b[ \t]*(?:is|was|=|:|-)?[ \t]*([^\s,;.!?]{4,})/i;
 
 // "username and password are X and Y" / "user: X pass: Y"
+// The gaps must not cross a sentence boundary. "I have a new user name and
+// it password. Using iPhone" matched: username … password … "." … " " …
+// "Using" — and a customer who had sent nothing of the kind was told off in
+// front of the group for sharing their password.
 const PAIRED =
-  /\b(?:user(?:name)?|login)\b[^\n]{0,20}\b(?:pass(?:word|wd)?|pwd)\b[^\n]{0,10}[:=\s]([^\s,;]{4,})/i;
+  /\b(?:user(?:name)?|login)\b[^\n.!?]{0,20}\b(?:pass(?:word|wd)?|pwd)\b[^\n.!?]{0,10}[:=\s]([^\s,;.!?]{4,})/i;
 
 // The captured value has to look like a credential rather than the next
 // English word in the sentence. This was the whole bug: the patterns above
@@ -41,7 +45,10 @@ function looksLikeAValue(raw) {
   if (/^(?:is|was|are|were|been|the|my|your|our|their|not|isnt|isn'?t|dont|don'?t|doesnt|doesn'?t|wont|won'?t|cant|can'?t|didnt|didn'?t|and|but|or|for|with|from|into|onto|that|this|they|them|it|its|it'?s|again|before|after|now|then|today|tonight|yesterday|tomorrow|please|plz|details?|detail|info|information|page|screen|button|box|form|field|error|issue|issues|problem|problems|broken|working|work|works|worked|failed|failing|fails|invalid|incorrect|wrong|correct|right|fine|okay|still|just|only|also|very|really|here|there|back|out|down|keeps|keep|says|saying|wouldnt|wouldn'?t|changed|change|reset|forgot|forgotten|lost|need|needs|want|help|same|anymore|expired|accepted|rejected|refused)$/i.test(v)) {
     return false;
   }
-  return /\d/.test(v) || /[a-z]/.test(v) && /[A-Z]/.test(v) || /[^A-Za-z0-9]/.test(v);
+  // Mixed case has to be INTERNAL. "Using" is a capitalised ordinary word at
+  // the start of a sentence; "WEe7NdeF" and "myPass" are not.
+  const internalCaps = /[a-z]/.test(v) && /[A-Z]/.test(v.slice(1));
+  return /\d/.test(v) || internalCaps || /[^A-Za-z0-9]/.test(v);
 }
 
 function knownUsernames() {

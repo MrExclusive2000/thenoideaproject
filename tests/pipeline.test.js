@@ -1614,6 +1614,90 @@ test('a film ending in -on is not chopped in half', async () => {
   }
 });
 
+test('"can you send me a guide" does not return a crypto address', async () => {
+  // Found while testing something else, and the worst of the batch: "Bot can
+  // you send iOS instructions" came back with the Litecoin wallet address.
+  // "send" sat in BOTH halves of the test — the verb in "can you send" and
+  // the money word that was supposed to be independent evidence — so any
+  // "can you send X" read as asking how to pay. Alarming, off-topic, and it
+  // makes the bot look like it is fishing for payments.
+  const { looksLikeWalletRequest } = await import('../src/payments.js');
+  for (const t of [
+    'Bot can you send iOS instructions',
+    'can you send me a guide',
+    'can you send the firestick instructions',
+    'can you send me the install steps',
+    'could you send the link',
+    'can you send my username',
+  ]) assert.equal(looksLikeWalletRequest(t), false, `not about money: ${t}`);
+
+  // Everything that IS about money still is — including the billing
+  // phrasings whose only money word was the verb itself.
+  for (const t of [
+    'can i pay in bitcoin', 'do you take paypal', 'can i send ltc', 'how do i pay',
+    'where do i send the money', 'whats the ltc address', 'send me the address',
+    'do you accept monero', 'can we pay monthly', 'can i pay yearly',
+  ]) assert.equal(looksLikeWalletRequest(t), true, `about money: ${t}`);
+});
+
+test('an app code is answered from settings, not guessed at', async () => {
+  // Live: "I need install codes" got the Sky Glass code from a knowledge
+  // entry, then FIVE refusals in a row — "Purple", "I want purple code",
+  // "The purple app or THM App", "The app which isn't Sky glass", "3675005
+  // app?" — all answered "I'm not totally sure on that one". The Purple code
+  // was in apps.purpleCode the whole time. It only ever reached a customer
+  // if retrieval happened to surface an entry carrying the {purple}
+  // placeholder, and for Purple there wasn't one. The model cannot fill the
+  // gap either: an invented install code is suppressed by the guardrails,
+  // which is why the replies came out as "I'm not sure".
+  const { setSetting } = await import('../src/settings.js');
+  setSetting('apps.purpleCode', '3775005');
+  setSetting('apps.skyGlassCode', '3793766');
+  const { parseCodeRequest } = await import('../src/bot/appcodes.js');
+
+  assert.equal(parseCodeRequest('Purple')?.app?.code, '3775005', 'a bare app name is the ask');
+  assert.equal(parseCodeRequest('I want purple code')?.app?.code, '3775005');
+  assert.equal(parseCodeRequest('The purple app or THM App')?.app?.code, '3775005');
+  assert.equal(parseCodeRequest('whats the sky glass code')?.app?.code, '3793766');
+  assert.ok(parseCodeRequest('I need install codes')?.ambiguous, 'no app named — ask which');
+
+  // The generic install question belongs to the knowledge, which answers it
+  // well; this must not hijack it.
+  for (const t of [
+    'need the install code for firestick downloader m8',
+    'how do i install on firestick',
+    'whats the downloader code for android',
+  ]) assert.equal(parseCodeRequest(t), null, `generic install question: ${t}`);
+
+  // And a fault that happens to name the app is not a code request.
+  for (const t of ['my purple app wont open', 'the purple screen is frozen']) {
+    assert.equal(parseCodeRequest(t), null, t);
+  }
+});
+
+test('a password warning does not fire across a full stop', async () => {
+  // "I have a new user name and it password. Using iPhone" was read as a
+  // credential dump, in the group, in front of everybody. Two flaws: the
+  // paired pattern walked across the full stop to reach "Using", and my own
+  // value test counted "Using" as mixed case because of the capital a
+  // sentence starts with.
+  const { looksLikeCredentialDump } = await import('../src/bot/credentials.js');
+  for (const t of [
+    'I have a new user name and it password. Using iPhone',
+    'I have a new username and password. Using iPhone',
+    'my username and password. Works fine now',
+    'whats my username and password. Lost them',
+  ]) assert.equal(looksLikeCredentialDump(t), false, `no password in it: ${t}`);
+
+  for (const t of [
+    'password is Summer2024',
+    'user: THM4471 pass: Summer2024',
+    'username THM4471 password Summer2024',
+    'username THM4471 password myPassWord',
+    'password Winter2025!',
+  ]) assert.equal(looksLikeCredentialDump(t), true, `a real one: ${t}`);
+});
+
 test('"my sub ran out" is money on the table, not banter', async () => {
   // Only the full word "subscription" was service vocabulary, so the sentence
   // every renewal starts with read as chat and got "Ha, that one's a bit
@@ -3373,7 +3457,16 @@ test('an in-scope question is never called off-topic just because the AI is down
   await withDeadAi(async () => {
     setSetting('bot.offtopicBehavior', 'redirect');
     setSetting('bot.offtopicMessage', 'BRUSH-OFF LINE');
-    const ctx = fakeCtx('I need the sky glass code', { userId: 98001 });
+    // A code is now answered from settings, so with the AI down the customer
+    // gets the actual code rather than "I can't reach my AI" — which is the
+    // whole reason stored facts are answered by code.
+    const coded = fakeCtx('I need the sky glass code', { userId: 98001 });
+    assert.equal(await answer(coded, coded.message.text, { isDm: true, logId: null }), 'app-code');
+    assert.match(coded.sent[0].msg, /Downloader code: \d+/, 'the real code, with no model involved');
+
+    // The point of the test stands for anything the model WOULD have had to
+    // answer: a scope verdict is never the model's to give when it is down.
+    const ctx = fakeCtx('can i use it on a projector', { userId: 98002 });
     const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
     assert.equal(result, 'ai-down');
     assert.doesNotMatch(ctx.sent[0].msg, /BRUSH-OFF/, 'the scope verdict was never the model\'s to give');
