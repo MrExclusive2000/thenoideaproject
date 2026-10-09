@@ -1895,6 +1895,41 @@ function caseNumberFor(ctx, st) {
     ?? null;
 }
 
+// The whole case, in one message, when the customer names the service their
+// escalated fault is on.
+//
+// What the admin used to get was "↳ @someone says the escalated problem is
+// on: "Exclusive"" — no case number, no symptom, no way to act on it, and
+// arriving separately from the batched alert that held the detail, so the
+// two had to be matched up by hand. A notification you have to go and
+// research is not a notification.
+function escalatedCaseNote(ctx, st, service, { isDm }) {
+  const who = ctx.from?.username
+    ? `@${ctx.from.username}`
+    : [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(' ') || `id ${ctx.from?.id}`;
+  const ref = caseNumberFor(ctx, st);
+  // The state holds what they FIRST said, which is the symptom. The report
+  // row holds whatever message escalated it, which is usually "I've done all
+  // that" — true, and useless on its own.
+  const row = ref
+    ? db.prepare('SELECT text, topic FROM problem_reports WHERE id = ?').get(ref)
+    : null;
+  const symptom = String(st?.firstText || row?.text || '').trim();
+  const topic = st?.topic || row?.topic || null;
+  const rounds = Number(st?.fixRounds || 1);
+
+  const lines = [
+    `🛠 Escalated case${ref ? ` #${ref}` : ''} — ${who}`,
+    `Service: ${service}`,
+  ];
+  if (symptom) lines.push(`Problem: "${symptom.slice(0, 300)}"`);
+  if (topic) lines.push(`Topic: ${topic}`);
+  lines.push(`Tried: ${rounds} round${rounds === 1 ? '' : 's'} of fixes, still not working`);
+  lines.push(`Where: ${isDm ? 'a DM' : (ctx.chat?.title || 'the group')}`);
+  if (ref) lines.push(`\nReply "#${ref} fixed" to close it, or /case ${ref} for the full thread.`);
+  return lines.join('\n');
+}
+
 function withCaseNumber(text, caseId, { append = false } = {}) {
   const body = String(text || '');
   // No case to quote: drop the placeholder rather than printing "#{case}".
@@ -3057,7 +3092,7 @@ export async function handleGroupMessage(ctx) {
       .run(info, ctx.from.id);
     setLogSource(logId, 'service-info');
     if (getSetting('reports.alertProblems')) {
-      hub.notifyAdmins(`↳ @${ctx.from?.username || ctx.from?.first_name} says the escalated problem is on: "${info}"`).catch(() => {});
+      hub.notifyAdmins(escalatedCaseNote(ctx, st, info, { isDm: false })).catch(() => {});
     }
     await ctx.api.sendMessage(ctx.chat.id, '👍 Passed that along to the team.', { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
     return;
@@ -3329,7 +3364,7 @@ async function handleDmProblemReply(ctx, text, logId) {
       .run(info, ctx.from.id);
     setLogSource(logId, 'service-info');
     if (getSetting('reports.alertProblems')) {
-      hub.notifyAdmins(`↳ @${ctx.from?.username || ctx.from?.first_name} says the escalated problem is on: "${info}"`).catch(() => {});
+      hub.notifyAdmins(escalatedCaseNote(ctx, st, info, { isDm: true })).catch(() => {});
     }
     await send('👍 Passed that along to the team.');
     return true;

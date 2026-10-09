@@ -327,6 +327,15 @@ export function extractProblemTopic(text) {
   // Specific symptoms win; the generic catch-alls ("keep getting", "wont
   // play") only label a report when nothing better is in the text — they
   // produced junk like "keep getting" as the topic for a playback error.
+  // A login failure had no label, so an auth outage — the one failure that
+  // hits everybody at once and looks identical in every report — could not
+  // group. "invalid login ×7" is the clearest signal the panel can show.
+  // Checked first: "invalid login" also contains "error"-ish words in some
+  // phrasings, and the specific label is the useful one.
+  const auth = t.match(
+    /\b(invalid (?:login|log ?in|user|username|password|credentials|subscription)|login (?:failed|error|expired)|unauthori[sz]ed|authentication (?:failed|error)|max(?:imum)? connections?|too many (?:devices|connections))\b/
+  );
+  if (auth) return auth[1].replace(/\s+/g, ' ');
   const specific = t.match(
     /\b(buffer\w*|freez\w*|frozen|lag\w*|stutter\w*|glitch\w*|crash\w*|black ?screen|playback error|no (?:sound|audio|picture|video)|wrong (?:version|copy|language|audio)|missing episode|offline|error|not work\w*)\b/
   );

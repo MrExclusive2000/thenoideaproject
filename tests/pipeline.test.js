@@ -1325,7 +1325,19 @@ test('escalation asks which service; the answer is saved and forwarded to the ad
   const row = db.prepare('SELECT service FROM problem_reports WHERE tg_user_id = 95001 AND escalated = 1').get();
   assert.equal(row.service, 'Exclusive', 'service stored on the report');
   await new Promise((r) => setTimeout(r, 10));
-  assert.ok(adminDms.some((d) => /escalated problem is on: "Exclusive"/.test(d.text)), 'admin got the service info');
+  // The admin used to get "↳ @someone says the escalated problem is on:
+  // "Exclusive"" — no case number, no symptom, nothing to act on, and it
+  // arrived separately from the batched alert that held the detail, so the
+  // two had to be matched up by hand. The whole case goes in one message.
+  const note = adminDms.map((d) => d.text).find((t) => /Escalated case/.test(t));
+  assert.ok(note, 'admin got the case');
+  assert.match(note, /Escalated case #\d+/, 'with its number');
+  assert.match(note, /@tester/, 'and who it is from');
+  assert.match(note, /Service: Exclusive/, 'and which service');
+  assert.match(note, /Problem: "buffering on bbc one"/, 'and what they actually said');
+  assert.match(note, /Tried: \d+ rounds? of fixes/, 'and how far it got before escalating');
+  assert.match(note, /Where: Test Group/, 'and where it came from');
+  assert.match(note, /Reply "#\d+ fixed"/, 'and how to close it without opening the panel');
 
   // Captured exactly once — a later "cheers" is a warm acknowledgment, not
   // service info, not a resolution of the escalated report.
