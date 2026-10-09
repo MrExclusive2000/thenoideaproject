@@ -1303,6 +1303,44 @@ test('a follow-up round that has nothing left sends ONE message, not two', async
   _resetProblemTriage();
 });
 
+test('a Firestick is never told to plug in an ethernet cable', async () => {
+  // A Fire TV Stick has no ethernet port — the whole stick range is HDMI and
+  // WiFi only, and wired needs Amazon's Ethernet Adapter in the micro-USB
+  // power socket. "Use 5GHz WiFi or wired ethernet if you can" was in the
+  // seeded buffering answer, in the second-round prompt, and in whatever the
+  // model reached for, so a Firestick customer was being sent to look for a
+  // socket their device does not have.
+  const { namesFirestick } = await import('../src/bot/helpers.js');
+  const { fixEthernetForStick } = await import('../src/ai/guardrails.js');
+
+  for (const t of ['my firestick keeps buffering', 'fire stick 4k wont load', 'on the fire tv stick']) {
+    assert.equal(namesFirestick(t), true, t);
+  }
+  // The Cube HAS a port, and anything else that might is left alone.
+  for (const t of ['my fire tv cube keeps buffering', 'on my android box', 'firestick and a smart tv', 'my phone']) {
+    assert.equal(namesFirestick(t), false, `not a bare stick: ${t}`);
+  }
+
+  // The clause goes, the good half of the sentence stays, and no comma is
+  // left hanging where it was cut out.
+  const mixed = fixEthernetForStick('Switch the box to the 5GHz band if your router has one, or run an ethernet cable to it.');
+  assert.match(mixed, /Switch the box to the 5GHz band if your router has one\./);
+  assert.doesNotMatch(mixed, /ethernet cable/);
+  assert.doesNotMatch(mixed, /,\./, 'no comma left dangling');
+  assert.match(mixed, /no ethernet port/, 'and it says why, because they ask anyway');
+
+  assert.match(
+    fixEthernetForStick('Use 5GHz WiFi or wired ethernet if you can — 2.4GHz struggles with HD streams.'),
+    /^Use 5GHz WiFi — 2\.4GHz struggles with HD streams\./);
+
+  // Advice that was ONLY the wrong thing leaves nothing, which is the
+  // caller's signal to suppress rather than send a fragment.
+  assert.equal(fixEthernetForStick('Try a wired ethernet connection instead of WiFi.'), '');
+  // Untouched when there is no ethernet in it.
+  const fine = 'Clear the cache and reopen the app.';
+  assert.equal(fixEthernetForStick(fine), fine);
+});
+
 test('"my sub ran out" is money on the table, not banter', async () => {
   // Only the full word "subscription" was service vocabulary, so the sentence
   // every renewal starts with read as chat and got "Ha, that one's a bit

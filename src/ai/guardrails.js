@@ -409,3 +409,45 @@ export function stripClaimedFixes(reply, tried, offers) {
   // returning empty is how the caller is told so.
   return offersNoNewHelp(out) ? '' : out;
 }
+
+// Wired-ethernet advice given to a Fire TV Stick, which has no ethernet
+// port. The clause is cut rather than the whole sentence, because the other
+// half of it ("switch to the 5GHz band") is good advice that the customer
+// should still get — and a short correction follows, since "can I plug it
+// in?" is a question they ask anyway.
+const ETHERNET_CLAUSE =
+  /\s*(?:,|;|—|–|\.|\bor\b|\band\b|\bthen\b)?\s*(?:you\s+(?:can|could|should)\s+)?(?:try\s+|use\s+|run\s+|plug\s+in\s+|connect\s+(?:it\s+)?(?:with|via|using|to)\s+|switch\s+to\s+|go\s+)?(?:a\s+|an\s+|the\s+)?(?:wired\s+)?(?:ethernet|hard-?wired?|hard\s?wire|lan)\s*(?:cable|connection|port|adapter)?\s*(?:to\s+(?:it|the\s+\w+)|into\s+(?:it|the\s+\w+)|instead|if\s+you\s+can)?/gi;
+
+const MENTIONS_ETHERNET = /\b(?:ethernet|hard-?wired?|hard\s?wire|lan\s+cable)\b/i;
+
+export const FIRESTICK_ETHERNET_NOTE =
+  "(A Firestick has no ethernet port, by the way — wired only works with Amazon's Ethernet Adapter, which plugs into the power socket on the stick.)";
+
+export function fixEthernetForStick(reply) {
+  const text = String(reply || '').trim();
+  if (!text || !MENTIONS_ETHERNET.test(text)) return text;
+  const parts = text.split(/(?<=[.!?])\s+|\n+/).map((p) => p.trim()).filter(Boolean);
+  const out = [];
+  for (const part of parts) {
+    if (!MENTIONS_ETHERNET.test(part)) { out.push(part); continue; }
+    // Whatever is left has to still be a sentence worth sending. "Or run an
+    // ethernet cable to it." reduces to nothing, and a stray fragment is
+    // worse than a missing line — as is the comma the cut clause leaves
+    // behind ("switch to the 5GHz band if your router has one,.").
+    const cleaned = part
+      .replace(ETHERNET_CLAUSE, '')
+      .replace(/\s{2,}/g, ' ')
+      .replace(/\s+([.,;!?])/g, '$1')
+      .replace(/[,;]+(?=\s*(?:[.!?]|$))/g, '')
+      .replace(/^[,;—–\s]+/, '')
+      .trim()
+      .replace(/[,;—–]+$/, '')
+      .trim();
+    if (cleaned.length >= 12 && !MENTIONS_ETHERNET.test(cleaned)) {
+      out.push(/[.!?]$/.test(cleaned) ? cleaned : `${cleaned}.`);
+    }
+  }
+  const body = out.join(' ').replace(/\s{2,}/g, ' ').trim();
+  if (!body) return '';
+  return `${body}\n\n${FIRESTICK_ETHERNET_NOTE}`;
+}

@@ -461,3 +461,23 @@ export const FIX_LABELS = {
   'vpn': 'turning off the VPN',
   'update': 'updating the app',
 };
+
+// A Fire TV Stick has no ethernet port. Every stick in the range — Lite, 4K,
+// 4K Max — is HDMI and WiFi only; wired needs Amazon's Ethernet Adapter,
+// which goes into the micro-USB power port and is a separate purchase. The
+// Fire TV CUBE is the exception in the family: it has a port built in.
+//
+// This matters because "use 5GHz WiFi or run an ethernet cable to it" is
+// standard buffering advice, it was in the seeded knowledge, in the
+// second-round prompt, and it sends a Firestick customer hunting for a
+// socket that does not exist on their device.
+const FIRESTICK = /\bfire\s?stick\b|\bfirestick\b|\bfire\s?tv\s?stick\b|\bfire\s?stick\s?(?:lite|4k|max)\b|\bffstick\b/i;
+const ETHERNET_CAPABLE = /\bfire\s?tv\s?cube\b|\bcube\b|\bnvidia\s?shield\b|\bshield\s?tv\b|\bandroid\s?box\b|\bmag\s?box\b|\bformuler\b|\bsmart\s?tv\b|\bsamsung\b|\blg\b|\bsky\s?glass\b|\bppc\b|\bpc\b|\blaptop\b/i;
+
+export function namesFirestick(text) {
+  const t = String(text || '');
+  if (!FIRESTICK.test(t)) return false;
+  // "I've got a Firestick and a Cube" — the advice is fine for one of them,
+  // so leave it alone rather than strip something that may be right.
+  return !ETHERNET_CAPABLE.test(t);
+}

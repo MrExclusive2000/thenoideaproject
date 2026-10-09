@@ -9,7 +9,7 @@ import {
   sendChunked, logMessage, setLogSource, recordUnanswered, chatAllowed,
   isLikelyInScope, hasScopeSignal, recordProblem, extractProblemTopic, isAdminUser,
   isContentIssue, looksLikeLiveIssue, looksLikeLoginIssue, wrongCopyIssue, withAdminContact, linkedCustomer,
-  claimedFixes, FIX_LABELS,
+  claimedFixes, FIX_LABELS, namesFirestick,
 } from './helpers.js';
 import { alertAdmins } from './reports.js';
 import { embed, retrieveFaqs, embeddingsProven } from '../ai/embeddings.js';
@@ -2587,6 +2587,12 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
           // not just this message. A claim made in message one has to still
           // count in message six, or round four cheerfully suggests it.
           const triedSoFar = rememberTried(ctx.from?.id, question, getProblemState(ctx.from?.id));
+          // Which device, read from this message AND from the case — they
+          // say "firestick" once, in message two, and it has to still be
+          // true in round four.
+          const onFirestick = namesFirestick(question)
+            || namesFirestick(getProblemState(ctx.from?.id)?.firstText || '')
+            || history.some((h) => h.role === 'user' && namesFirestick(h.content));
 
           // One embedding per message, shared by the cache lookup and FAQ
           // retrieval below.
@@ -2672,6 +2678,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
                 knowledgeFaqs: retrieved.length ? retrieved.map((r) => r.faq) : null,
                 alreadyTried,
                 tried: triedSoFar,
+                firestick: onFirestick,
                 sports,
               });
             } catch (err) {

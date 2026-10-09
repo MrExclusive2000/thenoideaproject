@@ -5,7 +5,7 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 28;
+const SEED_VERSION = 29;
 
 export const STARTER_FAQS = [
   {
@@ -83,7 +83,7 @@ export const STARTER_FAQS = [
   },
   {
     question: 'The app keeps buffering, freezing or stuttering — how do I fix it?',
-    answer: 'Try these in order — they fix most buffering:\n1. Restart the app and your device.\n2. Restart your router.\n3. Clear the app cache (Settings > Applications > Manage Installed Applications > the app > Clear cache).\n4. Use 5GHz WiFi or wired ethernet if you can — 2.4GHz struggles with HD streams.\n5. Switch to a backup app (XC or Smarters) with the same login — one app often runs better than another.\n6. Try a lower quality stream or a different link/server for the same channel.\n7. Run a speed test — HD needs about 10 Mbps, 4K about 25 Mbps.',
+    answer: 'Try these in order — they fix most buffering:\n1. Restart the app and your device.\n2. Restart your router.\n3. Clear the app cache (Settings > Applications > Manage Installed Applications > the app > Clear cache).\n4. Use 5GHz WiFi if you can — 2.4GHz struggles with HD streams. (A Firestick has no ethernet port; wired needs Amazon’s Ethernet Adapter.)\n5. Switch to a backup app (XC or Smarters) with the same login — one app often runs better than another.\n6. Try a lower quality stream or a different link/server for the same channel.\n7. Run a speed test — HD needs about 10 Mbps, 4K about 25 Mbps.',
     keywords: 'buffering, buffer, freeze, freezing, stuck, loading, lag, stutter, spinning, slow',
   },
   {
@@ -133,7 +133,7 @@ export const STARTER_FAQS = [
   },
   {
     question: 'What internet speed do I need?',
-    answer: "HD streams want about 10 Mbps, 4K about 25 Mbps — most home connections are fine. What matters more:\n- Use 5GHz WiFi or wired ethernet if you can; 2.4GHz WiFi is the #1 cause of buffering.\n- Run a speed test ON the streaming device, not your phone.\n- If your speed is fine but streams still stutter, try the buffering fixes — ask me about buffering.",
+    answer: "HD streams want about 10 Mbps, 4K about 25 Mbps — most home connections are fine. What matters more:\n- Use 5GHz WiFi if you can; 2.4GHz WiFi is the #1 cause of buffering. (A Firestick is WiFi only — wired needs Amazon’s Ethernet Adapter.)\n- Run a speed test ON the streaming device, not your phone.\n- If your speed is fine but streams still stutter, try the buffering fixes — ask me about buffering.",
     keywords: 'speed, mbps, internet, broadband, bandwidth, fast, slow, connection, wired',
   },
   {
@@ -354,6 +354,15 @@ We aim to provide the best support possible and are always happy to help where w
 // Earlier default texts, kept so the upgrade can tell "still the default"
 // apart from "admin edited this" — only untouched entries are upgraded.
 // Values are arrays: one entry per previous version of that answer.
+// The Firestick has no ethernet port, so two answers that told people to
+// run a cable to one were corrected. Kept here so an install still
+// holding the old wording is refreshed, and one the admin has edited is
+// left exactly as they wrote it.
+const V32_BUFFERING =
+  'Try these in order — they fix most buffering:\n1. Restart the app and your device.\n2. Restart your router.\n3. Clear the app cache (Settings > Applications > Manage Installed Applications > the app > Clear cache).\n4. Use 5GHz WiFi or wired ethernet if you can — 2.4GHz struggles with HD streams.\n5. Switch to a backup app (XC or Smarters) with the same login — one app often runs better than another.\n6. Try a lower quality stream or a different link/server for the same channel.\n7. Run a speed test — HD needs about 10 Mbps, 4K about 25 Mbps.';
+const V32_SPEED =
+  "HD streams want about 10 Mbps, 4K about 25 Mbps — most home connections are fine. What matters more:\n- Use 5GHz WiFi or wired ethernet if you can; 2.4GHz WiFi is the #1 cause of buffering.\n- Run a speed test ON the streaming device, not your phone.\n- If your speed is fine but streams still stutter, try the buffering fixes — ask me about buffering.";
+
 const V3_BUFFERING =
   'Try these in order — they fix most buffering:\n1. Restart the app and your device.\n2. Restart your router.\n3. Clear the app cache (Settings > Applications > Manage Installed Applications > the app > Clear cache).\n4. Use 5GHz WiFi or wired ethernet if you can — 2.4GHz struggles with HD streams.\n5. Switch to a backup app (XC or Smarters) with the same login — one app often runs better than another.\n6. Try a lower quality stream or a different link/server for the same channel.\n7. Run a speed test — HD needs about 10 Mbps, 4K about 25 Mbps.\nStill buffering after all that? Tell us the channel and the time it happened.';
 const V3_CHANNEL =
@@ -460,8 +469,9 @@ const V27_CRYPTO =
 function previousDefaults(question) {
   const out = [];
   if (V1_ANSWERS[question]) out.push(V1_ANSWERS[question]);
-  if (question === 'The app keeps buffering, freezing or stuttering — how do I fix it?') out.push(V3_BUFFERING);
+  if (question === 'The app keeps buffering, freezing or stuttering — how do I fix it?') out.push(V3_BUFFERING, V32_BUFFERING);
   if (question === "A channel or stream isn't working — what do I do?") out.push(V3_CHANNEL);
+  if (question === 'What internet speed do I need?') out.push(V32_SPEED);
   if (question === "The app says my login is wrong or my account doesn't work") out.push(V2_LOGIN);
   if (question === 'How do I install the apps?') out.push(V10_INSTALL_ANY, V11_INSTALL_ANY, V21_INSTALL_ANY);
   if (question === 'How do I install the app on my Firestick?') out.push(V21_FIRESTICK, V26_FIRESTICK);

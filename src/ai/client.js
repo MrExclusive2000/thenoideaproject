@@ -4,7 +4,7 @@ import { scoreFaq, tokens } from '../faq/matcher.js';
 import { scoreGuide } from '../guides.js';
 import { redactWalletAddresses } from '../payments.js';
 import { circuitOpen, circuitError, recordFailure, recordSuccess } from './breaker.js';
-import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, echoesInstructions, stripPrematureHandoff, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail, asksForCredentials, redactCredentialUrls, inventsLink, invensSportsResult, stripWrongLoginAdvice, stripClaimedFixes } from './guardrails.js';
+import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, echoesInstructions, stripPrematureHandoff, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail, asksForCredentials, redactCredentialUrls, inventsLink, invensSportsResult, stripWrongLoginAdvice, stripClaimedFixes, fixEthernetForStick } from './guardrails.js';
 import { offersClaimedFix, FIX_LABELS } from '../bot/helpers.js';
 
 const usageStmt = db.prepare(
@@ -487,7 +487,7 @@ export function _aiQueueState() {
 // `smallTalk`: the caller is spending the user's one off-topic free pass —
 // permit ONE brief friendly answer to an off-topic message. Replies that are
 // (or end as) a question are suppressed: banter must never fish for more chat.
-export async function askAi(question, { history = [], assumeOnTopic = false, smallTalk = false, playback = null, grounding = null, secondRound = false, knowledgeFaqs = null, knownOutage = false, channels = null, service = null, alreadyTried = false, sports = null, tried = null } = {}) {
+export async function askAi(question, { history = [], assumeOnTopic = false, smallTalk = false, playback = null, grounding = null, secondRound = false, knowledgeFaqs = null, knownOutage = false, channels = null, service = null, alreadyTried = false, sports = null, tried = null, firestick = false } = {}) {
   if (!getSetting('ai.enabled')) return null;
   if (aiBudgetExceeded()) {
     const err = new Error('Daily AI budget reached');
@@ -568,7 +568,7 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
     ...(secondRound
       ? [{
           role: 'system',
-          content: 'This is a SECOND round of troubleshooting — the first-round fixes did not help. Suggest only DIFFERENT next steps drawn from the knowledge (a different link/stream, the backup app with the same login, clearing the app cache, reinstalling the app, switching off a VPN, wired ethernet). Do not repeat first-round steps, and do not pad with generic internet advice (WiFi bands, router placement, ISP calls) the knowledge does not mention.',
+          content: 'This is a SECOND round of troubleshooting — the first-round fixes did not help. Suggest only DIFFERENT next steps drawn from the knowledge (a different link/stream, the backup app with the same login, clearing the app cache, reinstalling the app, switching off a VPN, moving to the 5GHz band). Do not repeat first-round steps, and do not pad with generic internet advice (router placement, ISP calls) the knowledge does not mention.',
         }]
       : []),
     ...(grounding
@@ -587,6 +587,12 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
       ? [{
           role: 'system',
           content: `This customer has ALREADY done the following, and said so: ${tried.map((k) => FIX_LABELS[k] || k).join('; ')}. Do not suggest any of it again, in any wording — they have told you once and being told to do it anyway is what makes someone give up on a service. Go to something they have not tried. If you genuinely have nothing left that they have not already done, say so plainly in one line and nothing else; the system will hand them to a person.`,
+        }]
+      : []),
+    ...(firestick
+      ? [{
+          role: 'system',
+          content: "This customer is on a Fire TV Stick. It has NO ethernet port — the whole stick range is HDMI and WiFi only, and wired needs Amazon's Ethernet Adapter, bought separately, which goes into the micro-USB power socket. Never tell them to plug in, run or connect an ethernet cable: they will go looking for a socket their device does not have. For a connection problem on a stick the advice is the 5GHz band, moving the router nearer, or freeing up storage. (A Fire TV CUBE is the exception and does have a port — this rule is about the stick.)",
         }]
       : []),
     ...(playback === 'login'
@@ -670,6 +676,18 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
       return null;
     }
     reply = pruned;
+  }
+
+  // Wired ethernet on a device with no ethernet port. The clause is cut and
+  // the rest of the advice kept, because "switch to 5GHz, or run a cable" is
+  // half right and the half that is right is worth having.
+  if (firestick) {
+    const fixed = fixEthernetForStick(reply);
+    if (!fixed) {
+      console.error('AI guardrail: suppressed ethernet-only advice given to a Firestick');
+      return null;
+    }
+    reply = fixed;
   }
 
   // Advice they have already told us they tried. Same reasoning as the login
