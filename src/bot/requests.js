@@ -9,7 +9,11 @@ import { alertAdmins } from './reports.js';
 
 // Complaint/admin words that follow "request" but are NOT a VOD title —
 // "Request a refund", "request my money back", "request to cancel".
-const NOT_A_TITLE = /^(a |an |the |my |to |for )*\s*(refund|refunds|cancel|cancell?ed|cancell?ing|cancellation|money|payment|pay|callback|call ?back|help|support|assistance|password|login|log ?in|account|invoice|receipt|chargeback|renewal|renew|upgrade|change)\b/i;
+// "Got a problem here" matched the have-you-got-X pattern and was filed as a
+// request for a film called "a problem here" — a junk row on the panel and a
+// DM to the admin about a title that does not exist. Nobody has ever
+// requested a movie called "an issue".
+const NOT_A_TITLE = /^(a |an |the |my |to |for |some |any )*\s*(refund|refunds|cancel|cancell?ed|cancell?ing|cancellation|money|payment|pay|callback|call ?back|help|support|assistance|password|login|log ?in|account|invoice|receipt|chargeback|renewal|renew|upgrade|change|problem|problems|issue|issues|trouble|troubles|bother|fault|faults|question|questions|complaint|complaints|hassle|grief|difficulty)\b/i;
 
 export function parseVodRequest(text) {
   const extract = (msg) => {
@@ -28,7 +32,13 @@ export function parseVodRequest(text) {
 // a factual answer, and the model used to invent one ("it is available in our
 // VOD section"). Someone then goes looking for a show we may not carry. The
 // library knows; the model does not.
-const AVAILABILITY = /^\s*(?:(?:do|have)\s+(?:you|yous|u|ya|we)\s+(?:have|got|carry)|(?:is|are)\s+(?:there\s+)?|(?:got|have)\s+(?:you\s+)?(?:got\s+)?|(?:any\s+sign\s+of)|(?:where\s+(?:can|do)\s+i\s+(?:find|watch)))\s*(.{2,100}?)\s*(?:on(?:\s+(?:here|there|the\s+service|vod))?|available|in\s+(?:the\s+)?vod|on\s+demand|anywhere)?\s*[?!.]*\s*$/i;
+// The trailing "on here / available / in vod" is optional, and without word
+// boundaries it was matching the "on" INSIDE a word: "have you got
+// inception" came out as a request for "incepti". Every film ending in -on
+// was truncated — Napoleon, Babylon, Oblivion, Annihilation, Contagion,
+// Dominion — so the library lookup missed a title we carry, the customer
+// was told we did not have it, and a junk request went to the admin.
+const AVAILABILITY = /^\s*(?:(?:do|have)\s+(?:you|yous|u|ya|we)\s+(?:have|got|carry)|(?:is|are)\s+(?:there\s+)?|(?:got|have)\s+(?:you\s+)?(?:got\s+)?|(?:any\s+sign\s+of)|(?:where\s+(?:can|do)\s+i\s+(?:find|watch)))\s*(.{2,100}?)\s*(?:\bon\b(?:\s+(?:here|there|the\s+service|vod))?|\bavailable\b|\bin\s+(?:the\s+)?vod\b|\bon\s+demand\b|\banywhere\b)?\s*[?!.]*\s*$/i;
 
 // "Is big bang theory on exclusive" is a question about the VOD library that
 // happens to be shaped exactly like "is the boxing on tonight" — and it was

@@ -1116,12 +1116,22 @@ function looksLikeAcknowledgement(text) {
 // ask what's up, from code, so it still works with the AI unreachable.
 const HELP_WORDS = new Set([
   'help', 'helps', 'helping', 'assistance', 'assist', 'support', 'hand', 'advice',
+  // "I need help" was the ONLY phrasing that worked. "I'm having an issue",
+  // "I have a problem", "I've got an issue", "having trouble" and "got a
+  // problem here" all fell through to the model, which judged them
+  // off-topic — so the commonest opener in support got the banter pass and
+  // a steer telling them service stuff is where the bot shines. They had
+  // just said they had a service problem.
+  'issue', 'issues', 'problem', 'problems', 'trouble', 'troubles', 'bother',
+  'difficulty', 'difficulties', 'hassle', 'grief', 'bit',
 ]);
 // Everything allowed to surround the ask. A message with ANY word outside
 // these two sets has content of its own ("help me install purple") and
 // belongs to the model, not here.
 const HELP_FILLER = new Set([
   'i', 'im', 'a', 'an', 'the', 'some', 'any', 'bit', 'of', 'my', 'me', 'us', 'we',
+  'having', 'has', 'had', 'am', 'are', 'is', 'been', 'ive', 'theres', 'there',
+  'here', 'right', 'now', 'today', 'tonight', 'again', 'still', 'little',
   'need', 'needs', 'needed', 'want', 'wanted', 'require', 'required', 'looking',
   'for', 'with', 'please', 'pls', 'plz', 'can', 'could', 'would', 'you', 'u',
   'someone', 'somebody', 'anyone', 'any1', 'anybody', 'give', 'got', 'have',

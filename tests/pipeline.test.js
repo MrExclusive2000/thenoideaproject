@@ -1550,6 +1550,70 @@ test('a catch-all label never splits one fault into two cases', async () => {
   assert.notEqual(problemFamily('bbc1 keeps buffering'), problemFamily('now i cant log in at all'));
 });
 
+test('every way of saying "I need help" is an ask for help', async () => {
+  // "I need help" was the ONLY phrasing that worked. "I'm having an issue"
+  // fell through to the model, was judged off-topic, and got the banter pass
+  // plus a steer telling them service stuff is where the bot shines — to
+  // somebody who had just said they had a service problem.
+  const { _looksLikeHelpRequest: helpAsk } = await import('../src/bot/pipeline.js');
+  for (const t of [
+    "I'm having an issue",
+    'i have a problem',
+    'ive got an issue',
+    'having trouble',
+    'im having issues',
+    'got a problem here',
+    'need a hand',
+    'having a bit of bother',
+    'ive got a problem right now',
+  ]) assert.equal(helpAsk(t), true, t);
+
+  // Once they say WHAT is wrong it belongs to the model, not to a canned
+  // "what's up?" — that distinction is the whole point of the check.
+  for (const t of [
+    'i have an issue with the app',
+    'problem is bbc1 wont load',
+    'having trouble installing on firestick',
+    'my issue is oppenheimer wont play',
+    'help me install purple',
+  ]) assert.equal(helpAsk(t), false, `said what is wrong: ${t}`);
+});
+
+test('a film ending in -on is not chopped in half', async () => {
+  // The optional "on here / available / in vod" tail had no word boundary,
+  // so it matched the "on" INSIDE the title: "have you got inception" came
+  // out as a request for "incepti". Every film ending in -on was truncated,
+  // which means the library lookup missed a title we carry, the customer was
+  // told we did not have it, and a junk request went to the admin.
+  //
+  // Found because "got a problem here" was being filed as a request for a
+  // film called "a questi" — same cause, sillier symptom.
+  const { parseAvailabilityQuestion } = await import('../src/bot/requests.js');
+  for (const [q, want] of [
+    ['have you got inception', 'inception'],
+    ['do you have napoleon', 'napoleon'],
+    ['got annihilation', 'annihilation'],
+    ['have you got oblivion', 'oblivion'],
+    ['got babylon', 'babylon'],
+    ['have you got contagion', 'contagion'],
+  ]) assert.equal(String(parseAvailabilityQuestion(q)).toLowerCase(), want, q);
+
+  // The tail still strips when it IS a separate word.
+  for (const [q, want] of [
+    ['is the bear on there', 'the bear'],
+    ['have you got barbie on here', 'barbie'],
+    ['is oppenheimer available', 'oppenheimer'],
+    ['got dune in vod', 'dune'],
+    ['is severance on demand', 'severance'],
+  ]) assert.equal(String(parseAvailabilityQuestion(q)).toLowerCase(), want, q);
+
+  // And a complaint is never a title — that is a junk case and a DM about a
+  // film that does not exist.
+  for (const q of ['got a problem here', 'got a question', 'have you got an issue']) {
+    assert.equal(parseAvailabilityQuestion(q), null, q);
+  }
+});
+
 test('"my sub ran out" is money on the table, not banter', async () => {
   // Only the full word "subscription" was service vocabulary, so the sentence
   // every renewal starts with read as chat and got "Ha, that one's a bit
