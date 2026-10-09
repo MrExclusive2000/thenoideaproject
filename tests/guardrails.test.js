@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion } from '../src/ai/guardrails.js';
+import { cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, stripWrongLoginAdvice } from '../src/ai/guardrails.js';
 
 test('OFFTOPIC sentinel suppresses the reply', () => {
   assert.equal(cleanReply('OFFTOPIC'), null);
@@ -155,4 +155,30 @@ test('a trailing LIST of questions collapses down to the real content', () => {
 test('a pure clarifying question still passes through untouched', () => {
   const q = 'Which device are you on — Firestick or Android phone?';
   assert.equal(stripDeadEndQuestion(q), q);
+});
+
+test('advice that cannot fix an invalid login is cut out of the reply', () => {
+  // Live: "Sky glass is saying invalid login" came back with "try a different
+  // link or stream for the channel, or use the backup app (XC or Smarters)
+  // with the same login details." The backup app takes the SAME details and
+  // refuses them the same way; so does a different stream, a different
+  // server and a reinstall. The customer spends twenty minutes proving it
+  // and the real cause — a mistyped character or an expired line — is still
+  // sitting there unlooked at. The prompt says so too, but a prompt is not a
+  // control.
+  assert.equal(
+    stripWrongLoginAdvice('Try a different link or stream for the channel, or use the backup app (XC or Smarters) with the same login details.'),
+    '', 'nothing usable left — the caller hands them a human instead of a fragment');
+  assert.equal(stripWrongLoginAdvice('Clear the cache and reinstall the app, then log in again.'), '');
+
+  // The good half of a mixed answer survives.
+  assert.equal(
+    stripWrongLoginAdvice('Check the username and password are exactly as given, capitals included. If it still refuses, try a different link for the channel.'),
+    'Check the username and password are exactly as given, capitals included.');
+
+  // A correct answer is returned byte for byte — no reflowing, no trimming.
+  const right = 'Double-check the username and password for stray spaces or capitals. If it still refuses, your line may have expired and the admin can check it.';
+  assert.equal(stripWrongLoginAdvice(right), right);
+
+  assert.equal(stripWrongLoginAdvice(''), '');
 });

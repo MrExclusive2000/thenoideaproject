@@ -4,7 +4,7 @@ import { scoreFaq, tokens } from '../faq/matcher.js';
 import { scoreGuide } from '../guides.js';
 import { redactWalletAddresses } from '../payments.js';
 import { circuitOpen, circuitError, recordFailure, recordSuccess } from './breaker.js';
-import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, echoesInstructions, stripPrematureHandoff, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail, asksForCredentials, redactCredentialUrls, inventsLink, invensSportsResult } from './guardrails.js';
+import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, echoesInstructions, stripPrematureHandoff, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail, asksForCredentials, redactCredentialUrls, inventsLink, invensSportsResult, stripWrongLoginAdvice } from './guardrails.js';
 
 const usageStmt = db.prepare(
   'INSERT INTO ai_usage (day, calls, tokens) VALUES (?, 1, ?) ' +
@@ -582,6 +582,12 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
           content: "This is a CONTENT problem — a wrong, faulty or mislabeled copy of a specific title. Device or app fixes CANNOT change the file, so do NOT suggest restarting, cache clearing or EPG refreshes. Say the copy itself looks wrong, suggest checking the same title in the backup app in case its library differs, and — if they haven't given it yet — ask for the exact title (and season/episode) so it can be flagged to the team for repair or replacement.",
         }]
       : []),
+    ...(playback === 'login'
+      ? [{
+          role: 'system',
+          content: "This problem is a LOGIN or SUBSCRIPTION failure — invalid login, invalid user, unauthorised, locked out, too many connections. It is NOT a stream problem. Switching link or stream, changing server, clearing the cache and reinstalling will NOT fix it, and the backup app takes the SAME details and will refuse them the same way, so never send them to it for this. The real causes, in order: a character typed wrong (a capital, a stray space, 0 against O, 1 against l), the line having expired, or it being open on more devices at once than the package allows. Ask them to re-enter the details exactly as they were issued; if it still refuses, say the line itself needs checking and hand it to the admin. Never ask them to send you the password, and never repeat one back.",
+        }]
+      : []),
     ...(playback === 'live'
       ? [{
           role: 'system',
@@ -643,6 +649,21 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
   // still tells the customer something to do, so an answer whose whole point
   // IS the handoff keeps it.
   reply = stripPrematureHandoff(reply);
+
+  // An invalid login is not fixed by a different stream, the backup app, a
+  // cache clear or a reinstall — the backup app takes the same details and
+  // refuses them the same way. The prompt says so; a prompt is not a control,
+  // and the live reply to "Sky glass is saying invalid login" was exactly
+  // that advice. Cut the sentences that carry it, and if nothing actionable
+  // is left, let the caller's own handoff answer instead of a fragment.
+  if (playback === 'login') {
+    const pruned = stripWrongLoginAdvice(reply);
+    if (!pruned) {
+      console.error('AI guardrail: suppressed stream-switching advice for a login failure');
+      return null;
+    }
+    reply = pruned;
+  }
 
   // Asked "I want to invite my friend", the model replied "share your
   // username and password so I can create the link", got both, and handed

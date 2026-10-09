@@ -297,6 +297,19 @@ export function isContentIssue(text) {
   return /\b(episode|episodes|season|series|movie|movies|film|films|documentary|s\d{1,2}\s?e\d{1,3})\b/i.test(String(text)) || wrongCopyIssue(text);
 }
 
+// A LOGIN failure is not a playback problem and must not be answered like
+// one. Live, "Sky glass is saying invalid login" came back with "try a
+// different link or stream for the channel, or use the backup app (XC or
+// Smarters) with the same login details" — the generic live-stream playbook,
+// because nothing had told the model what kind of fault this was. The backup
+// app takes the SAME details and refuses them the same way, so that advice
+// sends the customer round a loop that cannot work while the real cause (a
+// mistyped character, or an expired line) goes unexamined.
+export function looksLikeLoginIssue(text) {
+  const t = String(text || '');
+  return /\binvalid\s+(?:login|log ?in|user|username|password|credentials|details|account|subscription)\b|\b(?:login|log ?in|sign ?in|username|user ?name|password|credentials)\b[^.?!\n]{0,24}\b(?:invalid|incorrect|wrong|rejected|refused|declined|not accepted|failed|failing|expired|not recognis\w*|not recogniz\w*)\b|\b(?:invalid|incorrect|wrong|expired|rejected)\b[^.?!\n]{0,20}\b(?:login|log ?in|user|username|password|credentials|details)\b|\bunauthori[sz]ed\b|\bauthentication (?:failed|error)\b|\bcant (?:log ?in|sign ?in)\b|\bcan'?t (?:log ?in|sign ?in)\b|\bwon'?t let me (?:log ?in|sign ?in|in)\b|\bwont let me (?:log ?in|sign ?in|in)\b|\blogged (?:me )?out\b|\blogin (?:failed|error)\b|\bmax(?:imum)? connections?\b|\btoo many (?:devices|connections)\b/i.test(t);
+}
+
 // LIVE vs VOD matters for the advice given: a live channel cannot be paused
 // or rewound, so those fixes must never be suggested for it. Channel-ish and
 // event-ish vocabulary marks a report as live playback; a named film/episode

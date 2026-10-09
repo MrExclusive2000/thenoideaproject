@@ -1176,6 +1176,35 @@ test('"are we down?" is answered from the panel, never by the model', async () =
   setSetting('service.note', '');
 });
 
+test('an invalid login is not a stream problem', async () => {
+  // The classification, which is what tells the model and the guardrail that
+  // this is a credentials failure rather than a playback one. "Invalid login
+  // on Sky Sports" names a channel and is still a login problem, so it has
+  // to be checked BEFORE the live/VOD split.
+  const { looksLikeLoginIssue } = await import('../src/bot/helpers.js');
+  for (const t of [
+    'Sky glass is saying invalid login',
+    'invalid login',
+    'invalid user',
+    'it says invalid username or password',
+    'cant log in',
+    'it says unauthorised',
+    'wont let me log in',
+    'max connections reached',
+    'authentication failed',
+    'login failed on firestick',
+  ]) assert.equal(looksLikeLoginIssue(t), true, t);
+
+  for (const t of [
+    'sky sports is buffering',
+    'bbc1 keeps freezing',
+    'the sound has gone',
+    'my app wont open',
+    'how do i log in',
+    'whats my login',
+  ]) assert.equal(looksLikeLoginIssue(t), false, `not a login failure: ${t}`);
+});
+
 test('"my sub ran out" is money on the table, not banter', async () => {
   // Only the full word "subscription" was service vocabulary, so the sentence
   // every renewal starts with read as chat and got "Ha, that one's a bit

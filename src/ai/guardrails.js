@@ -347,3 +347,37 @@ export function invensSportsResult(reply, block) {
   }
   return false;
 }
+
+// Advice that cannot possibly fix an invalid login, stripped sentence by
+// sentence. The prompt tells the model this; a prompt is not a control, and
+// the live reply to "Sky glass is saying invalid login" was "try a different
+// link or stream for the channel, or use the backup app (XC or Smarters)
+// with the same login details."
+//
+// The backup app takes the SAME details and refuses them the same way. So
+// does a different stream, a different server and a reinstall: none of them
+// touches the thing that is actually wrong. The customer spends twenty
+// minutes proving it, comes back no better off, and the real cause — a
+// mistyped character or an expired line — is still sitting there unlooked at.
+const WRONG_FOR_LOGIN =
+  /\b(?:different|another|alternative|other)\s+(?:link|stream|source|server|line)\b|\bswitch\w*\s+(?:link|stream|server|source)\b|\bbackup app\b|\b(?:try|use|open|download|install)\b[^.!?\n]{0,30}\b(?:smarters|xc(?:iptv)?|tivimate|ibo ?player|flix ?iptv)\b|\bclear\w*\s+(?:the\s+)?cache\b|\breinstall\w*\b|\b(?:restart|reboot|power ?cycle)\w*\s+(?:the\s+)?(?:app|device|box|stick|firestick|router)\b/i;
+
+// What survives has to still tell them something to do, or stripping it
+// leaves a reply that says nothing — worse than the wrong advice, because at
+// least that looked like help.
+const LOGIN_FIX =
+  /\b(?:username|user name|password|details|credentials|capital|caps|space|spaces|type|typed|typing|re-?enter|enter|copy|paste|exactly|character|expired|expiry|renew\w*|run out|ran out|admin|team|device|devices|connection|connections)\b/i;
+
+export function stripWrongLoginAdvice(reply) {
+  const text = String(reply || '').trim();
+  if (!text) return text;
+  // Split on sentence ends and newlines, keeping the pieces whole.
+  const parts = text.split(/(?<=[.!?])\s+|\n+/).map((p) => p.trim()).filter(Boolean);
+  const kept = parts.filter((p) => !WRONG_FOR_LOGIN.test(p));
+  if (kept.length === parts.length) return text;
+  const out = kept.join(' ').replace(/\s{2,}/g, ' ').trim();
+  // Nothing actionable left: hand the whole thing back as empty so the caller
+  // falls through to its own "I'm not sure, here is a human" path rather than
+  // sending a fragment.
+  return LOGIN_FIX.test(out) ? out : '';
+}

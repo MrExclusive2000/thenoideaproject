@@ -8,7 +8,7 @@ import { state } from '../state.js';
 import {
   sendChunked, logMessage, setLogSource, recordUnanswered, chatAllowed,
   isLikelyInScope, hasScopeSignal, recordProblem, extractProblemTopic, isAdminUser,
-  isContentIssue, looksLikeLiveIssue, wrongCopyIssue, withAdminContact, linkedCustomer,
+  isContentIssue, looksLikeLiveIssue, looksLikeLoginIssue, wrongCopyIssue, withAdminContact, linkedCustomer,
 } from './helpers.js';
 import { alertAdmins } from './reports.js';
 import { embed, retrieveFaqs, embeddingsProven } from '../ai/embeddings.js';
@@ -2467,8 +2467,13 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
           stopTyping.unref?.();
           // Live vs VOD hint for problem reports: pause/rewind advice is
           // nonsense for a live channel, and valid for a film/episode.
+          // A login failure is checked FIRST: "invalid login on Sky Sports"
+          // is a credentials problem that happens to name a channel, and
+          // classifying it as live earns the stream-switching advice that
+          // cannot possibly fix it.
           const playback = looksLikeProblem(question)
-            ? (wrongCopyIssue(question) ? 'content'
+            ? (looksLikeLoginIssue(question) ? 'login'
+              : wrongCopyIssue(question) ? 'content'
               : isContentIssue(question) ? 'vod'
               : looksLikeLiveIssue(question) ? 'live' : null)
             : null;
