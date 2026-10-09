@@ -1427,6 +1427,58 @@ test('a rant that gets worse gets a second alert', async () => {
   hub.api = null;
 });
 
+test('a picture fault is a fault, not a passing remark', async () => {
+  // "Sky Sports is pixelating" opened no case at all: pixelating, blocky,
+  // juddering, tearing, grainy and out-of-sync were in none of the problem
+  // patterns. The customer got a one-off answer, nothing reached the panel,
+  // and nothing counted toward outage detection — for the symptoms a
+  // streaming service gets complained about most.
+  const { _looksLikeProblem } = await import('../src/bot/pipeline.js');
+  const { extractProblemTopic } = await import('../src/bot/helpers.js');
+
+  for (const t of [
+    'sky sports is pixelating',
+    'the picture is pixelated',
+    'its all blocky',
+    'its juddering',
+    'theres screen tearing',
+    'the picture is really grainy',
+    'audio is out of sync',
+    'its gone green screen',
+  ]) assert.equal(_looksLikeProblem(t), true, `a fault: ${t}`);
+
+  // And they label, so an outage in one of them groups on the panel.
+  assert.equal(extractProblemTopic('sky sports is pixelating'), 'pixelating');
+  assert.equal(extractProblemTopic('audio is out of sync'), 'out of sync');
+
+  for (const t of ['whats on sky sports tonight', 'the picture quality is great', 'can i get 4k']) {
+    assert.equal(_looksLikeProblem(t), false, `not a fault: ${t}`);
+  }
+});
+
+test('the "that was quick!" pushback does not land on someone who took their time', async () => {
+  // Live shape from the simulation: "No, still freezing — gave it a proper
+  // go" got "That was quick! 😄 Some of those steps take a few minutes to do
+  // properly." The one customer who had pre-empted the accusation was the
+  // one who got it. Saying you took your time counts the same as giving a
+  // timestamp, which the check already respected.
+  const { _tookTheirTime } = await import('../src/bot/pipeline.js');
+  for (const t of [
+    'no still freezing, gave it a proper go',
+    'i did it properly',
+    'took my time with it',
+    'left it for ten minutes',
+    'tried it three times',
+    'still going after an hour',
+    'been at it since this morning',
+  ]) assert.equal(_tookTheirTime(t), true, t);
+
+  // An instant "yep" is still nudgeable — that is what the check is for.
+  for (const t of ['yep', 'done', 'still broken', 'nope', 'ill do it in a minute']) {
+    assert.equal(_tookTheirTime(t), false, t);
+  }
+});
+
 test('"my sub ran out" is money on the table, not banter', async () => {
   // Only the full word "subscription" was service vocabulary, so the sentence
   // every renewal starts with read as chat and got "Ha, that one's a bit

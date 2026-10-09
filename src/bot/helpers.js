@@ -337,7 +337,7 @@ export function extractProblemTopic(text) {
   );
   if (auth) return auth[1].replace(/\s+/g, ' ');
   const specific = t.match(
-    /\b(buffer\w*|freez\w*|frozen|lag\w*|stutter\w*|glitch\w*|crash\w*|black ?screen|playback error|no (?:sound|audio|picture|video)|wrong (?:version|copy|language|audio)|missing episode|offline|error|not work\w*)\b/
+    /\b(buffer\w*|freez\w*|frozen|lag\w*|stutter\w*|glitch\w*|crash\w*|black ?screen|pixel+at\w*|pixel+y|blocky|judder\w*|tearing|choppy|grainy|blurry|distort\w*|ghosting|green screen|out of sync|lip ?sync|playback error|no (?:sound|audio|picture|video)|wrong (?:version|copy|language|audio)|missing episode|offline|error|not work\w*)\b/
   );
   if (specific) return specific[1].replace(/\s+/g, ' ');
   const generic = t.match(/\b(wont \w+|cant \w+|keeps? \w+)\b/);

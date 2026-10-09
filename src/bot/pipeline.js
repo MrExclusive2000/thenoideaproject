@@ -1434,7 +1434,7 @@ function looksLikeQuestion(text) {
 // count on their own; generic words ("calm DOWN mate", "the PROBLEM with
 // him is...") only count when the message also mentions the service.
 const STRONG_PROBLEM =
-  /\b(buffer(ing|s)?|freez\w*|frozen|lag(gy|ging|s)?|stutter\w*|glitch\w*|crash\w*|playback|black ?screen|no (sound|audio|picture|video|streams?|channels?|epg|vod)|invalid|unauthori[sz]ed|logged (out|off)|wrong password|access denied|wrong (language|audio|sound|version|copy|cut|file)|(us|american|censored|dubbed) (version|copy|cut)|only (one|1) (language|audio( track)?|track)|not work\w*|(doesnt|don'?t|isn'?t|ain'?t|won'?t|can'?t|stopped)( even| still| ever| really| actually)? work\w*|wont (work|load|play|open|start)|cant (log ?in|sign in|watch|open|play|stream|connect)|keeps? (stopping|buffering|freezing|crashing|cutting|loading)|(is|are|was|were|gone|went|still) down|offline|(?:sound|audio|picture|video|epg|guide|signal|channels?|streams?)\s+(?:ha(?:s|ve)\s+|is\s+|are\s+|just\s+)*(?:gone|dropped|died|vanished|disappeared)|lost (?:the )?(?:sound|audio|picture|signal|connection|channels)|spoke too soon)\b/i;
+  /\b(buffer(ing|s)?|freez\w*|frozen|lag(gy|ging|s)?|stutter\w*|glitch\w*|crash\w*|playback|black ?screen|no (sound|audio|picture|video|streams?|channels?|epg|vod)|invalid|unauthori[sz]ed|logged (out|off)|wrong password|access denied|wrong (language|audio|sound|version|copy|cut|file)|(us|american|censored|dubbed) (version|copy|cut)|only (one|1) (language|audio( track)?|track)|not work\w*|(doesnt|don'?t|isn'?t|ain'?t|won'?t|can'?t|stopped)( even| still| ever| really| actually)? work\w*|wont (work|load|play|open|start)|cant (log ?in|sign in|watch|open|play|stream|connect)|keeps? (stopping|buffering|freezing|crashing|cutting|loading)|(is|are|was|were|gone|went|still) down|offline|(?:sound|audio|picture|video|epg|guide|signal|channels?|streams?)\s+(?:ha(?:s|ve)\s+|is\s+|are\s+|just\s+)*(?:gone|dropped|died|vanished|disappeared)|pixel+at\w*|pixel+ated|pixel+y|blocky|block+ing up|artefact\w*|artifact\w*|judder\w*|screen tear\w*|tearing|choppy|grainy|blurry|fuzzy|distort\w*|ghosting|green screen|out of sync|outta sync|lip ?sync|de-?sync\w*|audio delay|sound delay|behind the picture|lost (?:the )?(?:sound|audio|picture|signal|connection|channels)|spoke too soon)\b/i;
 const WEAK_PROBLEM = /\b(down|error|issues?|problems?|stuck|loading|broken|broke|bust|knackered|useless)\b/i;
 
 // Blunt, whole-message complaints. "Nothing works" and "it's broke" are
@@ -1804,6 +1804,20 @@ function saysStillBroken(text) {
 function hasTimeDetail(text) {
   return /\b\d{1,2}[:.]\d{2}\b|\b\d{1,2}\s?(am|pm)\b/i.test(text);
 }
+
+// "No, still freezing — gave it a proper go." The quick-confirm pushback
+// ("That was quick! 😄 Some of those steps take a few minutes to do
+// properly") landed on exactly that message, which is the one customer who
+// did not deserve it: they had pre-empted the accusation and were told off
+// anyway. Saying you took your time counts the same as giving a timestamp.
+const TOOK_THEIR_TIME =
+  /\b(?:proper|properly|thoroughly)\b|\bgave it (?:a )?(?:proper|good|real|decent)\b|\btook (?:my|me) time\b|\bdid (?:it|them|that) properly\b|\bleft it (?:for|a)\b|\bwaited\b|\b(?:for|about|over|nearly|almost|after|since)\s+(?:an?\s+|this\s+|last\s+)?(?:\d+\s*)?(?:minute|min|hour|hr|day|morning|afternoon|evening|night|week|ages)s?\b|\ball (?:morning|afternoon|evening|night|day|week)\b|\btwice\b|\bthree times\b|\bseveral times\b|\bover and over\b/i;
+
+function tookTheirTime(text) {
+  return TOOK_THEIR_TIME.test(String(text || ''));
+}
+
+export const _tookTheirTime = (t) => tookTheirTime(t);
 
 // "username is fine", "already tried that", "nothing works" — the user is
 // telling us the suggested fixes don't apply. That's an implicit "still
@@ -3317,7 +3331,7 @@ export async function handleGroupMessage(ctx) {
     const tooQuick = nudgeMinutes > 0 && sinceAnswer !== null && sinceAnswer < nudgeMinutes * 60000;
     if (
       tooQuick && !st.nudgedAt && !upset &&
-      !negatesFixes(text) && !hasTimeDetail(text) &&
+      !negatesFixes(text) && !hasTimeDetail(text) && !tookTheirTime(text) &&
       // A wrong/faulty copy has no fixes that "take minutes to try" — the
       // quick-confirm pushback would be nonsense there.
       !isContentIssue(st?.firstText || text) &&
@@ -3612,7 +3626,7 @@ async function handleDmProblemReply(ctx, text, logId) {
     const tooQuick = nudgeMinutes > 0 && sinceAnswer !== null && sinceAnswer < nudgeMinutes * 60000;
     if (
       tooQuick && !st.nudgedAt && !upset &&
-      !negatesFixes(text) && !hasTimeDetail(text) &&
+      !negatesFixes(text) && !hasTimeDetail(text) && !tookTheirTime(text) &&
       // A wrong/faulty copy has no fixes that "take minutes to try" — the
       // quick-confirm pushback would be nonsense there.
       !isContentIssue(st?.firstText || text) &&
