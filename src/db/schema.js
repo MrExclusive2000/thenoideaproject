@@ -663,6 +663,17 @@ const migrations = [
     if (!has) database.exec('ALTER TABLE problem_reports ADD COLUMN service_num INTEGER;');
     database.exec('CREATE INDEX IF NOT EXISTS idx_problem_reports_service ON problem_reports(service_num, ts);');
   },
+  // v32 — what the customer has told us they already tried, kept with the
+  // case. "I've already uninstalled and reinstalled it twice" was answered
+  // two messages later with "uninstall the app and reinstall it": the claim
+  // lived only in the text of one message, so the next round never saw it.
+  // Stored rather than re-derived because a case can span days and a
+  // restart, and the one thing you must not do to someone four messages into
+  // a fault is send them round the same loop again.
+  (database) => {
+    const has = database.pragma('table_info(problem_state)').some((c) => c.name === 'tried');
+    if (!has) database.exec('ALTER TABLE problem_state ADD COLUMN tried TEXT;');
+  },
 ];
 
 export function migrate(db) {

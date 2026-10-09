@@ -183,8 +183,16 @@ export function echoesInstructions(reply) {
 // A handoff to a human, in any of the shapes a model writes one.
 // Things you can actually DO, and things you can do them to. Text naming
 // none of these is reassurance, not troubleshooting.
-const STEP_THING = /\b(app|apps|cache|caches|router|wifi|ethernet|vpn|stream|streams|link|links|server|servers|channel|channels|login|password|username|device|firestick|downloader|box|tv|guide|epg|epgs|subtitle|audio|quality|connection|data|dns|speed|playlist|account|purple|smarters|sky\s*glass|xc)\b/i;
-const STEP_ACTION = /\b(restart|reboot|reinstall|install|clear|clearing|switch|switching|change|changing|try|open|enter|turn|disable|enable|unplug|update|updating|log\s+(?:in|out)|sign\s+(?:in|out)|force\s+stop|refresh|select|pick|check|use)\b/i;
+const STEP_THING = /\b(app|apps|cache|caches|router|wifi|wi-?fi|ethernet|vpn|stream|streams|link|links|server|servers|channel|channels|login|password|username|device|firestick|downloader|box|tv|guide|epg|epgs|subtitle|audio|quality|connection|data|dns|speed|playlist|account|purple|smarters|sky\s*glass|xc|plug|socket|mains|power|remote|settings|network|band|5\s?ghz|2\.4\s?ghz|firmware|storage|space|player|source|sources|port|modem|hotspot|signal|hdmi|cable|version|build|update|updates|recents|background)\b/i;
+// The verb list was 24 words long and it decided whether a whole round of
+// troubleshooting reached the customer. "Close the app fully and reopen it,
+// then power-cycle the box at the plug" contains none of restart, reboot,
+// clear, switch, try, open (\bopen\b does not fire inside "reopen")… so the
+// second round was binned as "no new help" and the case escalated. The panel
+// offers up to four rounds and the bot was giving one, whatever was set —
+// which is the difference between a bot that keeps digging and one that
+// gives up the moment you say it is still broken.
+const STEP_ACTION = /\b(restart|restarting|reboot|rebooting|reinstall|reinstalling|install|installing|uninstall|clear|clearing|switch|switching|change|changing|try|open|opening|reopen|re-open|close|closing|shut|enter|turn|disable|enable|unplug|replug|plug|update|updating|upgrade|log\s+(?:in|out)|sign\s+(?:in|out)|force\s+stop|force-?close|refresh|select|pick|check|use|power[\s-]?cycl\w*|remove|delete|set|swap|move|connect|disconnect|hardwire|press|hold|long[\s-]?press|tap|click|reset|forget|rescan|reload|sideload|allow|point|lower|reduce|increase|toggle|wait|leave|run|add|type|retype|copy|paste|download|untick|tick|uncheck|scroll|factory\s+reset|pause|skip)\b/i;
 
 const HANDOFF_RE = /\b(?:message|contact|dm|speak\s+to|talk\s+to|reach\s+out\s+to|get\s+in\s+touch\s+with|ask)\s+(?:@\w+|an?\s+admin|the\s+admin|the\s+team|support|customer\s+service)\b|\b(?:the\s+)?admin\s+(?:will|can|should)\b|\bfurther\s+assistance\b/i;
 
@@ -380,4 +388,24 @@ export function stripWrongLoginAdvice(reply) {
   // falls through to its own "I'm not sure, here is a human" path rather than
   // sending a fragment.
   return LOGIN_FIX.test(out) ? out : '';
+}
+
+// Advice the customer has already told us they tried, cut sentence by
+// sentence. "I've already uninstalled and reinstalled it twice" was answered
+// two messages later with "uninstall the app and reinstall it": the prompt
+// asks the model not to, and asking was the only thing standing against it.
+//
+// `offers` is the caller's test for "does this sentence suggest fix X" — the
+// vocabulary lives with the rest of the fix vocabulary, not here.
+export function stripClaimedFixes(reply, tried, offers) {
+  const text = String(reply || '').trim();
+  if (!text || !tried?.length) return text;
+  const parts = text.split(/(?<=[.!?])\s+|\n+/).map((p) => p.trim()).filter(Boolean);
+  const kept = parts.filter((p) => !offers(p, tried));
+  if (kept.length === parts.length) return text;
+  const out = kept.join(' ').replace(/\s{2,}/g, ' ').trim();
+  // Everything it had to say was something they had already done. That is
+  // not a reply — it is the moment to stop guessing and fetch a person, and
+  // returning empty is how the caller is told so.
+  return offersNoNewHelp(out) ? '' : out;
 }

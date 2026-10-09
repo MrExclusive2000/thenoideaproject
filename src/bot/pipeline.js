@@ -9,6 +9,7 @@ import {
   sendChunked, logMessage, setLogSource, recordUnanswered, chatAllowed,
   isLikelyInScope, hasScopeSignal, recordProblem, extractProblemTopic, isAdminUser,
   isContentIssue, looksLikeLiveIssue, looksLikeLoginIssue, wrongCopyIssue, withAdminContact, linkedCustomer,
+  claimedFixes, FIX_LABELS,
 } from './helpers.js';
 import { alertAdmins } from './reports.js';
 import { embed, retrieveFaqs, embeddingsProven } from '../ai/embeddings.js';
@@ -1603,6 +1604,7 @@ const STATE_COLUMNS = {
   fixRounds: 'fix_rounds',
   firstText: 'first_text',
   topic: 'topic',
+  tried: 'tried',
 };
 
 const rowToState = (r) => r && {
@@ -1616,6 +1618,8 @@ const rowToState = (r) => r && {
   fixRounds: r.fix_rounds,
   firstText: r.first_text,
   topic: r.topic,
+  // Stored as a comma-separated list of fix keys; carried as an array.
+  tried: String(r.tried || '').split(',').filter(Boolean),
 };
 
 function getProblemState(userId) {
@@ -1637,13 +1641,14 @@ function setProblemState(userId, patch) {
     return v ?? null;
   };
   db.prepare(`
-    INSERT INTO problem_state (tg_user_id, case_id, at, escalated_at, answered_at, nudged_at, awaiting_service, from_auto_close, fix_rounds, first_text, topic)
-    VALUES (@tg_user_id, @case_id, @at, @escalated_at, @answered_at, @nudged_at, @awaiting_service, @from_auto_close, @fix_rounds, @first_text, @topic)
+    INSERT INTO problem_state (tg_user_id, case_id, at, escalated_at, answered_at, nudged_at, awaiting_service, from_auto_close, fix_rounds, first_text, topic, tried)
+    VALUES (@tg_user_id, @case_id, @at, @escalated_at, @answered_at, @nudged_at, @awaiting_service, @from_auto_close, @fix_rounds, @first_text, @topic, @tried)
     ON CONFLICT(tg_user_id) DO UPDATE SET
       case_id = excluded.case_id, at = excluded.at, escalated_at = excluded.escalated_at,
       answered_at = excluded.answered_at, nudged_at = excluded.nudged_at,
       awaiting_service = excluded.awaiting_service, from_auto_close = excluded.from_auto_close,
-      fix_rounds = excluded.fix_rounds, first_text = excluded.first_text, topic = excluded.topic
+      fix_rounds = excluded.fix_rounds, first_text = excluded.first_text, topic = excluded.topic,
+      tried = excluded.tried
   `).run({
     tg_user_id: userId,
     case_id: toDb('caseId'),
@@ -1656,7 +1661,22 @@ function setProblemState(userId, patch) {
     fix_rounds: Number(merged.fixRounds) || 0,
     first_text: merged.firstText ?? null,
     topic: merged.topic ?? null,
+    tried: (merged.tried || []).join(',') || null,
   });
+}
+
+// Fold whatever the customer has just told us they tried into the case, so a
+// claim made in message one still counts in message six — and survives a
+// restart, because a fault can run for days.
+function rememberTried(userId, text, st = null) {
+  const found = claimedFixes(text);
+  if (!found.length) return st?.tried || [];
+  const have = new Set(st?.tried || []);
+  const before = have.size;
+  for (const k of found) have.add(k);
+  const list = [...have];
+  if (have.size !== before) setProblemState(userId, { tried: list });
+  return list;
 }
 
 function clearProblemState(userId) {
@@ -1888,6 +1908,41 @@ function stripMention(text) {
 // and the admin could not say "that's #12" and be understood. Write {case} in
 // the note to place it; without the placeholder it is added on its own line,
 // so it works without anyone editing settings.
+// The reply chain, as the model sees it. Pulled out of handleGroupMessage so
+// a follow-up ROUND can have it too: round two used to be given the
+// synthesised question and nothing else, so in the group it did not know
+// what round one had already suggested and was free to suggest it again.
+function replyChainHistory(ctx, repliedTo, isFollowUp) {
+  if (!isFollowUp) return null;
+  const prev = replyContext.get(`${ctx.chat.id}:${repliedTo.message_id}`);
+  return [
+    ...(prev?.question ? [{ role: 'user', content: String(prev.question).slice(0, 1000) }] : []),
+    { role: 'assistant', content: String(repliedTo.text).slice(0, 1500) },
+  ];
+}
+
+// The question put to the model for a follow-up round.
+//
+// It used to be built entirely from the FIRST message plus a fixed phrase,
+// so everything the customer said on the way through was thrown away. Told
+// "I've already done that, and I've reinstalled it too", the model was
+// handed "buffering constantly — still happening after trying the first
+// fixes. What else can I try?" — the reinstall never reached it, and the
+// next round was free to suggest the thing they had just said they had
+// done. That is the single fastest way to lose someone who is already
+// several messages into a fault.
+//
+// Their latest words go in verbatim, unless they ARE the first message.
+function deeperQuestion(st, text) {
+  const first = String(st?.firstText || text || '').slice(0, 200).trim();
+  const said = String(text || '').trim().slice(0, 300);
+  const tail = ' What else can I try that they have NOT already done?';
+  if (!said || said === first) {
+    return `${first} — still happening after trying the first fixes.${tail}`;
+  }
+  return `${first} — still happening after the fixes so far. They have just said: "${said}".${tail}`;
+}
+
 function caseNumberFor(ctx, st) {
   return st?.caseId
     ?? db.prepare('SELECT id FROM problem_reports WHERE tg_user_id = ? AND resolved = 0 ORDER BY id DESC LIMIT 1')
@@ -1924,6 +1979,10 @@ function escalatedCaseNote(ctx, st, service, { isDm }) {
   ];
   if (symptom) lines.push(`Problem: "${symptom.slice(0, 300)}"`);
   if (topic) lines.push(`Topic: ${topic}`);
+  // What they told us they had already done. Otherwise it is the first thing
+  // the admin asks and the second time the customer has to say it.
+  const tried = (st?.tried || []).map((k) => FIX_LABELS[k] || k);
+  if (tried.length) lines.push(`Already tried: ${tried.join(', ')}`);
   lines.push(`Tried: ${rounds} round${rounds === 1 ? '' : 's'} of fixes, still not working`);
   lines.push(`Where: ${isDm ? 'a DM' : (ctx.chat?.title || 'the group')}`);
   if (ref) lines.push(`\nReply "#${ref} fixed" to close it, or /case ${ref} for the full thread.`);
@@ -2524,6 +2583,10 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
           // an insult: "I've restarted it 4 times" answered with "try
           // restarting it" is the single fastest way to lose someone.
           const alreadyTried = mentionsTriedAlready(question);
+          // Everything they have said they tried, across the whole case —
+          // not just this message. A claim made in message one has to still
+          // count in message six, or round four cheerfully suggests it.
+          const triedSoFar = rememberTried(ctx.from?.id, question, getProblemState(ctx.from?.id));
 
           // One embedding per message, shared by the cache lookup and FAQ
           // retrieval below.
@@ -2608,6 +2671,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
                 knownOutage: Boolean(prefix) && getSetting('service.status') !== 'operational' && looksLikeProblem(question),
                 knowledgeFaqs: retrieved.length ? retrieved.map((r) => r.faq) : null,
                 alreadyTried,
+                tried: triedSoFar,
                 sports,
               });
             } catch (err) {
@@ -2718,6 +2782,14 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         if (!opinionBait && (assumeOnTopic || isLikelyInScope(question))) {
           setLogSource(logId, 'unsure');
           recordUnanswered(question, ctx, 'ai-refused', null);
+          // A follow-up ROUND that came back with nothing has a caller
+          // waiting to escalate, and it sends its own acknowledgement. Both
+          // going out produced "I'm not totally sure on that one — message
+          // the admin" immediately followed by "✅ Flagged to the team, no
+          // need to report it again" — two messages that contradict each
+          // other, in the same breath, to somebody already several rounds
+          // deep. Same rule the no-new-help path above already follows.
+          if (deepen) return 'unsure';
           if (isDm || getSetting('bot.offtopicBehavior') === 'redirect') {
             // A channel question that produced nothing usable has a better
             // answer than "I'm not sure": we know what the question was about
@@ -3164,8 +3236,8 @@ export async function handleGroupMessage(ctx) {
       const newRound = (st?.fixRounds || 1) + 1;
       setProblemState(ctx.from.id, { at: Date.now(), fixRounds: newRound });
       recordProblem(ctx, text, { answered: true });
-      const deeperQ = `${(st?.firstText || text).slice(0, 200)} — still happening after trying the first fixes. What else can I try?`;
-      const deeper = await answer(ctx, deeperQ, { isDm: false, logId, skipFaq: true, assumeOnTopic: true, directed: true, deepen: true, suffix: followupNoteForRound(newRound) });
+      const deeperQ = deeperQuestion(st, text);
+      const deeper = await answer(ctx, deeperQ, { isDm: false, logId, history: replyChainHistory(ctx, repliedTo, isFollowUp), skipFaq: true, assumeOnTopic: true, directed: true, deepen: true, suffix: followupNoteForRound(newRound) });
       if (deeper === 'ai') {
         setProblemState(ctx.from.id, { answeredAt: Date.now() });
         return;
@@ -3253,14 +3325,7 @@ export async function handleGroupMessage(ctx) {
 
   // Replying to one of the bot's messages is a follow-up conversation: give
   // the AI the reply chain as context and don't just re-match the same FAQ.
-  let history = null;
-  if (isFollowUp) {
-    const prev = replyContext.get(`${ctx.chat.id}:${repliedTo.message_id}`);
-    history = [
-      ...(prev?.question ? [{ role: 'user', content: String(prev.question).slice(0, 1000) }] : []),
-      { role: 'assistant', content: String(repliedTo.text).slice(0, 1500) },
-    ];
-  }
+  const history = replyChainHistory(ctx, repliedTo, isFollowUp);
 
   // Replying to the bot's own message is by definition an on-topic
   // conversation — a bare "THM4821" after the which-service answer must not
@@ -3445,7 +3510,7 @@ async function handleDmProblemReply(ctx, text, logId) {
       const newRound = (st.fixRounds || 1) + 1;
       setProblemState(ctx.from.id, { at: Date.now(), fixRounds: newRound });
       recordProblem(ctx, text, { answered: true });
-      const deeperQ = `${(st.firstText || text).slice(0, 200)} — still happening after trying the first fixes. What else can I try?`;
+      const deeperQ = deeperQuestion(st, text);
       const deeper = await answer(ctx, deeperQ, { isDm: true, logId, skipFaq: true, assumeOnTopic: true, deepen: true, suffix: followupNoteForRound(newRound) });
       if (deeper === 'ai') {
         setProblemState(ctx.from.id, { answeredAt: Date.now() });

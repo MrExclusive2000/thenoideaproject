@@ -4,7 +4,8 @@ import { scoreFaq, tokens } from '../faq/matcher.js';
 import { scoreGuide } from '../guides.js';
 import { redactWalletAddresses } from '../payments.js';
 import { circuitOpen, circuitError, recordFailure, recordSuccess } from './breaker.js';
-import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, echoesInstructions, stripPrematureHandoff, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail, asksForCredentials, redactCredentialUrls, inventsLink, invensSportsResult, stripWrongLoginAdvice } from './guardrails.js';
+import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, echoesInstructions, stripPrematureHandoff, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail, asksForCredentials, redactCredentialUrls, inventsLink, invensSportsResult, stripWrongLoginAdvice, stripClaimedFixes } from './guardrails.js';
+import { offersClaimedFix, FIX_LABELS } from '../bot/helpers.js';
 
 const usageStmt = db.prepare(
   'INSERT INTO ai_usage (day, calls, tokens) VALUES (?, 1, ?) ' +
@@ -486,7 +487,7 @@ export function _aiQueueState() {
 // `smallTalk`: the caller is spending the user's one off-topic free pass —
 // permit ONE brief friendly answer to an off-topic message. Replies that are
 // (or end as) a question are suppressed: banter must never fish for more chat.
-export async function askAi(question, { history = [], assumeOnTopic = false, smallTalk = false, playback = null, grounding = null, secondRound = false, knowledgeFaqs = null, knownOutage = false, channels = null, service = null, alreadyTried = false, sports = null } = {}) {
+export async function askAi(question, { history = [], assumeOnTopic = false, smallTalk = false, playback = null, grounding = null, secondRound = false, knowledgeFaqs = null, knownOutage = false, channels = null, service = null, alreadyTried = false, sports = null, tried = null } = {}) {
   if (!getSetting('ai.enabled')) return null;
   if (aiBudgetExceeded()) {
     const err = new Error('Daily AI budget reached');
@@ -582,6 +583,12 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
           content: "This is a CONTENT problem — a wrong, faulty or mislabeled copy of a specific title. Device or app fixes CANNOT change the file, so do NOT suggest restarting, cache clearing or EPG refreshes. Say the copy itself looks wrong, suggest checking the same title in the backup app in case its library differs, and — if they haven't given it yet — ask for the exact title (and season/episode) so it can be flagged to the team for repair or replacement.",
         }]
       : []),
+    ...(tried?.length
+      ? [{
+          role: 'system',
+          content: `This customer has ALREADY done the following, and said so: ${tried.map((k) => FIX_LABELS[k] || k).join('; ')}. Do not suggest any of it again, in any wording — they have told you once and being told to do it anyway is what makes someone give up on a service. Go to something they have not tried. If you genuinely have nothing left that they have not already done, say so plainly in one line and nothing else; the system will hand them to a person.`,
+        }]
+      : []),
     ...(playback === 'login'
       ? [{
           role: 'system',
@@ -660,6 +667,17 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
     const pruned = stripWrongLoginAdvice(reply);
     if (!pruned) {
       console.error('AI guardrail: suppressed stream-switching advice for a login failure');
+      return null;
+    }
+    reply = pruned;
+  }
+
+  // Advice they have already told us they tried. Same reasoning as the login
+  // rule: the prompt above asks, and asking is not enough.
+  if (tried?.length) {
+    const pruned = stripClaimedFixes(reply, tried, offersClaimedFix);
+    if (!pruned) {
+      console.error('AI guardrail: suppressed a round that only repeated what the customer had already tried');
       return null;
     }
     reply = pruned;

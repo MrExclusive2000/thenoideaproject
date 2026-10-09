@@ -1205,6 +1205,104 @@ test('an invalid login is not a stream problem', async () => {
   ]) assert.equal(looksLikeLoginIssue(t), false, `not a login failure: ${t}`);
 });
 
+test('a second round of fixes is not binned for using the wrong verb', async () => {
+  // The bot was giving ONE round of troubleshooting whatever the panel was
+  // set to, and the panel offers four. offersNoNewHelp decides whether a
+  // follow-up round reaches the customer, and it checked the reply against a
+  // 24-verb list: "Close the app fully and reopen it, then power-cycle the
+  // box at the plug" contains none of restart, reboot, clear, switch, try or
+  // open (\bopen\b does not fire inside "reopen"), so a perfectly good
+  // second round was thrown away as "no new help" and the case escalated.
+  const { offersNoNewHelp } = await import('../src/ai/guardrails.js');
+  for (const t of [
+    'Close the app fully from recents and reopen it, then power-cycle the box at the plug for 30 seconds.',
+    'Switch the box to the 5GHz band if your router has one, or run an ethernet cable to it.',
+    'Set the box DNS to 1.1.1.1 manually in the network settings and retest.',
+    'Long-press the channel in the list and pick another source.',
+    'Hold the power button on the remote for ten seconds to force a restart.',
+    'Delete the playlist and add it again with the same details.',
+  ]) assert.equal(offersNoNewHelp(t), false, `real advice: ${t}`);
+
+  // Vague reassurance is still caught — that is what the check is for.
+  for (const t of [
+    'Give it a shot and let me know how you get on.',
+    'That should do it!',
+    'I understand how frustrating this must be.',
+    '',
+  ]) assert.equal(offersNoNewHelp(t), true, `nothing to act on: ${t}`);
+});
+
+test('the bot does not suggest what the customer said they already did', async () => {
+  // "I've already uninstalled and reinstalled it twice" was answered two
+  // messages later with "Uninstall the app and reinstall it". The prompt
+  // asked the model not to, and asking was the only thing standing against
+  // it. Same lesson as the wallet address: a prompt is not a control.
+  const { claimedFixes, offersClaimedFix } = await import('../src/bot/helpers.js');
+  const { stripClaimedFixes } = await import('../src/ai/guardrails.js');
+
+  assert.deepEqual(claimedFixes('ive already uninstalled and reinstalled it twice'), ['reinstall']);
+  assert.deepEqual(claimedFixes('ive restarted the firestick three times'), ['restart-device']);
+  assert.deepEqual(claimedFixes('already cleared the cache'), ['cache']);
+  // Asking about a fix is not having done it.
+  for (const t of ['should i reinstall it?', 'how do i restart the firestick', 'do i need to clear the cache']) {
+    assert.deepEqual(claimedFixes(t), [], `a question, not a claim: ${t}`);
+  }
+
+  const tried = ['reinstall', 'restart-device'];
+  // A round that ONLY repeats what they did comes back empty, which is the
+  // caller's signal to stop guessing and fetch a person.
+  assert.equal(stripClaimedFixes('Uninstall the app and reinstall it, then sign in again.', tried, offersClaimedFix), '');
+  assert.equal(stripClaimedFixes('Restart the Firestick and try again.', tried, offersClaimedFix), '');
+  // A round with something new in it keeps the new part.
+  assert.equal(
+    stripClaimedFixes('Reinstall the app. Clear the app cache from the device settings first.', tried, offersClaimedFix),
+    'Clear the app cache from the device settings first.');
+  // Nothing claimed, nothing touched.
+  const fresh = 'Try a different link for that channel.';
+  assert.equal(stripClaimedFixes(fresh, [], offersClaimedFix), fresh);
+});
+
+test('a follow-up round that has nothing left sends ONE message, not two', async () => {
+  // When a round is suppressed the caller escalates and sends its own
+  // acknowledgement. Both used to go out: "I'm not totally sure on that one
+  // — message the admin" immediately followed by "✅ Flagged to the team, no
+  // need to report it again". Two messages that contradict each other, to
+  // somebody already several rounds deep.
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.problemFixRounds', 2);
+  setSetting('bot.problemNudgeMinutes', 0);
+  setSetting('bot.problemFlaggedNote', '✅ Flagged to the team.');
+  setSetting('bot.problemServiceQuestion', '');
+  setSetting('bot.unsureMessage', "I'm not totally sure on that one.");
+  setSetting('service.status', 'operational');
+  _resetProblemTriage();
+  _resetProblemQueue();
+  db.prepare('DELETE FROM problem_reports').run();
+
+  aiResponse = 'Try a different link for that channel.';
+  await handleDirectMessage(fakeCtx('app keeps crashing. ive already uninstalled and reinstalled it twice', { userId: 99881 }),
+    'app keeps crashing. ive already uninstalled and reinstalled it twice');
+
+  // The model ignores the instruction and repeats what they already did.
+  aiResponse = 'Uninstall the app and reinstall it, then sign in again.';
+  const again = fakeCtx('still crashing', { userId: 99881 });
+  await handleDirectMessage(again, 'still crashing');
+  const out = again.sent.map((x) => x.msg).join('\n');
+  assert.doesNotMatch(out, /Uninstall|reinstall/i, 'the repeat never reaches them');
+  assert.match(out, /Flagged to the team/, 'it escalates instead, which is the right answer');
+  assert.doesNotMatch(out, /not totally sure/, 'and does not also say the opposite');
+
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+  // Back to the ambient value the rest of the file assumes — leaving it at 2
+  // gave the escalation tests further down an extra round they did not want.
+  setSetting('bot.problemFixRounds', 1);
+  setSetting('bot.problemFlaggedNote', "✅ Flagged to the team — they'll look into it. No need to report it again. Your reference is #{case}.");
+  setSetting('bot.problemServiceQuestion', 'One more thing for the team — which service is this on? Reply with the service name, or the username you log in with (never the password).');
+  setSetting('bot.unsureMessage', "I'm not totally sure on that one — {admin} and they'll sort you out.");
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+});
+
 test('"my sub ran out" is money on the table, not banter', async () => {
   // Only the full word "subscription" was service vocabulary, so the sentence
   // every renewal starts with read as chat and got "Ha, that one's a bit
@@ -2260,7 +2358,16 @@ test('fix rounds 2: a confirmed DM problem gets MORE fixes first, flags on the s
   assert.match(c1.sent[0].msg, /flag it to the team/, 'the LAST round carries the flag promise');
   // Round two goes to the AI with the conversation attached and the
   // different-steps-only instruction.
-  assert.match(lastAiRequest.messages.at(-1).content, /still happening after trying the first fixes/);
+  // The follow-up question carries BOTH the original report and whatever the
+  // customer has just said. It used to be built from the first message plus
+  // a fixed phrase, so "I've already reinstalled it too" never reached the
+  // model and the next round was free to suggest the thing they had just
+  // told us they had done.
+  const followUpQ = lastAiRequest.messages.at(-1).content;
+  assert.match(followUpQ, /purple keeps buffering tonight/, 'the original report');
+  assert.match(followUpQ, /still happening after the fixes so far/, 'and that the fixes failed');
+  assert.match(followUpQ, /tried them, still buffering/, "and the customer's own words");
+  assert.match(followUpQ, /NOT already done/, 'and the instruction not to repeat');
   assert.ok(lastAiRequest.messages.some((m) => m.role === 'system' && /SECOND round/.test(m.content)), 'second-round instruction present');
 
   const c2 = fakeCtx('nope still the same', { userId: 89001 });

@@ -388,3 +388,76 @@ export function recordProblem(ctx, text, { answered = false, service = null } = 
   );
   return info.lastInsertRowid;
 }
+
+// What the customer has told us they already did. Each entry is a fix the
+// bot can suggest, the phrases a customer uses to say they have done it, and
+// the phrases the bot uses to suggest it — so a claim made in message one
+// can be matched against a suggestion made in message six.
+//
+// "I've already uninstalled and reinstalled it twice" was answered two
+// messages later with "uninstall the app and reinstall it". That is the
+// single most insulting thing a support bot does, and the prompt asking
+// nicely was the only thing standing against it.
+const FIX_KINDS = [
+  { key: 'reinstall',
+    claimed: /\b(?:re-?install\w*|un-?install\w*|deleted (?:and|then) .{0,12}install|fresh install|installed it again)\b/i,
+    offered: /\b(?:re-?install|un-?install|delete the app|remove the app)\b/i },
+  { key: 'restart-app',
+    claimed: /\b(?:force[\s-]?(?:stopped|closed|quit)|closed (?:the )?app|re-?opened (?:the )?app|killed (?:the )?app)\b/i,
+    offered: /\b(?:force[\s-]?(?:stop|close|quit)|close the app|reopen the app|re-?open it)\b/i },
+  { key: 'restart-device',
+    claimed: /\b(?:re-?started|re-?booted|power[\s-]?cycl\w*|turned it off and on|unplugged)\b[^.?!\n]{0,30}\b(?:it|box|stick|firestick|fire ?tv|tv|telly|device|phone|ipad)\b|\b(?:re-?started|re-?booted|power[\s-]?cycl\w*)\b(?![^.?!\n]{0,20}\brouter\b)/i,
+    offered: /\b(?:restart|reboot|power[\s-]?cycle|turn it off and)\b[^.?!\n]{0,24}\b(?:it|box|stick|firestick|fire ?tv|tv|device|app)\b/i },
+  { key: 'restart-router',
+    claimed: /\b(?:re-?started|re-?booted|power[\s-]?cycl\w*|unplugged|reset)\b[^.?!\n]{0,20}\b(?:router|hub|modem|broadband)\b/i,
+    offered: /\b(?:restart|reboot|power[\s-]?cycle|unplug)\b[^.?!\n}]{0,20}\b(?:router|hub|modem)\b/i },
+  { key: 'wifi',
+    claimed: /\b(?:switched|changed|moved|swapped|tried|on)\b[^.?!\n]{0,24}\b(?:5\s?ghz|5g band|2\.4|ethernet|wired|cable|hard ?wired)\b|\b(?:5\s?ghz|ethernet|hard ?wired)\b[^.?!\n]{0,20}\balready\b/i,
+    offered: /\b(?:5\s?ghz|ethernet|wired|hard ?wire)\b/i },
+  { key: 'cache',
+    claimed: /\b(?:cleared|clearing|wiped|emptied)\b[^.?!\n]{0,20}\bcache\b/i,
+    offered: /\bclear\w*\b[^.?!\n]{0,20}\bcache\b/i },
+  { key: 'link',
+    claimed: /\b(?:tried|changed|switched|picked|used)\b[^.?!\n]{0,24}\b(?:different|another|other)\b[^.?!\n]{0,12}\b(?:link|links|stream|streams|source|sources|server)\b|\ball the links\b/i,
+    offered: /\b(?:different|another|other)\b[^.?!\n]{0,12}\b(?:link|stream|source|server)\b/i },
+  { key: 'backup-app',
+    claimed: /\b(?:tried|used|installed|on)\b[^.?!\n]{0,20}\b(?:backup app|smarters|tivimate|xc ?iptv|ibo ?player)\b/i,
+    offered: /\b(?:backup app|smarters|tivimate|xc ?iptv|ibo ?player)\b/i },
+  { key: 'vpn',
+    claimed: /\b(?:turned off|disabled|removed|no|without|dont have a|don'?t have a|havent got a|haven'?t got a)\b[^.?!\n]{0,16}\bvpn\b/i,
+    offered: /\bvpn\b/i },
+  { key: 'update',
+    claimed: /\b(?:updated|on the latest|latest (?:build|version))\b[^.?!\n]{0,20}\b(?:app|build|version)?\b/i,
+    offered: /\bupdate\b[^.?!\n]{0,16}\b(?:the )?app\b|\blatest (?:build|version)\b/i },
+];
+
+// Only count a claim when the message is actually claiming it — "should I
+// restart it?" is a question, not a report of having done so.
+const NOT_A_CLAIM = /\?\s*$|\bshould i\b|\bdo i (?:need|have) to\b|\bhow do i\b|\bwhat if i\b|\bcan i\b|\bwill (?:re-?install|restart)\w*\b/i;
+
+export function claimedFixes(text) {
+  const t = String(text || '');
+  if (!t.trim() || NOT_A_CLAIM.test(t)) return [];
+  return FIX_KINDS.filter((f) => f.claimed.test(t)).map((f) => f.key);
+}
+
+// Does this sentence suggest one of the fixes they say they already did?
+export function offersClaimedFix(sentence, tried) {
+  if (!tried?.length) return false;
+  const s = String(sentence || '');
+  return FIX_KINDS.some((f) => tried.includes(f.key) && f.offered.test(s));
+}
+
+// Readable for the prompt and for the admin alert.
+export const FIX_LABELS = {
+  'reinstall': 'reinstalling the app',
+  'restart-app': 'force-closing and reopening the app',
+  'restart-device': 'restarting the device',
+  'restart-router': 'restarting the router',
+  'wifi': 'switching to 5GHz / ethernet',
+  'cache': 'clearing the cache',
+  'link': 'a different link or stream',
+  'backup-app': 'the backup app',
+  'vpn': 'turning off the VPN',
+  'update': 'updating the app',
+};
