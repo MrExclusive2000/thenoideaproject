@@ -1341,6 +1341,92 @@ test('a Firestick is never told to plug in an ethernet cable', async () => {
   assert.equal(fixEthernetForStick(fine), fine);
 });
 
+test('a customer who argues, refuses or walks out is not given more steps', async () => {
+  // Six simulated customers, every one of them answered badly.
+  //
+  //   "I'm not doing all that"            -> another round of steps
+  //   "I shouldn't have to, fix it your end" -> a third round
+  //   "It's not my wifi, I get 500mb down"   -> "power-cycle the box"
+  //   "I already told you it's not the wifi" -> "move onto the 5GHz band"
+  //   "This is the third time this month"    -> "Ha, that's above my pay grade"
+  //   "I'm cancelling and going elsewhere"   -> the off-topic brush-off
+  //
+  // The last one is the worst reply in the build: a joke, to somebody
+  // announcing they are leaving, at the moment a person is worth most.
+  const { _looksLikeFrustration: upset, _looksLikeHumanRequest: wantsHuman, _refusesToShare: declines } =
+    await import('../src/bot/pipeline.js');
+  const { ruledOutCauses } = await import('../src/bot/helpers.js');
+
+  // Refusing to troubleshoot, and being let down, and leaving — each
+  // labelled separately, because what you say to them differs.
+  assert.equal(upset('im not doing all that'), 'refusing');
+  assert.equal(upset('i shouldnt have to do this every week, just fix it your end'), 'refusing');
+  assert.equal(upset('this is the third time this month'), 'let-down');
+  assert.equal(upset('you told me yesterday it was fixed'), 'let-down');
+  assert.equal(upset('if its not sorted today im cancelling and going elsewhere'), 'walking-out');
+  assert.equal(upset('ill be going elsewhere'), 'walking-out');
+
+  // An ordinary cancellation request is still an ordinary request with an
+  // ordinary answer — that exclusion predates this and has to survive it.
+  for (const t of ['can i cancel my subscription', 'how do i cancel', 'can you cancel my request for that film']) {
+    assert.equal(upset(t), null, `a real request: ${t}`);
+  }
+
+  // Ruling a cause out counts the same as having tried it: do not suggest it.
+  assert.ok(ruledOutCauses('its not my wifi, i get 500mb down').includes('wifi'));
+  assert.ok(ruledOutCauses('i already told you its not the wifi').includes('wifi'));
+  assert.ok(ruledOutCauses('my internet is fine').includes('wifi'));
+  for (const t of ['my wifi keeps dropping', 'the internet is down', 'i think its my router']) {
+    assert.deepEqual(ruledOutCauses(t), [], `naming a suspect is not ruling it out: ${t}`);
+  }
+
+  // Asking for it to go up the chain is asking for a person.
+  for (const t of ['can you just pass it to whoever runs the servers', 'escalate it please', 'someone technical please']) {
+    assert.equal(wantsHuman(t), true, t);
+  }
+  assert.equal(wantsHuman('can you pass me the wallet address'), false);
+
+  // And a refusal to hand something over is an answer, not a fault report.
+  for (const t of ['im not giving you my username', 'id rather not say', 'why do you need my username']) {
+    assert.equal(declines(t), true, t);
+  }
+  for (const t of ['my username is THM4471', 'exclusive', 'i dont know my username']) {
+    assert.equal(declines(t), false, t);
+  }
+});
+
+test('a rant that gets worse gets a second alert', async () => {
+  // One alert per rant, so three angry messages are not three notifications.
+  // But "third time this month" followed by "I'm cancelling" is not the same
+  // message twice — it is an escalation, and swallowing the second loses the
+  // one that actually mattered.
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.frustrationMessage', "Sorry — I'm not getting this right.");
+  setSetting('bot.frustrationRepeatMessage', 'I hear you. The team already has this.');
+  setSetting('reports.alertFrustrated', true);
+  setSetting('reports.adminTelegramIds', [777]);
+  _resetProblemTriage();
+  _resetUpset();
+  const adminDms = [];
+  hub.api = { sendMessage: async (id, text) => { adminDms.push({ id, text }); return { message_id: 1 }; } };
+
+  for (const t of ['this is the third time this month', 'if its not sorted today im cancelling and going elsewhere']) {
+    await answer(fakeCtx(t, { userId: 99771 }), t, { isDm: true, logId: null });
+  }
+  assert.equal(adminDms.length, 2, 'the threat gets through even though the grumble just did');
+  assert.match(adminDms[0].text, /keeps coming back/, 'and they are described differently');
+  assert.match(adminDms[1].text, /threatening to leave/);
+
+  // Two grumbles of the SAME severity are still one notification.
+  _resetUpset();
+  adminDms.length = 0;
+  for (const t of ['this is the third time this month', 'it keeps happening']) {
+    await answer(fakeCtx(t, { userId: 99772 }), t, { isDm: true, logId: null });
+  }
+  assert.equal(adminDms.length, 1, 'no second alert for more of the same');
+  hub.api = null;
+});
+
 test('"my sub ran out" is money on the table, not banter', async () => {
   // Only the full word "subscription" was service vocabulary, so the sentence
   // every renewal starts with read as chat and got "Ha, that one's a bit

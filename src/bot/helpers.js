@@ -435,6 +435,35 @@ const FIX_KINDS = [
 // restart it?" is a question, not a report of having done so.
 const NOT_A_CLAIM = /\?\s*$|\bshould i\b|\bdo i (?:need|have) to\b|\bhow do i\b|\bwhat if i\b|\bcan i\b|\bwill (?:re-?install|restart)\w*\b/i;
 
+// Causes the customer has RULED OUT, as opposed to fixes they have tried.
+// "It's not my wifi, I get 500mb down and everything else streams fine" was
+// answered with "power-cycle the box", and then "I already told you it's not
+// the wifi" with "move the box onto the 5GHz band". Telling somebody the
+// thing they have just ruled out, immediately after they ruled it out, is
+// the single most infuriating thing a support bot does.
+//
+// Ruled out and already tried have the same consequence — do not suggest it
+// — so they feed the same list and the same guardrail.
+const RULED_OUT = [
+  { key: 'wifi',
+    re: /\b(?:not|isn'?t|aint|ain'?t)\s+(?:my|the|a)?\s*(?:wifi|wi-?fi|internet|broadband|connection|network|router|line speed|bandwidth)\b|\b(?:wifi|wi-?fi|internet|broadband|connection|speed|router)\b[^.?!\n]{0,24}\b(?:is|are|runs?)\s+(?:fine|ok|okay|perfect|great|good|solid|spot on)\b|\b\d{2,4}\s?(?:mb|mbps|meg|megs|gb)\b[^.?!\n]{0,30}\b(?:down|download|speed)?\b|\beverything else\b[^.?!\n]{0,24}\b(?:streams?|works?|fine|ok)\b/i },
+  { key: 'restart-router',
+    re: /\b(?:not|isn'?t|aint)\s+(?:my|the)?\s*router\b|\brouter\b[^.?!\n]{0,16}\b(?:is|runs)\s+fine\b/i },
+  { key: 'restart-device',
+    re: /\b(?:not|isn'?t)\s+(?:my|the)?\s*(?:firestick|fire ?stick|box|stick|device|tv)\b[^.?!\n]{0,20}\b(?:fault|problem|issue)?\b|\b(?:firestick|box|device)\b[^.?!\n]{0,16}\bis\s+fine\b/i },
+  { key: 'reinstall',
+    re: /\b(?:not|isn'?t)\s+(?:the\s+)?app\b[^.?!\n]{0,20}\b(?:fault|problem|issue)\b|\bapp\s+(?:is|was)\s+fine\b/i },
+];
+
+// "I already told you it's not the wifi" — the claim restated, crossly. It
+// counts the same as the first time; the whole point is that they should not
+// have to say it twice.
+export function ruledOutCauses(text) {
+  const t = String(text || '');
+  if (!t.trim()) return [];
+  return RULED_OUT.filter((r) => r.re.test(t)).map((r) => r.key);
+}
+
 export function claimedFixes(text) {
   const t = String(text || '');
   if (!t.trim() || NOT_A_CLAIM.test(t)) return [];
@@ -454,7 +483,7 @@ export const FIX_LABELS = {
   'restart-app': 'force-closing and reopening the app',
   'restart-device': 'restarting the device',
   'restart-router': 'restarting the router',
-  'wifi': 'switching to 5GHz / ethernet',
+  'wifi': 'the network (5GHz, cable, router) — tried or ruled out',
   'cache': 'clearing the cache',
   'link': 'a different link or stream',
   'backup-app': 'the backup app',

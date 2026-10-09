@@ -9,7 +9,7 @@ import {
   sendChunked, logMessage, setLogSource, recordUnanswered, chatAllowed,
   isLikelyInScope, hasScopeSignal, recordProblem, extractProblemTopic, isAdminUser,
   isContentIssue, looksLikeLiveIssue, looksLikeLoginIssue, wrongCopyIssue, withAdminContact, linkedCustomer,
-  claimedFixes, FIX_LABELS, namesFirestick,
+  claimedFixes, ruledOutCauses, FIX_LABELS, namesFirestick,
 } from './helpers.js';
 import { alertAdmins } from './reports.js';
 import { embed, retrieveFaqs, embeddingsProven } from '../ai/embeddings.js';
@@ -991,7 +991,7 @@ function asksIfBot(text) {
 // phone calls belong: we do not have a phone, and the honest version of that
 // is "the admin, here, by message", not banter.
 const WANTS_A_HUMAN =
-  /\b(?:speak|talk|chat|spk)\b[^.?!\n]{0,20}\b(?:to|with)\b[^.?!\n]{0,15}\b(?:a\s+)?(?:human|person|someone|somebody|real person|agent|advisor|manager|owner|admin|boss|staff)\b|\b(?:get|put)\b[^.?!\n]{0,15}\b(?:me\s+)?(?:through|onto|on)\b[^.?!\n]{0,15}\b(?:a\s+)?(?:human|person|someone|admin|agent)\b|\b(?:can|could|will|would)\s+(?:you|u|someone|somebody)\b[^.?!\n]{0,12}\b(?:ring|call|phone)\s+me\b|\b(?:i want|i need|id like|i'd like|gimme)\b[^.?!\n]{0,15}\b(?:a\s+)?(?:human|real person|person to talk)\b|\bhuman (?:please|pls)\b|\breal (?:person|human) please\b/i;
+  /\b(?:speak|talk|chat|spk)\b[^.?!\n]{0,20}\b(?:to|with)\b[^.?!\n]{0,15}\b(?:a\s+)?(?:human|person|someone|somebody|real person|agent|advisor|manager|owner|admin|boss|staff)\b|\b(?:get|put)\b[^.?!\n]{0,15}\b(?:me\s+)?(?:through|onto|on)\b[^.?!\n]{0,15}\b(?:a\s+)?(?:human|person|someone|admin|agent)\b|\b(?:can|could|will|would)\s+(?:you|u|someone|somebody)\b[^.?!\n]{0,12}\b(?:ring|call|phone)\s+me\b|\b(?:i want|i need|id like|i'd like|gimme)\b[^.?!\n]{0,15}\b(?:a\s+)?(?:human|real person|person to talk)\b|\bhuman (?:please|pls)\b|\breal (?:person|human) please\b|\b(?:pass|send|escalate|forward|bump|raise|report)\s+(?:it|this|that)\s+(?:on\s+)?(?:to|up)\b|\bescalate\s+(?:it|this|that)\b|\bwhoever\s+(?:runs|looks after|manages|owns)\b|\bsomeone\s+(?:technical|higher|senior|in charge)\b|\bget\s+(?:this|it)\s+to\s+(?:the\s+)?(?:team|admin|techs?|engineers?)\b|\bcan\s+(?:you|u)\s+just\s+(?:pass|send|forward|escalate)\b/i;
 
 function looksLikeHumanRequest(text) {
   const t = String(text || '').trim();
@@ -1205,6 +1205,39 @@ const ABUSE_WORDS = new Set([
 // with a real answer, and answering it with "sorry, I'm not getting this
 // right — tell me what's not working" would be gibberish.
 const GIVING_UP_RE = /\b(?:balls to (?:it|this|that)|(?:fuck|fuk|fck|screw|sack) (?:it|this|that)|forget (?:it|this|that)|can'?t be (?:arsed|bothered)|cba\b|waste of (?:time|money)|wasting my time|i'?m done|im done|done with (?:this|it)|giv(?:e|ing) up|had enough|packing (?:it|this) in|not worth it|not (?:waiting|hanging about|sitting here)|sort it out|sort this out|do something|get it sorted|fix it then)\b/i;
+
+// Refusing to troubleshoot. "I'm not doing all that" was answered with ANOTHER
+// round of steps, and "I shouldn't have to do this every week, just fix it
+// your end" with a third. They have said plainly that they are not going to
+// do it; handing them more of the same is not support, it is a machine that
+// did not read the message. It is also the clearest buying signal for a
+// human there is, short of walking out.
+const REFUSES_STEPS =
+  /\b(?:i'?m|im|am)\s+not\s+(?:doing|going to do|gonna do|doin)\b|\bnot\s+doing\s+(?:all\s+)?(?:that|this|it|them)\b|\bi\s+(?:shouldn'?t|should not)\s+have\s+to\b|\bwhy\s+(?:should|do)\s+i\s+have\s+to\b|\bnot\s+going\s+through\s+(?:all\s+)?(?:that|this)\b|\bfix\s+it\s+(?:your|at your)\s+end\b|\byour\s+end\b[^.?!\n]{0,20}\b(?:fix|sort|problem|issue|fault)\b|\b(?:fix|sort)\b[^.?!\n]{0,16}\byour\s+(?:end|side|server)\b|\bevery\s+(?:week|day|night|time)\b[^.?!\n]{0,24}\b(?:do|doing|go through|same)\b/i;
+
+// Walking out, or saying it has happened too often. "If it's not sorted today
+// I'm cancelling and going elsewhere" got the off-topic brush-off — "Ha,
+// you've lost me there 😄 Streaming's my thing" — to a customer announcing
+// they are leaving. That is the single worst reply in the whole build, at the
+// exact moment a person is worth most.
+//
+// Deliberately NOT a plain "cancel my subscription", which is an ordinary
+// request with an ordinary answer. This is the threat, and the "this keeps
+// happening" that comes before it.
+const WALKING_OUT =
+  /\b(?:i'?m|im|will be|ill be|i'?ll be)\s+(?:cancel+ing|leaving|switching|moving|going)\b|\bcancel\w*\b[^.?!\n]{0,30}\b(?:going|go)\s+elsewhere\b|\bgoing\s+(?:elsewhere|somewhere else|to someone else|back to)\b|\btake\s+my\s+(?:money|business)\s+elsewhere\b|\bwant\s+(?:a\s+)?refund\b[^.?!\n]{0,20}\bcancel\b|\blast\s+(?:chance|straw)\b/i;
+
+// Being let down, which is not the same as leaving. "You told me yesterday
+// it was fixed" and "this is the third time this month" are a customer whose
+// patience is running out over a fault that keeps coming back — you want to
+// know, and you want to know it is THAT rather than a threat, because what
+// you say to them is different.
+const LET_DOWN =
+  /\b(?:second|third|fourth|fifth|3rd|4th|2nd)\s+time\s+(?:this|in a)\s+(?:week|month|fortnight)\b|\b(?:happens|happening|been)\s+(?:every|all the)\s+(?:week|day|night)\b|\bkeeps?\s+happening\b|\byou\s+(?:told|said)\s+me\b[^.?!\n]{0,24}\b(?:fixed|sorted|working|done)\b|\b(?:was|were)\s+(?:meant|supposed)\s+to\s+be\s+(?:fixed|sorted)\b|\bagain\s+already\b/i;
+
+export const _refusesSteps = (t) => REFUSES_STEPS.test(String(t || ''));
+export const _walkingOut = (t) => WALKING_OUT.test(String(t || ''));
+export const _letDown = (t) => LET_DOWN.test(String(t || ''));
 const ABUSE_FILLER = new Set([
   'you', 'youre', 'your', 'ur', 'u', 'this', 'that', 'it', 'its', 'is', 'are',
   'am', 'a', 'an', 'the', 'what', 'whats', 'bloody', 'absolute', 'absolutely',
@@ -1239,6 +1272,12 @@ const ABUSE_FILLER = new Set([
 function looksLikeFrustration(text) {
   const t = String(text || '');
   if (!t.trim()) return null;
+  // Checked BEFORE the symptom test: "I'm not doing all that" and "if it's
+  // not sorted today I'm cancelling" both carry service vocabulary and would
+  // otherwise be filed as ordinary problem reports and answered with steps.
+  if (WALKING_OUT.test(t)) return 'walking-out';
+  if (LET_DOWN.test(t)) return 'let-down';
+  if (REFUSES_STEPS.test(t)) return 'refusing';
   // Carries a symptom: "purple is shit on firestick" is a complaint with
   // something to answer in it. It goes to the model; a canned de-escalation
   // would throw the only useful part of the message away. Anything else with
@@ -1329,15 +1368,21 @@ function withOtherAsksNote(msg, question) {
 // burst of angry messages and short enough that someone who comes back cross
 // a week later is a fresh customer having a fresh bad day.
 const UPSET_WINDOW_MS = 30 * 60 * 1000;
-const upsetSeen = new Map(); // userId -> ts of the message that raised the alert
+const upsetSeen = new Map(); // userId -> { at, rank }
 
-function upsetAlready(userId) {
+// How bad it is. A rant that gets WORSE is worth a second alert even inside
+// the window: "this is the third time this month" and then "I'm cancelling"
+// are not the same message twice, and the second one is the one you need.
+const UPSET_RANK = { abuse: 1, refusing: 2, 'giving-up': 2, 'let-down': 2, 'walking-out': 3 };
+
+function upsetAlready(userId, kind = 'abuse') {
   if (!userId) return false;
-  const last = upsetSeen.get(userId) || 0;
-  const again = Date.now() - last < UPSET_WINDOW_MS;
-  upsetSeen.set(userId, Date.now());
+  const rank = UPSET_RANK[kind] || 1;
+  const prev = upsetSeen.get(userId);
+  const fresh = prev && Date.now() - prev.at < UPSET_WINDOW_MS;
+  upsetSeen.set(userId, { at: Date.now(), rank: Math.max(rank, fresh ? prev.rank : 0) });
   if (upsetSeen.size > 2000) upsetSeen.clear();
-  return again;
+  return Boolean(fresh && rank <= prev.rank);
 }
 
 export function _resetUpset() {
@@ -1669,7 +1714,10 @@ function setProblemState(userId, patch) {
 // claim made in message one still counts in message six — and survives a
 // restart, because a fault can run for days.
 function rememberTried(userId, text, st = null) {
-  const found = claimedFixes(text);
+  // Tried it, or ruled it out — either way, do not suggest it. "It's not my
+  // wifi" has to shut down wifi advice as firmly as "I've already tried the
+  // wifi" does, and it has to keep doing so for the rest of the case.
+  const found = [...claimedFixes(text), ...ruledOutCauses(text)];
   if (!found.length) return st?.tried || [];
   const have = new Set(st?.tried || []);
   const before = have.size;
@@ -1805,6 +1853,11 @@ function negatesFixes(text) {
   if (mentionsTriedAlready(text)) return true;
   // "tried it/that/everything" counts — "HAVEN'T tried it" is the opposite
   // (live bug: "Haven't tried it today" escalated as a fix-negation).
+  // "I already told you it's not the wifi" / "like I said" — they are not
+  // giving new information, they are repeating themselves because the last
+  // answer ignored what they said. Treating that as nothing left it to fall
+  // out of triage altogether and get a banter line.
+  if (/\b(?:already told (?:you|ya|u)|like i (?:said|told you)|as i (?:said|told you)|i just (?:said|told you))\b/i.test(text)) return true;
   return /\b((is|are|was|were|looks?) (fine|right|correct|ok|okay)|already (tried|did|done|checked)|(?<!\b(?:havent|haven'?t|hadnt|hadn'?t|not|never)\s)(tried|checked|done|did) (it|that|them|those|all|everything)|nothing (works|worked|changed|happens)|(didnt|didn't|doesnt|doesn't) (help|work|change))\b/i.test(text);
 }
 
@@ -1825,7 +1878,7 @@ function thanksClosesCase(st, text) {
 const ASIDE_OUTCOMES = new Set([
   'invite', 'wallet', 'guide', 'vod-request', 'capability', 'greeting',
   'help-ask', 'human-request', 'status', 'service-set', 'canned',
-  'credential-warning', 'smalltalk', 'offtopic',
+  'credential-warning', 'smalltalk', 'offtopic', 'declined', 'service-declined',
 ]);
 
 function noteAside(ctx, outcome) {
@@ -1920,6 +1973,33 @@ function replyChainHistory(ctx, repliedTo, isFollowUp) {
     { role: 'assistant', content: String(repliedTo.text).slice(0, 1500) },
   ];
 }
+
+// "I'm not giving you my username." A refusal to hand something over is not
+// a fault report and it is not banter — it is an answer, just not the one
+// that was asked for. It got another round of troubleshooting, which reads
+// as the bot not listening, and the ask stayed armed to be nudged again.
+const REFUSES_TO_SHARE =
+  /\b(?:i'?m|im)\s+not\s+(?:giving|telling|sending|sharing|handing)\b|\bnot\s+(?:giving|telling|sending|sharing)\s+(?:you|u|ya)\b|\bwhy\s+do\s+(?:you|u)\s+need\s+(?:my|that|it)\b|\brather\s+not\s+say\b|\bnone\s+of\s+your\s+business\b|\bnot\s+comfortable\s+(?:giving|sharing|sending)\b/i;
+
+function refusesToShare(text) {
+  const t = String(text || '').trim();
+  return Boolean(t) && t.length <= 160 && REFUSES_TO_SHARE.test(t);
+}
+
+export const _refusesToShare = (t) => refusesToShare(t);
+
+// How the admin alert describes what just happened. A customer refusing to
+// troubleshoot and a customer announcing they are leaving need different
+// things from you, and "is not happy" told you neither.
+const UPSET_LABEL = {
+  'walking-out': { icon: '🔥', dm: 'is threatening to leave', case: 'is threatening to leave over' },
+  'refusing': { icon: '🙅', dm: 'will not troubleshoot any further', case: 'will not troubleshoot any further on' },
+  'let-down': { icon: '😞', dm: 'says this keeps coming back', case: 'says this keeps coming back —' },
+  'giving-up': { icon: '🚪', dm: 'is giving up', case: 'is giving up on' },
+  'abuse': { icon: '😤', dm: 'is not happy', case: 'is fed up with' },
+};
+const upsetWords = (kind, key) => (UPSET_LABEL[kind] || UPSET_LABEL.abuse)[key];
+const upsetIcon = (kind) => (UPSET_LABEL[kind] || UPSET_LABEL.abuse).icon;
 
 // The question put to the model for a follow-up round.
 //
@@ -2344,6 +2424,18 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
     return 'status';
   }
 
+  // "I'm not giving you my username." Nothing had asked for it, and it got a
+  // round of buffering advice — the bot answering a sentence it did not
+  // read. It is also worth reassuring them, since the one thing it must
+  // never want is the password.
+  if (refusesToShare(question)) {
+    setLogSource(logId, 'declined');
+    await ctx.api.sendMessage(ctx.chat.id,
+      withAdminContact("That's completely fine — you never have to. I never need your password, and the username is only ever to help the team find your line faster. What's it doing?"),
+      replyParams).catch(() => {});
+    return 'declined';
+  }
+
   // Asking for a person. Checked before the scope gate, which had this down
   // as banter — "can I speak to a human" answered with "service stuff is
   // where I shine 😄 Try me!" is the wrong answer to the clearest signal a
@@ -2441,11 +2533,11 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
     // different person walking out), so the de-duplication belongs here, per
     // person: the first message gets the apology and the alert, the rest of
     // the rant gets told that a human now has it.
-    const again = upsetAlready(ctx.from?.id);
+    const again = upsetAlready(ctx.from?.id, upset);
     if (!again) {
       const who = ctx.from?.username ? `@${ctx.from.username}`
         : [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(' ') || `id ${ctx.from?.id}`;
-      alertAdmins('frustrated', `${upset === 'giving-up' ? '🚪' : '😤'} ${who} ${upset === 'giving-up' ? 'is giving up' : 'is not happy'} in ${isDm ? 'a DM' : 'the group'}: "${String(question).slice(0, 200)}" — worth a personal message.`);
+      alertAdmins('frustrated', `${upsetIcon(upset)} ${who} ${upsetWords(upset, 'dm')} in ${isDm ? 'a DM' : 'the group'}: "${String(question).slice(0, 200)}" — worth a personal message.`);
     }
     const msg = again
       ? (await spoken('bot.frustrationRepeatMessage', question)) || await spoken('bot.frustrationMessage', question)
@@ -3163,6 +3255,14 @@ export async function handleGroupMessage(ctx) {
   // name or a username, so only one of those answers it. As a catch-all this
   // recorded "ok", "fuck this" and "i told you ive done that" as the service
   // the fault is on, and told the admin so.
+  // Same as the DM path: a no is an answer.
+  if (st?.awaitingService && refusesToShare(text)) {
+    setProblemState(ctx.from.id, { awaitingService: false, at: Date.now() });
+    setLogSource(logId, 'service-declined');
+    await ctx.api.sendMessage(ctx.chat.id, "No bother — you don't have to. The team have what they need. 👍", { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
+    return;
+  }
+
   const serviceAnswer = st?.awaitingService ? serviceAnswerIn(text) : null;
   if (st?.awaitingService && serviceAnswer) {
     setProblemState(ctx.from.id, { awaitingService: false, at: Date.now() });
@@ -3183,7 +3283,7 @@ export async function handleGroupMessage(ctx) {
   if (upset && !alreadyEscalated) {
     const who = ctx.from?.username ? `@${ctx.from.username}` : ctx.from?.first_name || `id ${ctx.from.id}`;
     const ref = caseNumberFor(ctx, st);
-    alertAdmins('frustrated', `${upset === 'giving-up' ? '🚪' : '😤'} ${who} ${upset === 'giving-up' ? 'is giving up on' : 'is fed up with'} an open problem${ref ? ` (#${ref})` : ''} in the group: "${String(text).slice(0, 200)}" — about: "${String(st.firstText || '').slice(0, 160)}". Worth a personal message.`);
+    alertAdmins('frustrated', `${upsetIcon(upset)} ${who} ${upsetWords(upset, 'case')} an open problem${ref ? ` (#${ref})` : ''} in the group: "${String(text).slice(0, 200)}" — about: "${String(st.firstText || '').slice(0, 160)}". Worth a personal message.`);
   }
 
   let isConfirmation = false;
@@ -3195,6 +3295,8 @@ export async function handleGroupMessage(ctx) {
         negatesFixes(text) ||
         hasTimeDetail(text) ||
         Boolean(upset) ||
+        // Pushing back on the diagnosis — see the DM path.
+        ruledOutCauses(text).length > 0 ||
         // After an auto-close ("assuming it's sorted?") the default flips:
         // only explicit still-broken signals above escalate — a neutral
         // update is a soft yes, handled below.
@@ -3428,6 +3530,17 @@ async function handleDmProblemReply(ctx, text, logId) {
   // service the fault is on and DMed to the admin as fact. The question asked
   // for a service name or a username, so nothing but one of those answers it;
   // anything else falls through to normal handling with the ask still armed.
+  // They have said no to the which-service question. Take the answer, drop
+  // the ask, and do not nudge them for it again — it is optional, and the
+  // team can work without it. Asking twice after a no is how a support bot
+  // turns a mild irritation into a complaint.
+  if (st.awaitingService && refusesToShare(text)) {
+    setProblemState(ctx.from.id, { awaitingService: false, at: Date.now() });
+    setLogSource(logId, 'service-declined');
+    await send("No bother — you don't have to. The team have what they need and will come back to you here. 👍");
+    return true;
+  }
+
   const namedService = st.awaitingService ? serviceAnswerIn(text) : null;
   if (st.awaitingService && namedService) {
     setProblemState(ctx.from.id, { awaitingService: false, at: Date.now() });
@@ -3445,7 +3558,7 @@ async function handleDmProblemReply(ctx, text, logId) {
   if (upset && !alreadyEscalated) {
     const who = ctx.from?.username ? `@${ctx.from.username}` : ctx.from?.first_name || `id ${ctx.from.id}`;
     const ref = caseNumberFor(ctx, st);
-    alertAdmins('frustrated', `${upset === 'giving-up' ? '🚪' : '😤'} ${who} ${upset === 'giving-up' ? 'is giving up on' : 'is fed up with'} an open problem${ref ? ` (#${ref})` : ''}: "${String(text).slice(0, 200)}" — about: "${String(st.firstText || '').slice(0, 160)}". Worth a personal message.`);
+    alertAdmins('frustrated', `${upsetIcon(upset)} ${who} ${upsetWords(upset, 'case')} an open problem${ref ? ` (#${ref})` : ''}: "${String(text).slice(0, 200)}" — about: "${String(st.firstText || '').slice(0, 160)}". Worth a personal message.`);
   }
 
   // Already flagged, and they are telling us the same thing again. Nothing
@@ -3484,6 +3597,11 @@ async function handleDmProblemReply(ctx, text, logId) {
     isConfirmation =
       isProblem || saysStillBroken(text) || negatesFixes(text) || hasTimeDetail(text) ||
       Boolean(upset) ||
+      // "It's not my wifi, I get 500mb down" is them pushing back on the
+      // diagnosis with a case open. It is not a new subject and it is not
+      // nothing: it means the fault is still there and one of our guesses
+      // was wrong.
+      ruledOutCauses(text).length > 0 ||
       (shortAffirm && !st.fromAutoClose);
   }
 
