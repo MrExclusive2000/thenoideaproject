@@ -264,6 +264,11 @@ test('the bot settings and reports pages render, and the new replies save', asyn
   assert.ok(bot.html.includes('frustrationMessage'), 'the frustration reply is editable');
   assert.ok(bot.html.includes('frustrationRepeatMessage'), 'and the line for the rest of the rant');
   assert.ok(bot.html.includes('botAdmissionMessage'), 'and the "are you a bot" opener');
+  // Three customer-facing lines had no field at all — one of them added in
+  // this same run of work. A reply nobody can edit is a reply nobody owns.
+  assert.ok(bot.html.includes('problemAlreadyFlaggedNote'), 'the already-flagged reply is editable');
+  assert.ok(bot.html.includes('busyProblemMessage'), 'and the too-busy-to-troubleshoot reply');
+  assert.ok(bot.html.includes('noListingMessage'), 'and the no-listing reply');
 
   const reports = await getWithCsrf(`${base}/admin/reports`, jar);
   assert.equal(reports.res.status, 200, 'reports page renders');

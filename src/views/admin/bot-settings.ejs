@@ -44,6 +44,18 @@
     <input id="frustrationRepeatMessage" name="frustrationRepeatMessage" type="text" maxlength="500" value="<%= s.frustrationRepeatMessage %>">
     <p class="hint">A rant is several messages, not one, and apologising three times in the same words reads like a machine that heard none of it. The first message gets the line above and DMs you; the rest of the rant gets this one and no further DMs — so one angry customer is one notification, not five. A different person always gets through.</p>
 
+    <label for="problemAlreadyFlaggedNote">Reply when someone reports an already-flagged problem again — empty = handle it normally</label>
+    <input id="problemAlreadyFlaggedNote" name="problemAlreadyFlaggedNote" type="text" maxlength="600" value="<%= s.problemAlreadyFlaggedNote %>">
+    <p class="hint">After "flagged to the team, no need to report it again", the next "it's still doing it" used to get "I'm not totally sure on that one — message the admin": the bot disowning a case it had just taken. Write <code>{case}</code> where you want the reference number. A genuinely <em>different</em> fault still opens its own case.</p>
+
+    <label for="busyProblemMessage">Reply to a problem report when the AI is too busy to troubleshoot</label>
+    <input id="busyProblemMessage" name="busyProblemMessage" type="text" maxlength="600" value="<%= s.busyProblemMessage %>">
+    <p class="hint">During an outage everybody reports at once and the AI queue fills. The report is still saved and still reaches you — this is what the customer is told meanwhile, so nobody is left staring at silence. <code>{case}</code> and <code>{admin}</code> both work.</p>
+
+    <label for="noListingMessage">Reply to a channel or fixture question with nothing cached to answer from</label>
+    <input id="noListingMessage" name="noListingMessage" type="text" maxlength="600" value="<%= s.noListingMessage %>">
+    <p class="hint">Answered by code rather than the AI on purpose: handed an empty guide, a model will invent a channel or a kick-off time, and a customer who sits down for a match that was never on blames the service. Empty = let the model try anyway.</p>
+
     <label for="photoMessage">Reply when someone sends a photo/video/voice note the bot can't read — empty = silent</label>
     <input id="photoMessage" name="photoMessage" type="text" maxlength="500" value="<%= s.photoMessage %>">
     <p class="hint">In private messages: any photo without a caption gets this. In the group: ONLY when the photo is a reply to one of the bot's messages — members sharing photos with each other are never interrupted. Captions are read as normal messages. Stickers and GIFs are ignored.</p>
