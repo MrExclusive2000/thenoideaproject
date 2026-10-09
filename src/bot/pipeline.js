@@ -9,7 +9,7 @@ import {
   sendChunked, logMessage, setLogSource, recordUnanswered, chatAllowed,
   isLikelyInScope, hasScopeSignal, recordProblem, extractProblemTopic, isAdminUser,
   isContentIssue, looksLikeLiveIssue, looksLikeLoginIssue, wrongCopyIssue, withAdminContact, linkedCustomer,
-  claimedFixes, ruledOutCauses, FIX_LABELS, namesFirestick,
+  claimedFixes, ruledOutCauses, FIX_LABELS, namesFirestick, problemFamily, familyOfTopic,
 } from './helpers.js';
 import { alertAdmins } from './reports.js';
 import { embed, retrieveFaqs, embeddingsProven } from '../ai/embeddings.js';
@@ -2002,6 +2002,26 @@ function refusesToShare(text) {
 
 export const _refusesToShare = (t) => refusesToShare(t);
 
+// Two messages in one. "No that's all fixed. My new issue is Oppenheimer
+// won't play" was read as a resolution, the case was closed, and the bot
+// said "Great to hear that! Glad it's sorted now! 👍" — to somebody who had
+// just reported a fault in the same breath. The new one was thrown away
+// entirely: no case, nothing on the panel, nothing in the outage counter.
+// A customer who reports a problem and gets congratulated does not report
+// the next one.
+//
+// Narrow on purpose: they have to have SIGNPOSTED a second thing. "Cheers,
+// that fixed the buffering" names a symptom and is still just a thank-you.
+const NEW_ISSUE_MARKER =
+  /\b(?:new|another|different|separate|second|next|other)\s+(?:issue|problem|thing|one|fault|question)\b|\bbut\s+now\b|\bnow\s+\w+\s+(?:wont|won'?t|isn'?t|doesn'?t|doesnt|has|keeps)\b|\bone more thing\b|\bwhile\s+i'?m\s+here\b|\bwhilst\s+i'?m\s+here\b|\bnext\s+(?:issue|problem|one)\b|\bmy\s+new\b/i;
+
+function alsoReportsSomethingNew(text) {
+  const t = String(text || '');
+  return NEW_ISSUE_MARKER.test(t) && looksLikeProblem(t);
+}
+
+export const _alsoReportsSomethingNew = (t) => alsoReportsSomethingNew(t);
+
 // How the admin alert describes what just happened. A customer refusing to
 // troubleshoot and a customer announcing they are leaving need different
 // things from you, and "is not happy" told you neither.
@@ -3218,8 +3238,12 @@ export async function handleGroupMessage(ctx) {
   // again, same problem, or that the fixes did not work, is BY DEFINITION
   // about the case already open.
   if (st?.topic && looksLikeProblem(text) && !saysStillBroken(text) && !negatesFixes(text)) {
-    const newTopic = extractProblemTopic(text);
-    if (newTopic && newTopic !== st.topic) {
+    // Only a different KIND of fault starts a new case. "It isn't loading"
+    // mid-case is the same one described again; "now I can't log in at all"
+    // during a buffering case is genuinely a second thing.
+    const newFamily = problemFamily(text);
+    const openFamily = familyOfTopic(st.topic);
+    if (newFamily && openFamily && newFamily !== openFamily) {
       clearProblemState(ctx.from.id);
       st = null;
     }
@@ -3245,18 +3269,27 @@ export async function handleGroupMessage(ctx) {
   // whenever an unrelated answer goes out, so it reads as "we gave them fixes
   // and nothing has happened since".
   if (st && thanksClosesCase(st, text) && !saysStillBroken(text)) {
+    const carriesNew = alsoReportsSomethingNew(text);
     clearProblemState(ctx.from.id);
     resolveOpenCase(ctx.from.id, 'user', st?.caseId);
-    setLogSource(logId, 'resolved');
     if (alreadyEscalated) {
       // The admin was pinged earlier — close that loop too.
       hub.notifyAdmins(`✅ @${ctx.from?.username || ctx.from?.first_name} says their issue is now fixed: "${text.slice(0, 120)}"`).catch(() => {});
     }
-    const note = withCaseNumber(await spoken('bot.problemResolvedNote', text), caseNumberFor(ctx, st));
-    if (note) {
-      await ctx.api.sendMessage(ctx.chat.id, note, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
+    // They closed one and opened another in the same breath. Acknowledge the
+    // close in a line, then carry on and treat the rest as the new report it
+    // is — a fresh case, fixes, the lot.
+    if (carriesNew) {
+      await ctx.api.sendMessage(ctx.chat.id, '👍 Glad that one is sorted. Right — the new one:', { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
+      st = null;
+    } else {
+      setLogSource(logId, 'resolved');
+      const note = withCaseNumber(await spoken('bot.problemResolvedNote', text), caseNumberFor(ctx, st));
+      if (note) {
+        await ctx.api.sendMessage(ctx.chat.id, note, { reply_parameters: { message_id: ctx.message.message_id } }).catch(() => {});
+      }
+      return;
     }
-    return;
   }
 
   // The escalation ack asked which service the problem is on — capture the
@@ -3493,8 +3526,12 @@ async function handleDmProblemReply(ctx, text, logId) {
   // A different problem is a new case, not more detail on this one — see the
   // group path. Returning false hands it to the first-report flow.
   if (st.topic && looksLikeProblem(text) && !saysStillBroken(text) && !negatesFixes(text)) {
-    const newTopic = extractProblemTopic(text);
-    if (newTopic && newTopic !== st.topic) {
+    // Only a different KIND of fault starts a new case. "It isn't loading"
+    // mid-case is the same one described again; "now I can't log in at all"
+    // during a buffering case is genuinely a second thing.
+    const newFamily = problemFamily(text);
+    const openFamily = familyOfTopic(st.topic);
+    if (newFamily && openFamily && newFamily !== openFamily) {
       clearProblemState(ctx.from.id);
       return false;
     }
@@ -3512,12 +3549,20 @@ async function handleDmProblemReply(ctx, text, logId) {
   }
   // Same rule as the group: see thanksClosesCase.
   if (thanksClosesCase(st, text) && !saysStillBroken(text)) {
+    const carriesNew = alsoReportsSomethingNew(text);
     clearProblemState(ctx.from.id);
     resolveOpenCase(ctx.from.id, 'user', st?.caseId);
-    setLogSource(logId, 'resolved');
     if (alreadyEscalated) {
       hub.notifyAdmins(`✅ @${ctx.from?.username || ctx.from?.first_name} says their issue is now fixed: "${text.slice(0, 120)}"`).catch(() => {});
     }
+    // Closed one, opened another, same message. Handing it back to the
+    // first-report flow is what makes the second one a real case instead of
+    // a line nobody read — see alsoReportsSomethingNew.
+    if (carriesNew) {
+      await send('👍 Glad that one is sorted. Right — the new one:');
+      return false;
+    }
+    setLogSource(logId, 'resolved');
     const note = withCaseNumber(await spoken('bot.problemResolvedNote', text), caseNumberFor(ctx, st));
     if (note) await send(note);
     return true;

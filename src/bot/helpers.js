@@ -340,8 +340,50 @@ export function extractProblemTopic(text) {
     /\b(buffer\w*|freez\w*|frozen|lag\w*|stutter\w*|glitch\w*|crash\w*|black ?screen|pixel+at\w*|pixel+y|blocky|judder\w*|tearing|choppy|grainy|blurry|distort\w*|ghosting|green screen|out of sync|lip ?sync|playback error|no (?:sound|audio|picture|video)|wrong (?:version|copy|language|audio)|missing episode|offline|error|not work\w*)\b/
   );
   if (specific) return specific[1].replace(/\s+/g, ' ');
-  const generic = t.match(/\b(wont \w+|cant \w+|keeps? \w+)\b/);
+  // The apostrophe forms were missing, which is the form most phones
+  // produce: "Oppenheimer wont play" labelled as "wont play" and
+  // "Oppenheimer won't play" labelled as nothing at all. Same fault, same
+  // sentence, and only one of them groups on the panel.
+  const generic = t.match(/\b(w(?:on'?|o)t \w+|c(?:an'?|an)t \w+|does(?:n'?)?t \w+|is(?:n'?)?t \w+|keeps? \w+)\b/);
   return generic ? generic[1].replace(/\s+/g, ' ') : null;
+}
+
+// Was that label a real symptom, or the catch-all? "Buffering" and "invalid
+// login" identify a fault; "wont play" and "isnt on" are just the shape of
+// the sentence, and two of those are not evidence of two different faults.
+//
+// It matters because topic equality is what decides whether a message joins
+// the open case or starts a new one. Widening the catch-all to cover
+// apostrophes immediately split "playback error on the tom hanks series"
+// from "done all this, it isn't on another app" into two incidents — the
+// same person, the same fault, one of them a second row on the panel.
+const GENERIC_TOPIC = /^(?:w(?:on'?|o)t|c(?:an'?|an)t|does(?:n'?)?t|is(?:n'?)?t|keeps?|keep) /i;
+
+export function isGenericTopic(topic) {
+  return !topic || GENERIC_TOPIC.test(String(topic));
+}
+
+// What KIND of fault this is, coarsely. Raw labels are too fine to compare:
+// "cant log in" and "buffering" are plainly two different faults even though
+// the first label is catch-all shaped, while "playback error" and "isn't on"
+// are plainly one. So messages are grouped by family instead, and only two
+// KNOWN and DIFFERENT families count as a second incident.
+const AUTH_TOPIC = /^(?:invalid |login |unauthoris|unauthoriz|authentication|max |too many)/i;
+
+export function problemFamily(text) {
+  const topic = extractProblemTopic(text);
+  if (topic && !isGenericTopic(topic)) {
+    return AUTH_TOPIC.test(topic) ? 'login' : `symptom:${topic}`;
+  }
+  // The label was the catch-all, but the message may still name a kind.
+  if (looksLikeLoginIssue(text)) return 'login';
+  return null;
+}
+
+// The same question asked of a stored label rather than the original text.
+export function familyOfTopic(topic) {
+  if (!topic || isGenericTopic(topic)) return null;
+  return AUTH_TOPIC.test(topic) ? 'login' : `symptom:${topic}`;
 }
 
 // One row per INCIDENT, not per message: while a user has an open recent
@@ -361,7 +403,13 @@ export function recordProblem(ctx, text, { answered = false, service = null } = 
     // cases — merging them hid the second one completely, and resolving the
     // first silently closed both.
     const newTopic = extractProblemTopic(text);
-    const sameProblem = open && (!newTopic || !open.topic || newTopic === open.topic);
+    // A generic label on either side is no evidence of a different fault, so
+    // it never splits an incident.
+    // Two KNOWN and different families are two incidents; anything less is
+    // the same one described again.
+    const newFamily = problemFamily(text);
+    const openFamily = familyOfTopic(open?.topic);
+    const sameProblem = open && (!newFamily || !openFamily || newFamily === openFamily);
     if (open && sameProblem) {
       const combined = `${open.text}\n↳ ${t}`.slice(0, 1500);
       db.prepare(

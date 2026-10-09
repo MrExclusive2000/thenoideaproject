@@ -1479,6 +1479,77 @@ test('the "that was quick!" pushback does not land on someone who took their tim
   }
 });
 
+test('closing one fault and reporting another in the same breath', async () => {
+  // Live: "No that's all fixed. My new issue is Oppenheimer won't play" was
+  // answered with "Great to hear that! Glad it's sorted now! 👍" The
+  // resolution branch took the first half, closed the case and returned —
+  // the new fault was thrown away entirely. No case, nothing on the panel,
+  // nothing in the outage counter. A customer who reports a problem and
+  // gets congratulated on it does not report the next one.
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.problemFixRounds', 1);
+  setSetting('bot.problemNudgeMinutes', 0);
+  setSetting('service.status', 'operational');
+  _resetProblemTriage();
+  _resetProblemQueue();
+  db.prepare('DELETE FROM problem_reports').run();
+
+  aiResponse = 'Try a different link for that channel.';
+  await handleDirectMessage(fakeCtx('bbc1 keeps freezing', { userId: 99661 }), 'bbc1 keeps freezing');
+
+  aiResponse = 'Back out of the title and reopen it, then try another version of it.';
+  const both = fakeCtx("No that's all fixed. My new issue is Oppenheimer won't play", { userId: 99661 });
+  await handleDirectMessage(both, "No that's all fixed. My new issue is Oppenheimer won't play");
+  const said = both.sent.map((x) => x.msg).join('\n');
+  assert.match(said, /Glad that one is sorted/, 'the close is acknowledged');
+  assert.match(said, /another version/, 'and the NEW fault is actually answered');
+
+  const rows = db.prepare('SELECT topic, resolved FROM problem_reports WHERE tg_user_id = 99661 ORDER BY id').all();
+  assert.equal(rows.length, 2, 'the new fault is its own case on the panel');
+  assert.equal(rows[0].resolved, 1, 'the old one closed');
+  assert.equal(rows[1].resolved, 0, 'the new one open');
+
+  // A plain thank-you still just closes it — including one that names the
+  // symptom it is thanking us for.
+  for (const [uid, t] of [[99662, 'thats sorted it now cheers'], [99663, 'cheers that fixed the freezing']]) {
+    _resetProblemTriage();
+    aiResponse = 'Try a different link for that channel.';
+    await handleDirectMessage(fakeCtx('bbc1 keeps freezing', { userId: uid }), 'bbc1 keeps freezing');
+    const done = fakeCtx(t, { userId: uid });
+    await handleDirectMessage(done, t);
+    assert.doesNotMatch(done.sent.map((x) => x.msg).join('\n'), /the new one/, `just a thank-you: ${t}`);
+  }
+
+  setSetting('bot.problemFixRounds', 1);
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('a catch-all label never splits one fault into two cases', async () => {
+  // Widening topic extraction to cover apostrophes ("won't play" had been
+  // labelled nothing while "wont play" was labelled) immediately split one
+  // incident in two: topic equality is what decides whether a message joins
+  // the open case, and "isn't on" is not evidence of a different fault.
+  // Faults are compared by KIND now, not by the shape of the sentence.
+  const { extractProblemTopic, problemFamily, familyOfTopic, isGenericTopic } =
+    await import('../src/bot/helpers.js');
+
+  // The apostrophe forms label at all, which was the point.
+  assert.equal(extractProblemTopic("Oppenheimer won't play"), "won't play");
+  assert.equal(extractProblemTopic("the app doesn't load"), "doesn't load");
+  assert.ok(isGenericTopic("won't play"), 'but they are catch-alls');
+  assert.ok(!isGenericTopic('buffering'));
+
+  // Same fault, described twice — one incident.
+  assert.equal(familyOfTopic("isn't on"), null);
+  assert.equal(problemFamily("Done all this it isn't on another app"), null);
+
+  // Genuinely different kinds — two incidents.
+  assert.equal(problemFamily('bbc1 keeps buffering'), 'symptom:buffering');
+  assert.equal(problemFamily('now i cant log in at all'), 'login');
+  assert.equal(problemFamily('it says invalid login'), 'login');
+  assert.notEqual(problemFamily('bbc1 keeps buffering'), problemFamily('now i cant log in at all'));
+});
+
 test('"my sub ran out" is money on the table, not banter', async () => {
   // Only the full word "subscription" was service vocabulary, so the sentence
   // every renewal starts with read as chat and got "Ha, that one's a bit
