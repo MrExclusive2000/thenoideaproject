@@ -60,4 +60,13 @@ export const CREDENTIAL_WARNING =
   // {admin} already expands to "message @handle directly" — prefixing it with
   // another "message" produced "message message @ExclusiveDoctor directly".
   'I never need it: everything I do works without it. Delete that message if you can, then ' +
-  '{admin} to get your password changed, just to be safe.';
+  '{admin} to get your password changed, just to be safe.\n\n' +
+  // The message that carries a password usually carries a problem too — the
+  // live one was "cant log in. username is X password is Y". The warning
+  // answered the password half and dropped the other half, so the customer's
+  // next message ("so what do i do") arrived with no context at all and got
+  // the off-topic brush-off. The message itself can never go any further than
+  // this function — it must not reach the model, the cache or the history —
+  // so the only safe way to pick the thread back up is to ask for it again
+  // without the password in it.
+  'Now — what was it actually doing? Tell me that bit (no password needed) and I\'ll get it sorted.';

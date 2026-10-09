@@ -159,6 +159,11 @@ const STRONG_SCOPE_TERMS = new Set([
   'app', 'apps', 'purple', 'smarters', 'downloader', 'firestick', 'iphone', 'ipad', 'ios', 'apk', 'sideload',
   'install', 'installing', 'installed', 'reinstall', 'vod', 'iptv', 'buffering', 'playback',
   'login', 'password', 'username', 'invalid', 'subscription', 'renew', 'renewal', 'expiry', 'expired',
+  // "My sub ran out yesterday" was banter: only the full word "subscription"
+  // counted, and nobody types that. It is somebody telling you they want to
+  // give you money, and it got "Ha, that one's a bit above my pay grade".
+  // "Line" is the trade word for the same thing and was missing too.
+  'sub', 'subs', 'line', 'lines', 'expires', 'expiring',
   'pay', 'payment', 'paying', 'crypto', 'litecoin', 'ltc', 'wallet', 'exodus',
   'vpn', 'router', 'ethernet', 'panel', 'portal', 'developer', 'url',
   'service', 'price', 'prices', 'cost', 'costs', 'trial', 'ufc', 'ppv',

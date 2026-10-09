@@ -9,7 +9,7 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-test-'));
 
 const { db } = await import('../src/db/db.js');
 const { setSetting, getSetting } = await import('../src/settings.js');
-const { answer, handleDirectMessage, handleGroupMessage, replyContext, _resetProblemTriage, _resetSmallTalk, _resetUpset } = await import('../src/bot/pipeline.js');
+const { answer, handleDirectMessage, handleGroupMessage, replyContext, _resetProblemTriage, _resetSmallTalk, _resetUpset, _resetPendingTitle } = await import('../src/bot/pipeline.js');
 const { _aiQueueState, askAi, buildSystemPrompt } = await import('../src/ai/client.js');
 const { flushProblemAlerts, _resetProblemQueue, autoCloseSweep } = await import('../src/bot/problems.js');
 const { hub } = await import('../src/bot/hub.js');
@@ -1009,6 +1009,139 @@ test('a full answer ending with a dead-end question is stripped before sending',
   assert.doesNotMatch(ctx.sent[0].msg, /other specific questions/, 'dead-end question removed');
   assert.doesNotMatch(ctx.sent[0].msg.trimEnd(), /\?$/, 'reply no longer ends with a question');
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('"same here" counts as a report, so the room is actually counted', async () => {
+  // Found by simulating a group outage. One person reported, three replied
+  // "same here" / "me too" / "ditto" — and all three read as nothing at all:
+  // no scope signal, not a problem. The bot said nothing back to them, and
+  // none of it reached problem_reports, which is the table the outage
+  // detector counts distinct people in. Four people with a fault, a counter
+  // that had seen one, and nobody told we knew.
+  //
+  // "Nothing is loading at all" was the other half of it: the verb had to
+  // follow "nothing" immediately, so the commonest sentence in a total
+  // outage was not a problem report either.
+  const { getSetting } = await import('../src/settings.js');
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.responseMode', 'all');
+  setSetting('problems.degradeThreshold', 3);
+  setSetting('service.status', 'operational');
+  setSetting('service.note', '');
+  setSetting('service.autoDegradedAt', 0);
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  hub.api = { sendMessage: async () => ({ message_id: 1 }) };
+  aiResponse = 'Try a different link for that channel, then reopen the app.';
+
+  const seen = [];
+  for (const [userId, text] of [
+    [94001, 'nothing is loading at all'],
+    [94002, 'same here'],
+    [94003, 'me too'],
+    [94004, 'ditto'],
+  ]) {
+    const ctx = fakeCtx(text, { chatType: 'group', userId });
+    await handleGroupMessage(ctx);
+    seen.push(ctx);
+  }
+
+  assert.equal(db.prepare('SELECT COUNT(DISTINCT tg_user_id) n FROM problem_reports').get().n, 4,
+    'all four people are counted, not just the one who spelled it out');
+  assert.ok(seen[0].sent.length, '"nothing is loading at all" is answered, not ignored');
+  assert.equal(getSetting('service.status'), 'degraded', 'and the outage is detected');
+  assert.match(seen[3].sent.map((s) => s.msg).join('\n'), /aware of a service issue/,
+    'so the people piling on get told we know');
+  // The note already ends in a full stop; "...looking into it.. This may be"
+  // was going out to everybody.
+  assert.doesNotMatch(seen[3].sent.map((s) => s.msg).join('\n'), /\.\.\s/, 'no doubled full stop');
+
+  hub.api = null;
+  setSetting('problems.degradeThreshold', 0);
+  setSetting('bot.responseMode', 'questions');
+  setSetting('service.status', 'operational');
+  setSetting('service.note', '');
+  setSetting('service.autoDegradedAt', 0);
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('a fault that comes back after a case closed opens a new one', async () => {
+  // Simulated customer: "bbc1 keeps freezing" → fixes → "that's sorted it
+  // cheers" → "spoke too soon, the sound has gone now". The last message
+  // produced NO problem report at all and got "I'm not totally sure, message
+  // the admin" — the fault never reached the panel and never counted toward
+  // outage detection. "The sound has gone" was not a problem report, because
+  // the pattern wanted "no sound", and nobody whose audio dies mid-match
+  // types that.
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.problemFixRounds', 1);
+  setSetting('bot.problemNudgeMinutes', 0);
+  setSetting('service.status', 'operational');
+  _resetProblemTriage();
+  _resetProblemQueue();
+  db.prepare('DELETE FROM problem_reports').run();
+  aiResponse = 'Try a different link for that channel, then reopen the app.';
+
+  await handleDirectMessage(fakeCtx('bbc1 keeps freezing', { userId: 99991 }), 'bbc1 keeps freezing');
+  const closed = fakeCtx("thats sorted it cheers", { userId: 99991 });
+  await handleDirectMessage(closed, "thats sorted it cheers");
+  assert.match(closed.sent.map((s) => s.msg).join('\n'), /sorted/i, 'case closed');
+
+  aiResponse = 'Check the audio track in the player settings for that channel.';
+  const again = fakeCtx('spoke too soon, the sound has gone now', { userId: 99991 });
+  await handleDirectMessage(again, 'spoke too soon, the sound has gone now');
+  assert.match(again.sent.map((s) => s.msg).join('\n'), /audio track/, 'answered');
+  const rows = db.prepare('SELECT resolved FROM problem_reports WHERE tg_user_id = 99991 ORDER BY id').all();
+  assert.equal(rows.length, 2, 'the new fault is on the panel, not dropped');
+  assert.equal(rows[0].resolved, 1);
+  assert.equal(rows[1].resolved, 0, 'and it is open');
+
+  const { _looksLikeProblem } = await import('../src/bot/pipeline.js');
+  for (const t of ['the sound has gone', 'audio has dropped', 'ive lost the picture', 'the channels have gone']) {
+    assert.equal(_looksLikeProblem(t), true, t);
+  }
+  for (const t of ['the sound is great', 'hes gone to the pub', 'the match has gone to extra time']) {
+    assert.equal(_looksLikeProblem(t), false, t);
+  }
+  aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
+});
+
+test('"my sub ran out" is money on the table, not banter', async () => {
+  // Only the full word "subscription" was service vocabulary, so the sentence
+  // every renewal starts with read as chat and got "Ha, that one's a bit
+  // above my pay grade."
+  const { isLikelyInScope } = await import('../src/bot/helpers.js');
+  for (const t of [
+    'my sub ran out yesterday',
+    'my sub has run out',
+    'sub ran out',
+    'my sub is up tomorrow',
+    'my line ran out',
+  ]) assert.equal(isLikelyInScope(t), true, t);
+});
+
+test('a pile-on with nothing to pile onto is not a fault report', async () => {
+  const { _looksLikePileOn } = await import('../src/bot/pipeline.js');
+  for (const t of ['same here', 'me too', 'ditto', 'same', 'me as well', 'mine as well']) {
+    assert.equal(_looksLikePileOn(t), true, t);
+  }
+  // Single words that mean other things, and anything carrying content.
+  for (const t of ['me', 'yes', 'ok', 'same film as you watched', 'same time tomorrow']) {
+    assert.equal(_looksLikePileOn(t), false, t);
+  }
+  // In an empty group it opens no case: the detector needs another member's
+  // report in the last fifteen minutes, which this group has not had.
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.responseMode', 'all');
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  const ctx = fakeCtx('same here', { chatType: 'group', userId: 94011 });
+  await handleGroupMessage(ctx);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM problem_reports').get().n, 0);
+  setSetting('bot.responseMode', 'questions');
 });
 
 test('three people reporting buffering auto-degrades; the tipping reporter sees the banner', async () => {
@@ -2999,6 +3132,82 @@ test('a title in only ONE library is not claimed for a user we cannot place', as
   const ctx = fakeCtx('can we get The Bear', { userId: 777333 });
   await handleDirectMessage(ctx, ctx.message.text);
   assert.equal(db.prepare('SELECT COUNT(*) n FROM vod_requests').get().n, 1, 'recorded rather than guessed at');
+});
+
+test('"have you got X" never claims we have not got it before asking who they are', async () => {
+  // Live shape from a simulated customer: The Bear is on Exclusive and not on
+  // Flix, nobody had said which they were on, and the bot answered "Not in
+  // there at the moment — I've checked", filed a request and DMed the admin
+  // about a title we carry. It had checked nothing of the kind.
+  stockLibrary();
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+  setSetting('bot.cooldownSeconds', 0);
+  db.prepare('DELETE FROM vod_requests').run();
+  _resetProblemTriage();
+  _resetPendingTitle();
+
+  const ctx = fakeCtx('have you got the bear', { userId: 99211 });
+  await handleDirectMessage(ctx, ctx.message.text);
+  const asked = ctx.sent.map((s) => s.msg).join('\n');
+  assert.doesNotMatch(asked, /I've checked/, 'it has not checked anything');
+  assert.match(asked, /Exclusive/, 'it says where the title actually is');
+  assert.match(asked, /which are you on/i, 'and asks the only question that settles it');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM vod_requests').get().n, 0,
+    'and files nothing for a title we may well carry');
+
+  // Answering with a bare service name settles it — and answers the question
+  // they asked, rather than confirming the service and making them ask twice.
+  const reply = fakeCtx('exclusive', { userId: 99211 });
+  await handleDirectMessage(reply, 'exclusive');
+  assert.match(reply.sent.map((s) => s.msg).join('\n'), /Bear/, 'the title question is answered');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM vod_requests').get().n, 0, 'still nothing filed');
+});
+
+test('a customer on the other service is told the truth and gets a request', async () => {
+  stockLibrary();
+  db.prepare('DELETE FROM vod_requests').run();
+  _resetProblemTriage();
+  _resetPendingTitle();
+
+  const ctx = fakeCtx('have you got the bear', { userId: 99212 });
+  await handleDirectMessage(ctx, ctx.message.text);
+  const reply = fakeCtx('flix', { userId: 99212 });
+  await handleDirectMessage(reply, 'flix');
+  const msg = reply.sent.map((s) => s.msg).join('\n');
+  assert.match(msg, /Not in there|isn't in there/i, 'now it genuinely has checked');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM vod_requests').get().n, 1, 'and files the request');
+});
+
+test('a second title asked as "and X" is a second title', async () => {
+  // "have you got paw patrol" → "and oppenheimer" → "what about the sopranos".
+  // The first was answered; the second was swallowed by the which-service
+  // question it had just armed ("Which one — Which service is this for?") and
+  // the third got a banter line.
+  stockLibrary();
+  setSetting('bot.cooldownSeconds', 0);
+  db.prepare('DELETE FROM vod_requests').run();
+  _resetProblemTriage();
+  _resetPendingTitle();
+  const { _resetTitleMemory } = await import('../src/bot/pipeline.js');
+  _resetTitleMemory();
+
+  const first = fakeCtx('have you got severance', { userId: 99213 });
+  await handleDirectMessage(first, first.message.text);
+  assert.match(first.sent.map((s) => s.msg).join('\n'), /Severance/);
+
+  for (const [text, want] of [['and oppenheimer', /Oppenheimer/], ['what about severance', /Severance/]]) {
+    const next = fakeCtx(text, { userId: 99213 });
+    await handleDirectMessage(next, text);
+    assert.match(next.sent.map((s) => s.msg).join('\n'), want, text);
+  }
+
+  // Without a title in recent memory, "and the wifi" is not a film.
+  _resetTitleMemory();
+  const { parseTitleFollowUp } = await import('../src/bot/requests.js');
+  assert.equal(parseTitleFollowUp('and the wifi'), null, 'NOT_VOD_TOPIC still applies');
+  assert.equal(parseTitleFollowUp('what about my refund'), null);
+  assert.equal(parseTitleFollowUp('and it'), null, 'a pronoun is the previous title, not a new one');
 });
 
 // --- service-specific questions ask which service ----------------------------

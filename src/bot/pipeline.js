@@ -25,7 +25,7 @@ import {
   queueProblemAlert, setProblemRearmHook, maybeAutoDegrade,
   looksLikeCaseClose, caseNumbersIn, closeCaseAsAdmin, openCaseIds,
 } from './problems.js';
-import { parseVodRequest, parseNaturalVodRequest, parseAvailabilityQuestion, serviceNamedIn, recordVodRequest, setRequestService, lookupImdb, canonicalizeRequest } from './requests.js';
+import { parseVodRequest, parseNaturalVodRequest, parseAvailabilityQuestion, parseTitleFollowUp, serviceNamedIn, recordVodRequest, setRequestService, lookupImdb, canonicalizeRequest } from './requests.js';
 import { hub } from './hub.js';
 
 // Both request shapes: the taught "Request: Title" and natural "can we get X".
@@ -675,6 +675,36 @@ function followUpAboutLastTitle(ctx, question) {
   return recallTitleAsked(ctx);
 }
 
+// Unknown service, two named services whose libraries differ, and this title
+// is in one of them but not the other. Nothing truthful can be said about it
+// until we know who they are.
+// Returns the service that HAS it, or null when the question does not turn
+// on which service they are on.
+function libraryDependsOnService(ctx, title, asked = '') {
+  if (serviceNumberFor(ctx, asked)) return null;
+  if (!twoServicesNamed() || !serviceAmbiguous()) return null;
+  if (!vodKnown(1) || !vodKnown(2)) return null;
+  const one = findVodTitle(title, { service: 1 }).length > 0;
+  const two = findVodTitle(title, { service: 2 }).length > 0;
+  if (one === two) return null;
+  return one ? 1 : 2;
+}
+
+// A title we could not answer until they say which service they are on. Held
+// so that answering the question actually answers the question, rather than
+// leaving them to ask again.
+const pendingTitleService = new Map(); // chatId:userId -> { title, at }
+
+export function _resetPendingTitle() { pendingTitleService.clear(); }
+
+function takePendingTitle(ctx) {
+  const key = `${ctx.chat?.id}:${ctx.from?.id}`;
+  const st = pendingTitleService.get(key);
+  if (!st) return null;
+  pendingTitleService.delete(key);
+  return Date.now() - st.at < URL_TTL_MS ? st.title : null;
+}
+
 async function answerAvailability(ctx, title, asked = '') {
   rememberTitleAsked(ctx, title);
   // A CHANNEL first. "Do you have Sky Sports" was being filed as a request for
@@ -707,6 +737,26 @@ async function answerAvailability(ctx, title, asked = '') {
     // IMDb agrees, or had nothing to say — the library answer stands, and a
     // confirmed title can be named properly rather than as the panel wrote it.
     return { text: libraryHitText(hit, verdict?.meant || null), poster };
+  }
+
+  // Unknown service, and the two libraries DISAGREE about this title. The
+  // live shape: Paw Patrol is on Exclusive and not on Flix, nobody had said
+  // which they were on, and the bot answered "Not in there at the moment —
+  // I've checked", filed a request and DMed the admin about a film we carry.
+  // It had not checked anything of the kind. Ask first, claim nothing, file
+  // nothing — and answer it properly once they say.
+  const onlyOn = libraryDependsOnService(ctx, title, asked);
+  if (onlyOn) {
+    pendingTitleService.set(`${ctx.chat?.id}:${ctx.from?.id}`, { title, at: Date.now() });
+    if (pendingTitleService.size > 500) {
+      pendingTitleService.delete(pendingTitleService.keys().next().value);
+    }
+    const s = serviceConfig();
+    const has = onlyOn === 1 ? s.one.name : s.two.name;
+    const hasnt = onlyOn === 1 ? s.two.name : s.one.name;
+    // Naming WHERE it is makes the question worth answering, and a customer
+    // on the other one has just been told something worth knowing.
+    return { text: `That one's on ${has} but not on ${hasnt} — which are you on?`, poster };
   }
 
   const service = serviceNumberFor(ctx, asked);
@@ -831,7 +881,11 @@ async function handleVodServiceReply(ctx, text, logId, replyParams) {
   // "which service is that request for?".
   if (looksLikeQuestion(text) || anyVodRequest(text) || parseAvailabilityQuestion(text)
       || looksLikeProblem(text) || looksLikeGreeting(text) || looksLikeThanks(text)
-      || looksLikeAcknowledgement(text)) {
+      || looksLikeAcknowledgement(text)
+      // "and oppenheimer" straight after a title answer is a SECOND title, and
+      // it was being eaten as a failed attempt at naming a service — answered
+      // with "Which one — Which service is this for?".
+      || (recallTitleAsked(ctx) && parseTitleFollowUp(text))) {
     pendingVodService.delete(key);
     return false;
   }
@@ -856,7 +910,7 @@ async function handleVodServiceReply(ctx, text, logId, replyParams) {
     await send(`👍 Got it — noted for ${label}.`);
   } else if (st.attempts < 1) {
     st.attempts++;
-    await send(`Which one — ${vodServiceAskText()}`);
+    await send(vodServiceAskText());
   } else {
     pendingVodService.delete(key);
     await send('No worries — the team will sort it 👍');
@@ -876,6 +930,9 @@ const GREETING_WORDS = new Set([
   // saying hello got told it was not our area.
   'sir', 'madam', 'maam', 'boss', 'chief', 'bro', 'bruv', 'fella', 'fellas',
   'gents', 'dude', 'folks', 'team', 'everybody', 'big', 'man', 'people',
+  // "hello friend" is a greeting. It was not one, because "friend" was
+  // missing, so it went to banter.
+  'friend', 'friends', 'brother', 'bruh', 'sis', 'love', 'duck', 'pet',
   // Typed fast, or on a phone. "alo" is a hello and it was getting "that
   // one's a bit above my pay grade" — as somebody's first impression.
   'alo', 'helo', 'ello', 'heya', 'heyy', 'heyyy', 'hiii', 'yoo', 'oi', 'ahoy',
@@ -1082,9 +1139,21 @@ const HELP_FILLER = new Set([
 const NOT_TECHY =
   /\b(?:not|aint|ain'?t|im not|i'?m not)\s+(?:very|that|too|so|the)?\s*(?:good|great|clever|brainy|techy|technical|confident)\b[^.?!\n]{0,30}\b(?:tech\w*|computers?|these|this|them|it|gadgets?|phones?|stuff|things?)\b|\bi'?m (?:rubbish|useless|hopeless|clueless|terrible)\s+(?:with|at)\b|\bnot (?:very |that |too |overly |really |super )?(?:a )?tech ?(?:y|savvy|nical)\b|\b(?:computer|tech)\s+illiterate\b|\bno good with\b[^.?!\n]{0,20}\b(?:tech\w*|computers?|these|this)\b/i;
 
+// "So what do I do?" — a direct ask for direction, and it got the off-topic
+// brush-off. It came up right after the bot had warned somebody about sending
+// their password: it asked them a question, they asked one back, and the bot
+// said streaming was more its thing.
+const WHAT_NOW =
+  /\bwhat (?:do|should|shall|can|could|would) (?:i|we) do\b|\bwhat now\b|\bwhat next\b|\bwhat happens now\b|\bwhere do (?:i|we) (?:start|go|begin)\b|\bwhat am i (?:meant|supposed) to do\b|\bhow do (?:i|we) (?:fix|sort) (?:it|this|that)\b/i;
+
 function looksLikeHelpRequest(text) {
   const t = String(text || '');
-  if (t.length <= 120 && NOT_TECHY.test(t) && !looksLikeProblem(t)) return true;
+  const n = plainWords(t).length;
+  if (n <= 12 && NOT_TECHY.test(t) && !looksLikeProblem(t)) return true;
+  // Short, or it is not the whole message: "my screen goes black when opening
+  // a stream, what do i do?" describes a symptom and wants an answer to it,
+  // not "what's up?" — the suite caught that one.
+  if (n <= 7 && WHAT_NOW.test(t) && !looksLikeProblem(t)) return true;
   const w = plainWords(text);
   if (!w.length || w.length > 7) return false;
   if (!w.some((x) => HELP_WORDS.has(x))) return false;
@@ -1192,6 +1261,69 @@ export const _looksLikeHelpRequest = (t) => looksLikeHelpRequest(t);
 export const _looksLikeFrustration = (t) => looksLikeFrustration(t);
 export const _looksLikeThanks = (t) => looksLikeThanks(t);
 
+// "Same here." "Me too." "Ditto." The commonest thing anybody types in a
+// group when something breaks, and it read as nothing at all: no scope
+// signal, not a problem. So the bot said nothing back to half the room — and
+// worse, none of it reached problem_reports, which is the table the outage
+// detector counts distinct people in. Three people saying "same here" to one
+// report is four people with a fault and a counter that has seen one.
+const PILE_ON_CORE = new Set(['same', 'me', 'mine', 'ditto', 'snap', 'us', 'ours', 'likewise', 'samsies']);
+// A single word is only a pile-on when it cannot mean anything else. "Me" on
+// its own is an answer to "who wants one?"; "ditto" is not.
+const PILE_ON_ALONE = new Set(['same', 'ditto', 'snap', 'likewise', 'samsies']);
+const PILE_ON_FILLER = new Set([
+  'yep', 'yeah', 'yes', 'aye', 'too', 'also', 'as', 'well', 'aswell', 'here',
+  'and', 'all', 'for', 'with', 'on', 'my', 'end', 'this', 'that', 'it', 'is',
+  'im', 'i', 'got', 'have', 'having', 'the', 'problem', 'problems', 'issue',
+  'issues', 'thing', 'happening', 'doing', 'either', 'just', 'now', 'both',
+  'side', 'sides', 'plus', 'exactly', 'ditto', 'same', 'over', 'at', 'in',
+  'from', 'a', 'an', 'to', 'of', 'm', 's', 're',
+]);
+
+function looksLikePileOn(text) {
+  const w = plainWords(text);
+  if (!w.length || w.length > 6) return false;
+  if (w.length === 1) return PILE_ON_ALONE.has(w[0]);
+  if (!w.some((x) => PILE_ON_CORE.has(x))) return false;
+  return w.every((x) => PILE_ON_CORE.has(x) || PILE_ON_FILLER.has(x));
+}
+
+// Something to pile ONTO: another member reported a problem in this chat a
+// few minutes ago. Without this, "same here" in an empty group would open a
+// case about nothing.
+const PILE_ON_WINDOW_SECONDS = 15 * 60;
+
+function pilesOntoRecentReport(ctx, text) {
+  if (!looksLikePileOn(text)) return false;
+  try {
+    const row = db.prepare(
+      'SELECT ts FROM problem_reports WHERE chat_id = ? AND tg_user_id IS NOT ? ORDER BY id DESC LIMIT 1'
+    ).get(ctx.chat?.id ?? 0, ctx.from?.id ?? 0);
+    return Boolean(row && now() - row.ts <= PILE_ON_WINDOW_SECONDS);
+  } catch {
+    return false;
+  }
+}
+
+export const _looksLikePileOn = (t) => looksLikePileOn(t);
+
+// Several asks in one message. The shortcut branches (wallet, invite, guide)
+// each answer one thing and return, so a message that opened with "couple of
+// things" lost everything after the first. Splitting and answering each one
+// properly is a bigger job; saying out loud that there was more is the honest
+// minimum, and it costs nothing.
+//
+// Deliberately narrow: they have to have SIGNPOSTED more than one ask, or
+// every slightly chatty message picks up a tail.
+const SEVERAL_ASKS =
+  /\b(?:couple|few|two|three|2|3)\s+(?:of\s+)?(?:things|questions|quick ones|bits|queries)\b|\bsome\s+questions\b|\bquestions\b[^.?!\n]{0,12}\bfor\s+you\b|\bfirst(?:ly)?\b[^.?!\n]{0,60}\bsecond(?:ly)?\b/i;
+
+function withOtherAsksNote(msg, question) {
+  const t = String(question || '');
+  if (!SEVERAL_ASKS.test(t)) return msg;
+  return `${msg}\n\nThat's the payment side — fire the other bits over one at a time and I'll go through them.`;
+}
+
 // One rant, one apology, one admin DM. The window is long enough to cover a
 // burst of angry messages and short enough that someone who comes back cross
 // a week later is a fresh customer having a fresh bad day.
@@ -1256,7 +1388,7 @@ function looksLikeQuestion(text) {
 // count on their own; generic words ("calm DOWN mate", "the PROBLEM with
 // him is...") only count when the message also mentions the service.
 const STRONG_PROBLEM =
-  /\b(buffer(ing|s)?|freez\w*|frozen|lag(gy|ging|s)?|stutter\w*|glitch\w*|crash\w*|playback|black ?screen|no (sound|audio|picture|video|streams?|channels?|epg|vod)|invalid|unauthori[sz]ed|logged (out|off)|wrong password|access denied|wrong (language|audio|sound|version|copy|cut|file)|(us|american|censored|dubbed) (version|copy|cut)|only (one|1) (language|audio( track)?|track)|not work\w*|(doesnt|don'?t|isn'?t|ain'?t|won'?t|can'?t|stopped)( even| still| ever| really| actually)? work\w*|wont (work|load|play|open|start)|cant (log ?in|sign in|watch|open|play|stream|connect)|keeps? (stopping|buffering|freezing|crashing|cutting|loading)|(is|are|was|were|gone|went|still) down|offline)\b/i;
+  /\b(buffer(ing|s)?|freez\w*|frozen|lag(gy|ging|s)?|stutter\w*|glitch\w*|crash\w*|playback|black ?screen|no (sound|audio|picture|video|streams?|channels?|epg|vod)|invalid|unauthori[sz]ed|logged (out|off)|wrong password|access denied|wrong (language|audio|sound|version|copy|cut|file)|(us|american|censored|dubbed) (version|copy|cut)|only (one|1) (language|audio( track)?|track)|not work\w*|(doesnt|don'?t|isn'?t|ain'?t|won'?t|can'?t|stopped)( even| still| ever| really| actually)? work\w*|wont (work|load|play|open|start)|cant (log ?in|sign in|watch|open|play|stream|connect)|keeps? (stopping|buffering|freezing|crashing|cutting|loading)|(is|are|was|were|gone|went|still) down|offline|(?:sound|audio|picture|video|epg|guide|signal|channels?|streams?)\s+(?:ha(?:s|ve)\s+|is\s+|are\s+|just\s+)*(?:gone|dropped|died|vanished|disappeared)|lost (?:the )?(?:sound|audio|picture|signal|connection|channels)|spoke too soon)\b/i;
 const WEAK_PROBLEM = /\b(down|error|issues?|problems?|stuck|loading|broken|broke|bust|knackered|useless)\b/i;
 
 // Blunt, whole-message complaints. "Nothing works" and "it's broke" are
@@ -1264,8 +1396,12 @@ const WEAK_PROBLEM = /\b(down|error|issues?|problems?|stuck|loading|broken|broke
 // were landing in the banter path — a customer saying nothing works got
 // "Anyway, service stuff is where I shine 😄". They name no app and no
 // symptom, so no amount of vocabulary matching was ever going to catch them.
+// "Nothing IS loading" and "nothing IS working" were missed while "nothing
+// loads" was caught — the verb had to follow immediately. That is the single
+// most common sentence anybody types during a total outage, and it was
+// reaching neither the triage nor the outage counter.
 const BLUNT_PROBLEM =
-  /\b(?:nothing|nowt|none of it|nothings?|no ?thing)\s+(?:works?|working|loads?|loading|plays?|playing)\b|\b(?:it'?s|its|it is|everything'?s|everythings|all)\s+(?:broke|broken|bust|busted|down|dead|knackered|fucked|buggered)\b|^\s*(?:not working|notworking|no\s*work|doesn'?t work|dont work|won'?t work|not loading|won'?t load|wont load|no signal|no service|dead)\s*[.!]*$/i;
+  /\b(?:nothing|nowt|none of it|nothings?|no ?thing)\s+(?:is\s+|has\s+|will\s+)?(?:even\s+|still\s+|actually\s+|really\s+|just\s+)?(?:works?|working|loads?|loading|plays?|playing|opens?|opening|streams?|streaming)\b|\b(?:it'?s|its|it is|everything'?s|everythings|everything is|all of it is|all)\s+(?:gone\s+)?(?:broke|broken|bust|busted|down|dead|knackered|fucked|buggered)\b|^\s*(?:not working|notworking|no\s*work|doesn'?t work|dont work|won'?t work|not loading|won'?t load|wont load|no signal|no service|dead)\s*[.!]*$/i;
 
 function looksLikeProblem(text) {
   if (STRONG_PROBLEM.test(text) || BLUNT_PROBLEM.test(text)) return true;
@@ -1281,8 +1417,10 @@ function looksLikeProblem(text) {
 // almost certainly the outage, not the user's typo.
 function serviceStatusLine(service = null) {
   if (serviceStatusFor(service) === 'operational') return null;
-  // Their service's note, not the other one's.
-  const note = serviceNotesFor(service).join(' ');
+  // Their service's note, not the other one's. The note is written by the
+  // admin (or by auto-degradation) and usually ends in a full stop of its
+  // own, which read as "...looking into it.. This may be what you're seeing."
+  const note = serviceNotesFor(service).join(' ').trim().replace(/[.\s]+$/, '');
   return `⚠️ We're aware of a service issue right now${note ? ` — ${note}` : ''}. This may be what you're seeing.`;
 }
 
@@ -1579,7 +1717,7 @@ function saysStillBroken(text) {
   // "No change" and "no joy" are how half of them say it, and neither was
   // here — so a repeat report on an escalated case fell through to normal
   // answering and got the "I'm not sure, message the admin" brush-off.
-  return /\b(still|again|didnt (work|help)|didn't (work|help)|no luck|no joy|no change|no different|nothing('?s| has)? changed|not fixed|same (issue|problem|thing)|tried (all|everything|them|those|that))\b/i.test(text);
+  return /\b(still|again|didnt (work|help)|didn't (work|help)|no luck|no joy|no change|no different|nothing('?s| has)? changed|not fixed|spoke too soon|back again|same (issue|problem|thing)|tried (all|everything|them|those|that))\b/i.test(text);
 }
 
 // "BBC 1 22:54", "since 9pm" — the details the bot asked for.
@@ -1971,7 +2109,12 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
     const msg = walletMessage(question);
     if (msg) {
       setLogSource(logId, 'wallet', msg);
-      await sendChunked(ctx.api, ctx.chat.id, msg, replyParams);
+      // "Couple of things — how do I renew, can I put it on my mum's
+      // Firestick, and is Oppenheimer on there" got the wallet address and
+      // nothing else: this branch answers one thing and returns, and the
+      // other two questions were dropped without a word. The address itself
+      // is never touched — a line is added after it inviting the rest.
+      await sendChunked(ctx.api, ctx.chat.id, withOtherAsksNote(msg, question), replyParams);
       return 'wallet';
     }
   }
@@ -2038,6 +2181,24 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
     }
   }
 
+  // Answering "which are you on?" when a title is waiting on that answer.
+  // A bare "exclusive" is not a service STATEMENT (that pattern wants "I'm
+  // on Exclusive"), so it was landing on banter — "Ha, that one's a bit above
+  // my pay grade" — and the question the bot itself had asked went nowhere.
+  if (twoServicesNamed() && pendingTitleService.has(`${ctx.chat?.id}:${ctx.from?.id}`)) {
+    const svc = serviceFromReply(question);
+    if (svc) {
+      const waiting = takePendingTitle(ctx);
+      rememberService(ctx.from.id, svc.num, 'told');
+      rememberVodService(ctx.from.id, svc.name, svc.num);
+      if (waiting) {
+        setLogSource(logId, 'vod-request');
+        await sendAvailability(ctx, await answerAvailability(ctx, waiting, question), replyParams);
+        return 'vod-request';
+      }
+    }
+  }
+
   // "I've moved to Exclusive." Stored as what it is — them telling us — and
   // confirmed back, so they know it took. Weighted the same as answering the
   // which-service question, because it is the same act.
@@ -2049,6 +2210,16 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
       const before = recallService(ctx.from?.id)?.service ?? null;
       rememberService(ctx.from.id, named, 'told');
       rememberVodService(ctx.from.id, label, named);
+      // They are answering "which service are you on?" — a question the bot
+      // asked because it could not say whether a title was in their library.
+      // Confirming the service and leaving the title unanswered makes them
+      // ask twice, so answer the thing they actually wanted.
+      const waiting = takePendingTitle(ctx);
+      if (waiting) {
+        setLogSource(logId, 'vod-request');
+        await sendAvailability(ctx, await answerAvailability(ctx, waiting, question), replyParams);
+        return 'vod-request';
+      }
       setLogSource(logId, 'service-set');
       await ctx.api.sendMessage(ctx.chat.id,
         before && before !== named
@@ -2077,6 +2248,19 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
       setLogSource(logId, 'human-request', msg);
       await ctx.api.sendMessage(ctx.chat.id, msg, replyParams).catch(() => {});
       return 'human-request';
+    }
+  }
+
+  // "And oppenheimer", "what about the sopranos" — a SECOND title, the
+  // question left implied because they asked it a message ago. Only read this
+  // way when a title really was asked a moment ago, or "and the wifi" becomes
+  // a film request.
+  {
+    const next = recallTitleAsked(ctx) ? parseTitleFollowUp(question) : null;
+    if (next) {
+      setLogSource(logId, 'vod-request');
+      await sendAvailability(ctx, await answerAvailability(ctx, next, question), replyParams);
+      return 'vod-request';
     }
   }
 
@@ -2726,7 +2910,9 @@ export async function handleGroupMessage(ctx) {
     }
   }
 
-  const isProblem = looksLikeProblem(text);
+  // "Same here" is a report, in context. Only in the group, and only when
+  // somebody else reported something minutes ago — see pilesOntoRecentReport.
+  const isProblem = looksLikeProblem(text) || pilesOntoRecentReport(ctx, text);
   const faqThreshold = Number(getSetting('faq.threshold')) || 0.5;
   const standaloneFaqMatch = () => {
     const faqs = db.prepare('SELECT * FROM faqs WHERE enabled = 1').all();
@@ -3037,7 +3223,12 @@ export async function handleGroupMessage(ctx) {
     return;
   }
 
-  const outcome = await answer(ctx, question, { isDm: false, logId, history, skipFaq: isFollowUp, suffix: problemSuffix, prefix: problemPrefix, assumeOnTopic: isFollowUp, directed: mentioned || isFollowUp });
+  // isProblem: a message the problem detector has accepted — one we have just
+  // written into problem_reports and may have raised an outage on — is a
+  // support message by definition. Refusing it as off-topic in the same breath
+  // is incoherent, and it is what happened to "nothing is loading at all":
+  // recorded as a fault, answered with silence.
+  const outcome = await answer(ctx, question, { isDm: false, logId, history, skipFaq: isFollowUp, suffix: problemSuffix, prefix: problemPrefix, assumeOnTopic: isFollowUp || isProblem, directed: mentioned || isFollowUp });
   noteAside(ctx, outcome);
 
   // Only mark the report answered when a real answer actually went out —

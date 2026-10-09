@@ -200,7 +200,39 @@ export function stripTitleTail(title) {
 
 // Words that mean a "can we get ..." is about the SERVICE, not a title —
 // URLs, logins, devices, refunds. These flow to the normal FAQ/AI handling.
-const NOT_VOD_TOPIC = /\b(urls?|codes?|links?|login|logins|password|passwords|account|accounts|sub|subs|subscription|trial|refund|refunds|discount|invite|invites|invited|help|support|admin|app|apps|apk|update|updates|updated|guide|guides|service|services|multiroom|multi ?room|stream|streams|connection|connections|screen|screens|firestick|fire stick|iphone|ipad|ios|android|phone|tablet|tv|telly|samsung|lg|box|device|devices|working|fixed|sorted|access|pin)\b/i;
+const NOT_VOD_TOPIC = /\b(urls?|codes?|links?|login|logins|password|passwords|account|accounts|sub|subs|subscription|trial|refund|refunds|discount|invite|invites|invited|help|support|admin|app|apps|apk|update|updates|updated|guide|guides|service|services|multiroom|multi ?room|stream|streams|connection|connections|screen|screens|firestick|fire stick|iphone|ipad|ios|android|phone|tablet|tv|telly|samsung|lg|box|device|devices|working|fixed|sorted|access|pin|wifi|wi ?fi|internet|broadband|router|ethernet|remote|batteries|signal|speed|buffering|vpn)\b/i;
+
+// A SECOND title, with the question left implied because they already asked
+// it once. "have you got paw patrol" → "and oppenheimer" → "what about the
+// sopranos": the first was answered, the other two were not recognised as
+// title asks at all. One was swallowed by the which-service question it had
+// just armed, the other got a banter line.
+//
+// Only safe BECAUSE the caller requires a title to have been asked a moment
+// ago — on its own, "and oppenheimer" could be anything.
+const FOLLOW_UP_FORMS = [
+  /^\s*(?:and|or|also|plus)?\s*(?:what|how)\s+about\s+(.{2,80}?)[\s?!.]*$/i,
+  /^\s*(?:and|or|also|plus)\s+(.{2,80}?)[\s?!.]*$/i,
+  /^\s*(.{2,80}?)\s+(?:too|as\s?well|aswell)[\s?!.]*$/i,
+];
+
+export function parseTitleFollowUp(text) {
+  const s = String(text || '').trim();
+  if (!s || s.length > 90 || /\n/.test(s)) return null;
+  for (const re of FOLLOW_UP_FORMS) {
+    const m = s.match(re);
+    if (!m) continue;
+    const title = stripTitleTail(m[1].trim().replace(/\s+/g, ' '));
+    if (title.length < 2 || title.length > 80) return null;
+    // A pronoun is the PREVIOUS title, which followUpAboutLastTitle handles,
+    // and a service name means "is it on Flix too" — also not a new title.
+    if (/^(it|this|that|them|these|those|me|us|my|your|our|any|anything|everything|a|an|the|one|ones)$/i.test(title)) return null;
+    if (serviceNamedIn(title)) return null;
+    if (NOT_A_TITLE.test(title) || NOT_VOD_TOPIC.test(title)) return null;
+    return title;
+  }
+  return null;
+}
 
 export function parseNaturalVodRequest(text) {
   if (/\n/.test(String(text))) return null; // single-line asks only
