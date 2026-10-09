@@ -1441,13 +1441,23 @@ function serviceStatusLine(service = null) {
 // Answered from code on purpose. People ask this when things are broken,
 // which is exactly when the AI node is busiest and most likely to be the
 // thing that is broken.
+// "Are we down?" is how a customer asks it — "we" meaning us, the people
+// using the thing — and it was not a status question, because the subject
+// list only held impersonal words. So it went to the model, which answered
+// "No, everything is operational" out of its own head. The model cannot see
+// the status you set in the panel: with the service marked degraded it would
+// have said exactly the same thing, which is the one answer that must never
+// be guessed.
+const STATUS_PERSONAL =
+  /\b(?:is|are|r)\s+(?:we|you|yous|yas|ye|u)\s+(?:all\s+|lot\s+)?(?:down|out|offline|broken)\b(?!\s+for\s+(?:the\b|a\b|it\b|that\b|tonight|later|tomorrow|lunch|dinner|drinks|pub|town|golf|football|some))/i;
+
 const STATUS_QUESTION =
-  /\b(?:is|are|anyone else|anybody else)\b[^.?!\n]{0,24}\b(?:it|this|everything|the service|server|servers|streams?|channels?)\b[^.?!\n]{0,16}\b(?:down|out|off|broken|working|up|ok|okay|alright)\b|\bany\s+(?:known\s+)?(?:issues?|problems?|outages?|downtime)\b|\bknown\s+(?:issue|problem|outage)\b|\b(?:service|server)\s+status\b|\bis\s+(?:it|everything|the service)\s+(?:working|ok|okay|alright|fine)\b|\beverything\s+(?:ok|okay|alright|working|down)\b|\bis\s+it\s+just\s+me\b|\bon\s+your\s+end\b|\b(?:any ?one|any ?body)\s+else\b[^.?!\n]{0,20}\b(?:having|getting|seeing|with)\b[^.?!\n]{0,16}\b(?:issues?|problems?|trouble|buffering|this)\b/i;
+  /\b(?:is|are|anyone else|anybody else)\b[^.?!\n]{0,24}\b(?:it|this|everything|the service|server|servers|streams?|channels?|apps?)\b[^.?!\n]{0,16}\b(?:down|out|off|broken|working|up|ok|okay|alright)\b|\bany\s+(?:known\s+)?(?:issues?|problems?|outages?|downtime)\b|\bknown\s+(?:issue|problem|outage)\b|\b(?:service|server)\s+status\b|\bis\s+(?:it|everything|the service)\s+(?:working|ok|okay|alright|fine)\b|\beverything\s+(?:ok|okay|alright|working|down)\b|\bis\s+it\s+just\s+me\b|\bon\s+your\s+end\b|\b(?:any ?one|any ?body)\s+else\b[^.?!\n]{0,20}\b(?:having|getting|seeing|with)\b[^.?!\n]{0,16}\b(?:issues?|problems?|trouble|buffering|this)\b/i;
 
 function looksLikeStatusQuestion(text) {
   const t = String(text || '').trim();
   if (!t || t.length > 140) return false;
-  return STATUS_QUESTION.test(t);
+  return STATUS_QUESTION.test(t) || STATUS_PERSONAL.test(t);
 }
 
 export const _looksLikeStatusQuestion = (t) => looksLikeStatusQuestion(t);
@@ -1456,7 +1466,9 @@ export const _looksLikeStatusQuestion = (t) => looksLikeStatusQuestion(t);
 function statusAnswer(service = null) {
   const status = serviceStatusFor(service);
   if (status !== 'operational') {
-    const note = serviceNotesFor(service).join(' ');
+    // The admin's note usually ends in a full stop of its own, which read as
+    // "being restarted.. No need to reinstall" — same bug as the banner.
+    const note = serviceNotesFor(service).join(' ').trim().replace(/[.\s]+$/, '');
     const word = status === 'maintenance' ? 'down for maintenance' : 'having problems';
     return `⚠️ Yes — we know about it. The service is ${word} right now${note ? ` — ${note}` : ''}. `
       + 'No need to reinstall anything or change your settings. We will say here when it is back.';

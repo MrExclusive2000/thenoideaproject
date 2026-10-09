@@ -1109,6 +1109,73 @@ test('a fault that comes back after a case closed opens a new one', async () => 
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
 
+test('the password warning does not go off at people who sent no password', async () => {
+  // Live, in the admin's own test chat: "It's let me login before" was read
+  // as a credential dump. The patterns matched the keyword followed by ANY
+  // four characters, so "login before" counted — and so did "my login
+  // doesn't work" and "the password doesn't work". Each one tells a paying
+  // customer off for something they did not do and DMs the admin to go and
+  // change their password. Do that a few times and the one warning that
+  // matters is the one they have learned to ignore.
+  const { looksLikeCredentialDump } = await import('../src/bot/credentials.js');
+
+  for (const t of [
+    "It's let me login before",
+    'my login doesnt work',
+    'the login is wrong',
+    'cant login today',
+    'login details please',
+    'login page wont load',
+    'my password is wrong',
+    'the password doesnt work',
+    'password not accepted',
+    'can you reset my password',
+    'login isnt working',
+    'password expired',
+  ]) assert.equal(looksLikeCredentialDump(t), false, `innocent: ${t}`);
+
+  // A real one still has to be caught — that is the whole point of the thing.
+  for (const t of [
+    'password is Summer2024',
+    'my pass is hunter2',
+    'password: Hunter2x',
+    'user: THM4471 pass: Summer2024',
+    'username THM4471 password Summer2024',
+    'my pwd = Tr0ub4dor',
+    'password Winter2025!',
+    'cant log in. username is THM4471 password is Summer2024',
+  ]) assert.equal(looksLikeCredentialDump(t), true, `a real one: ${t}`);
+});
+
+test('"are we down?" is answered from the panel, never by the model', async () => {
+  // How a customer actually asks it — "we" meaning us, the people using the
+  // thing. The subject list only held impersonal words, so it went to the
+  // model, which answered "No, everything is operational" out of its own
+  // head. The model cannot see the status set in the panel: with the service
+  // marked degraded it would have said exactly the same thing.
+  const { _looksLikeStatusQuestion: isStatus } = await import('../src/bot/pipeline.js');
+  for (const t of [
+    'Hi are we down?', 'are we down', 'are you down', 'are yous down',
+    'r u down', 'are we all down', 'is the app down', 'are you lot down',
+  ]) assert.equal(isStatus(t), true, t);
+  for (const t of ['are you down for the pub', 'are you up for the match', 'is the match on tonight']) {
+    assert.equal(isStatus(t), false, `banter: ${t}`);
+  }
+
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('service.status', 'degraded');
+  setSetting('service.note', 'Login server is being restarted.');
+  _resetProblemTriage();
+  const ctx = fakeCtx('Hi are we down?', { userId: 99995 });
+  assert.equal(await answer(ctx, 'Hi are we down?', { isDm: true, logId: null }), 'status');
+  const msg = ctx.sent[0].msg;
+  assert.match(msg, /we know about it/, 'it says yes, because the panel says yes');
+  assert.match(msg, /Login server is being restarted/, "and passes on the admin's note");
+  assert.doesNotMatch(msg, /\.\.\s/, 'the note already ends in a full stop');
+  setSetting('service.status', 'operational');
+  setSetting('service.note', '');
+});
+
 test('"my sub ran out" is money on the table, not banter', async () => {
   // Only the full word "subscription" was service vocabulary, so the sentence
   // every renewal starts with read as chat and got "Ha, that one's a bit

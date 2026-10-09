@@ -15,11 +15,34 @@ import { db } from '../db/db.js';
 //   2. A username we actually hold, followed by one more token — the exact
 //      shape of the message in the transcript ("Georgewilliam1 WEe7NdeF").
 const LABELLED =
-  /\b(?:pass(?:word|wd)?|pwd|login|log-?in|credentials)\b\s*(?:is|was|=|:|-)?\s*[^\s,;]{4,}/i;
+  /\b(?:pass(?:word|wd)?|pwd|login|log-?in|credentials)\b\s*(?:is|was|=|:|-)?\s*([^\s,;]{4,})/i;
 
 // "username and password are X and Y" / "user: X pass: Y"
 const PAIRED =
-  /\b(?:user(?:name)?|login)\b[^\n]{0,20}\b(?:pass(?:word|wd)?|pwd)\b[^\n]{0,10}[:=\s][^\s,;]{4,}/i;
+  /\b(?:user(?:name)?|login)\b[^\n]{0,20}\b(?:pass(?:word|wd)?|pwd)\b[^\n]{0,10}[:=\s]([^\s,;]{4,})/i;
+
+// The captured value has to look like a credential rather than the next
+// English word in the sentence. This was the whole bug: the patterns above
+// matched the keyword followed by ANY four characters, so "it's let me login
+// before", "my login doesn't work", "login details please" and "the password
+// doesn't work" — four of the most ordinary support messages there are —
+// each told a customer off for sending a password they had not sent, in
+// public, and DMed the admin to go and change it for them.
+//
+// A real one has a digit, or mixed case, or a symbol. A password of plain
+// lowercase letters slips through, and that is the right trade: the cost of
+// a false positive is accusing a paying customer of something they did not
+// do, over and over, and training them to ignore the one warning that
+// matters.
+function looksLikeAValue(raw) {
+  const v = String(raw || '').replace(/[.?!,;:'")\]]+$/, '');
+  if (v.length < 4) return false;
+  // "password is wrong" / "login doesnt work" — the sentence carrying on.
+  if (/^(?:is|was|are|were|been|the|my|your|our|their|not|isnt|isn'?t|dont|don'?t|doesnt|doesn'?t|wont|won'?t|cant|can'?t|didnt|didn'?t|and|but|or|for|with|from|into|onto|that|this|they|them|it|its|it'?s|again|before|after|now|then|today|tonight|yesterday|tomorrow|please|plz|details?|detail|info|information|page|screen|button|box|form|field|error|issue|issues|problem|problems|broken|working|work|works|worked|failed|failing|fails|invalid|incorrect|wrong|correct|right|fine|okay|still|just|only|also|very|really|here|there|back|out|down|keeps|keep|says|saying|wouldnt|wouldn'?t|changed|change|reset|forgot|forgotten|lost|need|needs|want|help|same|anymore|expired|accepted|rejected|refused)$/i.test(v)) {
+    return false;
+  }
+  return /\d/.test(v) || /[a-z]/.test(v) && /[A-Z]/.test(v) || /[^A-Za-z0-9]/.test(v);
+}
 
 function knownUsernames() {
   try {
@@ -32,7 +55,10 @@ function knownUsernames() {
 export function looksLikeCredentialDump(text) {
   const t = String(text || '');
   if (!t.trim() || t.length > 300) return false;
-  if (PAIRED.test(t) || LABELLED.test(t)) return true;
+  const paired = t.match(PAIRED);
+  if (paired && looksLikeAValue(paired[1])) return true;
+  const labelled = t.match(LABELLED);
+  if (labelled && looksLikeAValue(labelled[1])) return true;
   // "Georgewilliam1 WEe7NdeF" — a username on our books plus one more token,
   // and nothing else. Checked last because it needs a database read.
   const words = t.trim().split(/\s+/);
