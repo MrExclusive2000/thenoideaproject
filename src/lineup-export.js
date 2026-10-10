@@ -27,7 +27,10 @@ export function exportLineup({ limit = 4000 } = {}) {
 
   let vod = [];
   try {
-    vod = db.prepare('SELECT service, name FROM xc_vod ORDER BY service, name LIMIT ?').all(limit);
+    // kind too: it is what tells a film from a series, and the library
+    // answer reads differently for each. norm_name is left out because it is
+    // derived from name and can be recomputed.
+    vod = db.prepare('SELECT service, kind, name, category FROM xc_vod ORDER BY service, name LIMIT ?').all(limit);
   } catch {
     // Older installs may not have the table yet.
   }

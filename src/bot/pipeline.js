@@ -15,7 +15,7 @@ import { alertAdmins } from './reports.js';
 import { embed, retrieveFaqs, embeddingsProven } from '../ai/embeddings.js';
 import { lookupAnswer, rememberAnswer, cacheable } from '../ai/answer-cache.js';
 import { circuitOpen } from '../ai/breaker.js';
-import { looksLikeChannelQuestion, looksLikeChannelCategoryQuestion, findChannelsByCategory, findProgrammes, looksLikeFixtureQuestion, channelGrounding, channelCount, findChannels, findVodTitle, vodKnown, xcConfigured } from '../xc.js';
+import { looksLikeChannelQuestion, looksLikeChannelCategoryQuestion, findChannelsByCategory, findProgrammes, dedupeVariants, baseChannelName, looksLikeFixtureQuestion, channelGrounding, channelCount, findChannels, findVodTitle, vodKnown, xcConfigured } from '../xc.js';
 import { looksLikeGuideRequest, findGuide, visibleGuides, guideLeadIn, guideMessage } from '../guides.js';
 import { looksLikeWalletRequest, walletMessage } from '../payments.js';
 import { looksLikeInviteRequest, buildInvite, INVITE_NO_GROUP, INVITE_NO_PERMISSION } from './invites.js';
@@ -651,9 +651,17 @@ function alreadyInLibrary(ctx, title, asked = '') {
 // the channel's name.
 function channelsCarrying(title, service) {
   const words = String(title).toLowerCase().match(/[a-z0-9+]+/g) || [];
-  const meaningful = words.filter((w) => w.length > 2 && !['the', 'and', 'you', 'got', 'have', 'any'].includes(w));
+  // Short tokens are kept when they carry a digit. "f1", "e4", "u2", "m6"
+  // are two characters and are the entire point of the question — dropping
+  // "f1" left "sky sports", which matched "Sky Sports+ HD" exactly and
+  // answered a question about Formula 1 with a different channel.
+  const meaningful = words.filter((w) => (w.length > 2 || /\d/.test(w))
+    && !['the', 'and', 'you', 'got', 'have', 'any'].includes(w));
   if (!meaningful.length) return [];
-  return findChannels(title, { service, limit: 6 })
+  // Collapsed, or "is BBC One on there?" answers with BBC ONE HD, SD, FHD
+  // and WEST — the same channel four times, which reads like a problem
+  // rather than a yes.
+  const hits = dedupeVariants(findChannels(title, { service, limit: 12 }))
     .filter((c) => {
       const name = String(c.name).toLowerCase();
       if (!meaningful.every((w) => name.includes(w))) return false;
@@ -672,7 +680,19 @@ function channelsCarrying(title, service) {
       const word = meaningful[0];
       return bare === word || bare.startsWith(word);
     });
+
+  // When something matches the name EXACTLY, that is the answer and the
+  // near-misses are noise. "Is BBC One on there?" was answered with BBC ONE
+  // FHD, BBC ONE WEST, BBC ONE NI HD and BBC ONE CI FHD — a yes/no question
+  // answered with a regional menu, which reads as uncertainty.
+  const asked = meaningful.join('');
+  const exact = hits.filter((c) => squashName(baseChannelName(c.name)) === asked);
+  return exact.length ? exact : hits;
 }
+
+// Same normalisation the lineup search uses, so "BBC ONE FHD" and a
+// customer's "bbc one" meet in the middle.
+const squashName = (x) => String(x).toLowerCase().replace(/[^a-z0-9]/g, '');
 
 function alreadyInLineup(ctx, title, asked = '') {
   const service = serviceNumberFor(ctx, asked);

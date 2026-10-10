@@ -148,6 +148,27 @@ const NOISE = new Set([
 const NUMBER_WORD = { 1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: 'five' };
 const squash = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
 
+// "(AR) TNT SPORTS" and "CL: TNT SPORTS FHD" carry a country tag. Only
+// parenthesised or colon-suffixed forms count — "BBC ONE" would otherwise
+// read as a country called BBC.
+const tagOf = (name) => {
+  const m = String(name).match(/^\s*(?:\(([A-Za-z]{2,3})\)|([A-Za-z]{2,3}):)/);
+  return (m?.[1] || m?.[2] || '').toLowerCase();
+};
+
+// Whole-word containment, with the channel-name punctuation (|, :, parens,
+// decorations) treated as a boundary like whitespace.
+const wordIn = (haystack, needle) => {
+  let i = haystack.indexOf(needle);
+  while (i !== -1) {
+    const before = i === 0 ? '' : haystack[i - 1];
+    const after = haystack[i + needle.length] ?? '';
+    if (!/[a-z0-9]/.test(before) && !/[a-z0-9]/.test(after)) return true;
+    i = haystack.indexOf(needle, i + 1);
+  }
+  return false;
+};
+
 export function findChannels(query, { service = 1, limit = 8 } = {}) {
   const raw = String(query || '').toLowerCase().match(/[a-z0-9+]+/g) || [];
   const terms = [];   // matched against the name as written
@@ -169,6 +190,8 @@ export function findChannels(query, { service = 1, limit = 8 } = {}) {
   }
   if (!terms.length && !joined.length) return [];
 
+  // The meaningful words run together, for the phrase test below.
+  const phrase = terms.join('');
   const rows = db.prepare('SELECT stream_id, name, category, epg_channel_id FROM xc_channels WHERE service = ?').all(service);
   const scored = [];
   for (const r of rows) {
@@ -176,16 +199,51 @@ export function findChannels(query, { service = 1, limit = 8 } = {}) {
     const flat = squash(name);
     let score = 0;
     for (const t of terms) {
-      if (name.includes(t)) score += t.length >= 4 ? 2 : 1;
+      // On a word boundary. A plain substring test answered "any hunting
+      // channels?" with "US NBC 3 (WSAZ) Huntington" and "US CBS 13 (WOWK)
+      // Huntington" — two local news stations in West Virginia — because
+      // "hunting" is inside "Huntington". On a 26,000-channel lineup that
+      // kind of accident is not rare, it is constant.
+      if (wordIn(name, t)) score += t.length >= 4 ? 2 : 1;
     }
     // A joined hit is the strong signal: it is the one that tells BBC One
     // apart from BBC Two, so it has to outweigh every loose word match.
     for (const j of joined) {
       if (flat.includes(j)) score += 6;
     }
+    // The whole phrase, in order, is far stronger evidence than the sum of
+    // its words — and the per-word score works against exactly the tokens
+    // that pin a channel down. "sky sports f1" scored f1 at 1 (two
+    // characters) against sports at 2, so "SKY Sports 1", "SKY sports 16"
+    // and "SKY sports 21" came back alongside the F1 channel as though they
+    // were just as good an answer.
+    if (score && phrase && flat.includes(phrase)) score += 10;
     if (score) scored.push({ ...r, score });
   }
-  return scored.sort((a, b) => b.score - a.score || a.name.length - b.name.length).slice(0, limit);
+
+  // "Do you have TNT Sports?" came back leading with "(AR) TNT SPORTS". A
+  // lineup this size carries the same brand for a dozen countries, and the
+  // ones meant for somewhere else are tagged — "(AR) ", "CL: ".
+  //
+  // Judged WITHIN the results rather than against a fixed idea of home: a
+  // tagged channel is demoted only when the set also holds an untagged one,
+  // or one whose tag the question actually asked for. A lineup that prefixes
+  // everything with "UK:" has no discriminator there and nothing is touched,
+  // which is the case that matters — penalising a prefix every channel
+  // carries would bury the whole lineup.
+  const asked = (code) => code && new RegExp(`\\b${code}\\b`, 'i').test(query);
+  const preferred = scored.some((r) => { const c = tagOf(r.name); return !c || asked(c); });
+  if (preferred) {
+    for (const r of scored) {
+      const c = tagOf(r.name);
+      if (c && !asked(c)) r.score -= 2;
+    }
+  }
+
+  return scored
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score || a.name.length - b.name.length)
+    .slice(0, limit);
 }
 
 // ---- what's on --------------------------------------------------------------
@@ -406,7 +464,11 @@ export function cleanTitle(text) {
 // Sports News SD, HD, and FHD is...", and "what's on bbc 1" turned into a
 // paragraph repeating the same programme three times. "+1" is deliberately
 // NOT stripped: an hour behind is a different channel.
-const VARIANT_WORDS = /\b(?:sd|hd|fhd|uhd|4k|8k|hevc|h265|h\.265|raw|vip|backup|alt|multi|low|lq|hq)\b/gi;
+// Real lineups also label the frame rate and decorate with superscripts, so
+// "Sky Sports Main Event FHD" and "Sky Sports Main Event FHD 50FPS" came
+// back as two channels and the customer got the same one twice.
+const VARIANT_WORDS =
+  /\b(?:sd|hd|fhd|uhd|4k|8k|hevc|h265|h\.265|raw|vip|backup|alt|multi|low|lq|hq|\d{2,3}\s?fps)\b|[\u1D2C-\u1D6A\u2070-\u209F\u25A0-\u25FF\u2600-\u27BF]/gi;
 
 export function baseChannelName(name) {
   return cleanTitle(name)
@@ -521,7 +583,13 @@ export async function channelGrounding(question, { service = 1 } = {}) {
     return forms.some((f) => squash(f).length >= 4 && askedKey.includes(squash(f)));
   });
 
-  const programmes = namedOne ? [] : findProgrammes(question, { service, limit: 6 });
+  // "Are there any kids channels?" is a question about the LINEUP, and
+  // searching programme titles for it answered with "Dzieciaki rządzą w
+  // 4FUN KIDS is on PL|4Fun Kids" — a Polish children's programme, to
+  // somebody asking what channels exist. Same for music and news.
+  const programmes = namedOne || looksLikeChannelCategoryQuestion(question)
+    ? []
+    : findProgrammes(question, { service, limit: 6 });
   if (programmes.length) {
     lines.push('From OUR TV guide — what is on, and the channel carrying it (exact, use as written):');
     for (const p of dedupeProgrammeRows(programmes)) {
@@ -532,12 +600,15 @@ export async function channelGrounding(question, { service = 1 } = {}) {
 
   // Deduped BEFORE the limit, or six results are the same channel six times
   // and the genuinely different ones never make the list.
-  // Nothing matched by name. If they asked for a GENRE, the lineup still
-  // knows the answer — it is in the category column.
-  const byCategory = namedChannels.length || !looksLikeChannelCategoryQuestion(question)
-    ? []
-    : findChannelsByCategory(question, { service, limit: 8 });
-  const hits = (namedChannels.length ? namedChannels : byCategory).slice(0, 6);
+  // For a GENRE question the category column is the authority, not the
+  // channel names. Running it only as a fallback meant "any kids channels?"
+  // was answered by whatever happened to have "kids" in its NAME — ABC Kids,
+  // HU Kids, AU-FT|Kids — while the channels filed under a Kids category
+  // were never looked at.
+  const byCategory = looksLikeChannelCategoryQuestion(question)
+    ? dedupeVariants(findChannelsByCategory(question, { service, limit: 12 }))
+    : [];
+  const hits = (byCategory.length ? byCategory : namedChannels).slice(0, 6);
   if (hits.length) {
     if (lines.length) lines.push('');
     lines.push('Channels in OUR lineup matching what they asked about (these names are exact — use them as written):');

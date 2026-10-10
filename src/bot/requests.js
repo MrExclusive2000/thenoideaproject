@@ -151,8 +151,37 @@ const REQUEST_VERB = /^\s*(?:please |pls |plz )?(?:(?:i(?:'| a|a)?d like to|i wo
 // through to the channel-lookup path and came back "give me the channel name".
 const LEAD_IN = /^(?:\s*(?:hi|hey|hello|heya|hiya|yo|oi|alright|alreet|morning|afternoon|evening|good\s+(?:morning|afternoon|evening)|sorry|excuse\s+me|quick\s+one|mate|m8|pal|bud|boss|guys|lads|team|folks|bot|bots|robot|assistant)\b[\s,!.:;–—-]*)+/i;
 
+// "On Exclusive, do you have TNT Sports?" — the service scoped at the FRONT.
+//
+// Every pattern here is anchored to the start of the message, and a
+// trailing "...on Exclusive" was already stripped, so the tail was handled
+// and the head was not. Run against the real 36,400-channel lineup, that
+// one word turned every working question into nothing:
+//
+//   "do you have tnt sports"              -> tnt sports
+//   "on exclusive do you have tnt sports" -> null, and the customer got the
+//                                            off-topic brush-off
+//
+// It is how people actually write it — the message that started all this
+// was "On Exclusive are there any hunting channels on Live TV". Only a
+// CONFIGURED service name is stripped, so an ordinary sentence opening with
+// "on" is untouched.
+function stripServiceLead(text) {
+  const names = serviceNames().map((n) => String(n).trim()).filter((n) => n.length >= 3);
+  if (!names.length) return text;
+  const alt = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  const out = String(text || '')
+    .replace(new RegExp(`^\\s*(?:on|for|in|with)\\s+(?:the\\s+)?(?:${alt})\\b[\\s,:;–—-]*`, 'i'), '')
+    .trim();
+  return out.length >= 2 ? out : String(text || '');
+}
+
 export function stripLeadIn(text) {
-  const out = String(text || '').replace(LEAD_IN, '').trim();
+  // Greeting first, then the service — "Hey bot, on Exclusive do you have…"
+  // arrives with both, and either order leaves the other one stranded.
+  let out = String(text || '').replace(LEAD_IN, '').trim();
+  out = stripServiceLead(out);
+  out = out.replace(LEAD_IN, '').trim();
   // Never strip the whole message away: "morning!" on its own is a greeting,
   // and the greeting handler should still see it as one.
   return out.length >= 2 ? out : String(text || '');

@@ -135,3 +135,86 @@ test('a normal sports question is still answered from knowledge', async () => {
   assert.doesNotMatch(ctx.sent.join('\n'), /don't have a listing/i,
     'a fixture question is not a lineup-category question');
 });
+
+
+// The next few come from running against a real exported lineup — 36,400
+// channels across 247 categories and forty-odd countries. None of them
+// could have been found against a hand-written test lineup, because each
+// needs a neighbour that only exists at that scale.
+function lineup(rows) {
+  db.prepare('DELETE FROM xc_channels').run();
+  let id = 1;
+  for (const [name, cat] of rows) {
+    db.prepare('INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (1, ?, ?, ?, ?, 1)')
+      .run(id, name, cat, `c${id}`);
+    id += 1;
+  }
+}
+
+test('a word is matched on a boundary, not as a substring', async () => {
+  const { findChannels } = await import('../src/xc.js');
+  // Real rows: "hunting" is inside "Huntington", and two local news
+  // stations in West Virginia were offered up as hunting channels.
+  lineup([
+    ['US NBC 3 (WSAZ) Huntington', 'USA | Regionals'],
+    ['US CBS 13 (WOWK) Huntington', 'USA | Regionals'],
+    ['Hunting & Fishing TV', 'UK | Documentary'],
+  ]);
+  const hits = findChannels('are there any hunting channels', { service: 1 }).map((c) => c.name);
+  assert.deepEqual(hits, ['Hunting & Fishing TV'], 'Huntington is not a hunting channel');
+});
+
+test('a channel tagged for another country loses to an untagged one', async () => {
+  const { findChannels } = await import('../src/xc.js');
+  lineup([
+    ['(AR) TNT SPORTS', 'Argentina'],
+    ['CL: TNT SPORTS FHD', 'Chile'],
+    ['TNT Sports 1 HD', 'UK | TNT Sports'],
+  ]);
+  assert.equal(findChannels('do you have tnt sports', { service: 1 })[0].name, 'TNT Sports 1 HD');
+  // Unless they asked for it.
+  assert.match(findChannels('do you have AR tnt sports', { service: 1 })[0].name, /\(AR\)/);
+  // And a lineup that tags EVERYTHING has no discriminator there, so
+  // nothing is demoted and the lot still comes back.
+  lineup([['UK: BBC One HD', 'UK | Entertainment'], ['UK: BBC Two HD', 'UK | Entertainment']]);
+  assert.equal(findChannels('bbc', { service: 1 }).length, 2, 'a prefix on every channel is not a country tag');
+});
+
+test('the whole phrase beats the sum of its words', async () => {
+  const { findChannels } = await import('../src/xc.js');
+  // "f1" is two characters and scored least, so these three came back
+  // alongside the F1 channel as though they answered the question.
+  lineup([
+    ['SKY Sports 1', 'UK | Sky Sports'],
+    ['SKY sports 16', 'UK | Sky Sports'],
+    ['Sky Sports+ HD', 'UK | Sky Sports'],
+    ['Sky Sports F1 FHD', 'UK | Sky Sports'],
+  ]);
+  assert.equal(findChannels('have you got sky sports f1', { service: 1 })[0].name, 'Sky Sports F1 FHD');
+});
+
+test('quality and frame-rate variants are one channel', async () => {
+  const { findChannels, dedupeVariants } = await import('../src/xc.js');
+  lineup([
+    ['Sky Sports Main Event SD', 'UK | Sky Sports'],
+    ['Sky Sports Main Event HD', 'UK | Sky Sports'],
+    ['Sky Sports Main Event FHD', 'UK | Sky Sports'],
+    ['Sky Sports Main Event FHD 50FPS', 'UK | Sky Sports'],
+    ['Sky Sports Main Event UHD', 'UK | Sky Sports'],
+  ]);
+  const rows = dedupeVariants(findChannels('sky sports main event', { service: 1, limit: 12 }));
+  assert.equal(rows.length, 1, 'five rows, one channel');
+  assert.match(rows[0].name, /FHD$/, 'and the best picture of them');
+});
+
+test('a genre question is answered from the category, not from programme titles', async () => {
+  const { findChannelsByCategory } = await import('../src/xc.js');
+  lineup([
+    ['ABC Kids', 'Australia | Bar TV'],
+    ['CBeebies', 'UK | Kids'],
+    ['Nick Jr', 'UK | Kids'],
+  ]);
+  const rows = findChannelsByCategory('are there any kids channels', { service: 1 }).map((c) => c.name);
+  assert.ok(rows.includes('CBeebies') && rows.includes('Nick Jr'),
+    'the channels filed under a Kids category are the answer');
+});
