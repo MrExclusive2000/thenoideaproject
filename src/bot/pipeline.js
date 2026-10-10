@@ -20,7 +20,7 @@ import { looksLikeGuideRequest, findGuide, visibleGuides, guideLeadIn, guideMess
 import { looksLikeWalletRequest, walletMessage } from '../payments.js';
 import { looksLikeInviteRequest, buildInvite, INVITE_NO_GROUP, INVITE_NO_PERMISSION } from './invites.js';
 import { looksLikeCredentialDump, CREDENTIAL_WARNING } from './credentials.js';
-import { parseCodeRequest, codeMessage, whichCodeMessage } from './appcodes.js';
+import { parseCodeRequest, codeMessage, whichCodeMessage, codeDidNotWork, codeFailedMessage, configuredApps } from './appcodes.js';
 import { looksLikeSportsQuestion, sportsGrounding, sportsEnabled } from '../sports.js';
 import { recallService, rememberService, forgetService } from '../service-memory.js';
 import {
@@ -2393,7 +2393,21 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
   // not at all, exactly like the wallet address below. Live, the Purple code
   // sat in settings while the bot said "I'm not sure" five times running.
   {
-    const want = parseCodeRequest(question, { recentlyGaveCode: recentlyGaveCode(ctx) });
+    const gaveCode = recentlyGaveCode(ctx);
+
+    // They have the code and it did not work. Sending it again — which is
+    // exactly what happened live — is the one thing that must not happen
+    // here: the reply names the app and says "downloader", so it reads as a
+    // fresh request for the number they are holding.
+    if (codeDidNotWork(question, { recentlyGaveCode: gaveCode })) {
+      const apps = configuredApps();
+      const named = apps.find((a) => a.re.test(question)) || (apps.length === 1 ? apps[0] : null);
+      setLogSource(logId, 'app-code');
+      await ctx.api.sendMessage(ctx.chat.id, withAdminContact(codeFailedMessage(named)), replyParams).catch(() => {});
+      return 'app-code';
+    }
+
+    const want = parseCodeRequest(question, { recentlyGaveCode: gaveCode });
     if (want?.app) {
       setLogSource(logId, 'app-code');
       markGaveCode(ctx);

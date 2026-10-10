@@ -6502,3 +6502,34 @@ test('"are there any hunting channels" is answered from the lineup, not invented
     db.prepare('DELETE FROM xc_channels').run();
   }
 });
+
+// Live DM:
+//   "Sky glass code"                               -> the code, correctly
+//   "The number is invalid"
+//   "Can't download sky glass from downloader app" -> the SAME code message,
+//                                                     word for word
+//
+// The second message names the app and says "downloader", so it read as a
+// fresh request for the number they were holding and had just told us did
+// not work. Repeating yourself at someone who said it does not work is the
+// one thing this bot is not supposed to do.
+test('a code that did not work is not sent again', async () => {
+  const { _resetCodeMemory } = await import('../src/bot/pipeline.js');
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('apps.skyGlassCode', '3793766');
+  setSetting('bot.adminContact', '@ExclusiveDoctor');
+  _resetCodeMemory();
+
+  const first = fakeCtx('Sky glass code', { userId: 97941 });
+  assert.equal(await answer(first, first.message.text, { isDm: true, logId: null }), 'app-code');
+  assert.match(first.sent[0].msg, /3793766/, 'the code goes out the first time');
+
+  const second = fakeCtx("Can't download sky glass from downloader app", { userId: 97941 });
+  assert.equal(await answer(second, second.message.text, { isDm: true, logId: null }), 'app-code');
+  const msg = second.sent[0].msg;
+  assert.notEqual(msg, first.sent[0].msg, 'the identical message was sent back');
+  assert.match(msg, /Silk browser|aftv\.news/i, 'offer the other route into the same file');
+  assert.match(msg, /@ExclusiveDoctor/, 'and a person, since this is where it stops being self-service');
+
+  setSetting('bot.adminContact', '');
+});

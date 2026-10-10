@@ -84,3 +84,42 @@ export function codeMessage(app) {
 export function whichCodeMessage(apps) {
   return `Which one do you need?\n${apps.map((a) => `• ${a.label}`).join('\n')}\n\nJust say the name and I'll send the code.`;
 }
+
+// "The number is invalid" / "Can't download sky glass from downloader app",
+// straight after being given the Sky Glass code — and the bot sent the same
+// code message back, word for word. The message names the app and says
+// "downloader", so it read as a fresh request for the code they were
+// holding and had just told us did not work.
+//
+// Repeating yourself at somebody who has said it does not work is the one
+// thing the bot was supposed to stop doing. A code that fails is nearly
+// always the Downloader app's own URL box rather than a wrong number, so
+// the useful reply is the browser form of the same code, said once, and
+// then a human.
+const CODE_FAILED =
+  /\b(?:invalid|not\s+valid|isn'?t\s+valid|doesn'?t\s+work|does\s+not\s+work|didn'?t\s+work|won'?t\s+work|not\s+working|no\s+good|wrong\s+(?:number|code)|error|failed|fails|nothing\s+happens|can'?t\s+(?:download|install|get|find)|cannot\s+(?:download|install)|unable\s+to\s+(?:download|install))\b/i;
+
+export function codeDidNotWork(text, { recentlyGaveCode = false } = {}) {
+  if (!recentlyGaveCode) return false;
+  const t = String(text || '');
+  if (!t.trim() || t.length > 200) return false;
+  return CODE_FAILED.test(t);
+}
+
+// Said once, by code, because it carries the real code and the guardrails
+// would suppress an invented one. {admin} is filled in by the caller.
+export function codeFailedMessage(app) {
+  const lines = [];
+  if (app) {
+    lines.push(`That code is right — ${app.label} is ${app.code} — so it's the Downloader box playing up rather than the number.`);
+    lines.push('');
+    lines.push(`Two things to try: type it with no spaces and press Go (not the keyboard's enter), or open https://aftv.news/${app.code} in the Silk browser instead — same file, different route.`);
+  } else {
+    lines.push("Sounds like the Downloader box rather than the number itself.");
+    lines.push('');
+    lines.push('Try typing it again with no spaces and pressing Go, or open the aftv.news link in the Silk browser instead.');
+  }
+  lines.push('');
+  lines.push("Still nothing? {admin} and they'll send you the file directly.");
+  return lines.join('\n');
+}

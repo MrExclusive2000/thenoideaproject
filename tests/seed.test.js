@@ -387,3 +387,25 @@ test('the payment guide and knowledge cover Bitcoin as well as Litecoin', () => 
       `an address must never be baked into content: ${f.question}`);
   }
 });
+
+// Asked "clear data and relogin instructions for sky glass" the bot
+// invented the procedure: "Open the Sky Glass app. Tap on the settings icon
+// (gear). Select Clear Data." There is no gear and no Clear Data inside the
+// app. Told "No clear data", it invented a power-button sequence instead.
+// Nothing in the knowledge covered it, so there was nothing to answer from.
+test('clearing app data is covered, and says where the setting actually is', () => {
+  seedStarterContent();
+  const entry = STARTER_FAQS.find((f) => /clear the app data/i.test(f.question));
+  assert.ok(entry, 'the starter pack covers clearing app data');
+  // The whole point: it is an operating-system setting in a different place
+  // on every device, not a button in our app.
+  assert.match(entry.answer, /Manage Installed Applications/, 'the real Fire TV path');
+  assert.match(entry.answer, /device settings|DEVICE settings/i, 'says it is not in the app');
+  assert.match(entry.answer, /iPhone|iPad/, 'and that iOS has no such option at all');
+
+  // And it is the entry that answers the question the customer asked.
+  const hit = matchFaq('Clear data and relogin instructions for sky glass',
+    db.prepare('SELECT * FROM faqs WHERE enabled = 1').all());
+  assert.match(hit.match?.question || '', /clear the app data/i,
+    'the live question should land on it, not on the Sky Glass install entry');
+});

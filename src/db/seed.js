@@ -5,7 +5,7 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 29;
+const SEED_VERSION = 30;
 
 export const STARTER_FAQS = [
   {
@@ -60,6 +60,19 @@ export const STARTER_FAQS = [
     question: 'How do I install the app on an iPhone or iPad (iOS)?',
     answer: 'On iPhone/iPad use Smarters Player Lite — install it free from the App Store:\nhttps://apps.apple.com/gb/app/smarters-player-lite/id1628995509\nOpen it, accept the terms and choose "Login with Xtream Codes API", then enter:\n- Any name you like\n- Your username and password (your normal service login)\n- The service URL — don\'t have it? Ask me "what\'s the service URL?" and I\'ll sort you out\nTap Add User and your channels and VOD will load.',
     keywords: 'ios, iphone, ipad, apple, store, lite, url, install, installing, app, apps',
+  },
+  {
+    // Added after the bot invented this procedure from nothing. Asked "clear
+    // data and relogin instructions for sky glass" it replied: "Open the Sky
+    // Glass app. Tap on the settings icon (gear). Select Clear Data." There
+    // is no gear and no Clear Data inside the app — clearing app data is an
+    // operating-system job, and the menu is in a different place on every
+    // device. Told "No clear data", it then invented a power-button
+    // sequence. Both answers sound right and send the customer round in
+    // circles looking for buttons that are not there.
+    question: 'How do I clear the app data and log back in?',
+    answer: 'Clearing app data is done in your DEVICE settings, not inside the app — there is no "clear data" button in Purple, Sky Glass, XC or Smarters. It wipes the login and the cached guide, so have your username and password to hand before you start.\n📺 Firestick / Fire TV: Settings > Applications > Manage Installed Applications > pick the app > Clear data (then Clear cache too), then open it and log in again.\n📱 Android phone or tablet: Settings > Apps > pick the app > Storage > Clear storage (or Clear data), then open it and log in again.\n🍏 iPhone / iPad: there is no clear-data option — delete the app, reinstall it from the App Store and log in again.\n📺 Samsung / LG smart TV: uninstall the app and reinstall it from the TV\'s app store.\nIf you have lost your password, don\'t send it to me — {admin} and they will reset it.',
+    keywords: 'clear, data, cache, clearing, storage, wipe, reset, relogin, re-login, log back in, logout, log out, fresh, start again, reinstall',
   },
   {
     question: 'How do I enable Developer Options or allow apps from unknown sources on Firestick?',
