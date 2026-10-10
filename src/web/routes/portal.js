@@ -5,12 +5,15 @@ import rateLimit from 'express-rate-limit';
 import { db, now } from '../../db/db.js';
 import { config } from '../../config.js';
 import { getSetting } from '../../settings.js';
-import { requireCustomer } from '../middleware.js';
+import { requireCustomer, portalLoginOn, portalClosed } from '../middleware.js';
 import { audit, renderMarkdown, formatBytes, formatDate } from '../../util.js';
 
 export const portalRouter = Router();
 
 portalRouter.get('/', (req, res) => {
+  // With customer sign-in off there is no customer website to send them to.
+  // Admins go to /admin, which is not advertised here.
+  if (!portalLoginOn()) return portalClosed(res);
   res.redirect(res.locals.customer ? '/portal' : '/login');
 });
 

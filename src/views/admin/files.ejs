@@ -1,7 +1,9 @@
 <%- include('../partials/admin-top', { title }) %>
 
 <h1>Downloads</h1>
-<p class="sub">Files customers can download from the portal — APKs, guides, anything up to <%= maxUploadMb %> MB.</p>
+<p class="sub">The app builds the bot hands out — <code>/download</code> sends the newest one in a DM, or a short
+  code to type into the Downloader app. Anything up to <%= maxUploadMb %> MB.<% if (portalLogin) { %>
+  They also appear on the customer download page.<% } %></p>
 
 <div class="card">
   <h2>Upload a file</h2>

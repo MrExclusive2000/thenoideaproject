@@ -1,7 +1,9 @@
 <%- include('../partials/admin-top', { title }) %>
 
 <h1>Guides</h1>
-<p class="sub">Setup and troubleshooting guides. Visible guides appear in the customer portal and are used as AI knowledge.</p>
+<p class="sub">Setup and troubleshooting guides. A <strong>visible</strong> guide is read by the AI when it
+  answers, so what you write here is what the bot tells people<% if (portalLogin) { %>, and it also appears on the
+  customer guides page<% } %>.</p>
 
 <div class="toolbar">
   <a class="btn" href="/admin/guides/new">＋ New guide</a>
@@ -12,7 +14,7 @@
     <tr><th>Title</th><th>Order</th><th>Status</th><th>Updated</th><th></th></tr>
     <% for (const g of guides) { %>
     <tr>
-      <td><a href="/admin/guides/<%= g.id %>"><strong><%= g.title %></strong></a><div class="hint">/portal/guides/<%= g.slug %></div></td>
+      <td><a href="/admin/guides/<%= g.id %>"><strong><%= g.title %></strong></a><% if (portalLogin) { %><div class="hint">/portal/guides/<%= g.slug %></div><% } %></td>
       <td><%= g.sort %></td>
       <td><span class="badge <%= g.visible ? 'badge-ok' : 'badge-dim' %>"><%= g.visible ? 'visible' : 'hidden' %></span></td>
       <td class="hint"><%= new Date(g.updated_at * 1000).toISOString().slice(0, 10) %></td>

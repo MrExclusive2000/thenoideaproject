@@ -324,7 +324,7 @@ export function registerCommands(bot) {
   });
 
   // A temporary problem belongs in the service note, not in knowledge: the note
-  // reaches the AI, /status and the portal, and deleting it clears all three.
+  // reaches the AI and /status, and deleting it clears both.
   // Written into an entry it just rots there and keeps being told to customers.
   bot.command('note', async (ctx) => {
     if (!isAdminUser(ctx.from.id)) return;

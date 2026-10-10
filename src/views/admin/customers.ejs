@@ -1,9 +1,9 @@
 <%- include('../partials/admin-top', { title }) %>
 
 <h1>Customers</h1>
-<p class="sub">Accounts for the download portal. Create one shared login or one per customer — your call.</p>
+<p class="sub">Who is on the service, when they expire, and which Telegram account is theirs.</p>
 
-<% if (created && created.length) { %>
+<% if (created && created.length && portalLogin) { %>
 <div class="card" style="border-color:var(--good)">
   <h2>New account<%= created.length > 1 ? 's' : '' %> — copy these passwords now (shown once)</h2>
   <table class="list">
@@ -13,10 +13,45 @@
     <% } %>
   </table>
 </div>
+<% } else if (created && created.length) { %>
+<div class="card" style="border-color:var(--good)">
+  <h2>Created</h2>
+  <p><% for (const c of created) { %><code><%= c.username %></code> <% } %></p>
+  <p class="hint">No password to hand out — customer sign-in is off. Link each one to their Telegram
+    account so they get expiry reminders and their downloads are recorded.</p>
+</div>
 <% } %>
 
 <div class="card">
+  <h2>Customer sign-in on the website
+    <span class="badge <%= portalLogin ? 'badge-warn' : 'badge-ok' %>"><%= portalLogin ? 'ON' : 'OFF' %></span>
+  </h2>
+  <% if (portalLogin) { %>
+    <p>Customers can sign in at <code>/login</code> with a username and password and get the downloads
+      and guides pages. That means a login form on the open internet, and one password per customer for
+      you to mint, reset and explain.</p>
+    <p class="hint">Everything on that page the bot already does in chat — <code>/download</code> sends the
+      app or a short code, guides are answered as questions, expiry is a DM.</p>
+  <% } else { %>
+    <p><code>/login</code> and the customer download pages are closed; anyone who had a session open was
+      signed out. Visitors get pointed at the bot instead.</p>
+    <p class="hint"><strong>Still working:</strong> short download codes (<code>/d/CODE</code>, typed into the
+      Downloader app on a Firestick), the records below, expiry reminder DMs, and the files and guides
+      themselves — the bot and the AI still use those.</p>
+  <% } %>
+  <form method="post" action="/admin/customers/portal-login">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <input type="hidden" name="enabled" value="<%= portalLogin ? '0' : '1' %>">
+    <button class="<%= portalLogin ? 'btn-danger' : 'btn-ghost' %> btn-sm"><%= portalLogin ? 'Turn sign-in off' : 'Turn sign-in back on' %></button>
+  </form>
+</div>
+
+<div class="card">
   <h2>Create accounts</h2>
+  <% if (!portalLogin) { %>
+  <p class="hint">A customer record is how the bot knows when someone expires and who they are on Telegram.
+    A password is still generated, but nothing uses it while sign-in is off.</p>
+  <% } %>
   <form method="post" action="/admin/customers">
     <input type="hidden" name="_csrf" value="<%= csrf %>">
     <div class="row">
@@ -43,7 +78,7 @@
         <input id="notes" name="notes" type="text" maxlength="500" placeholder="paid via PayPal, renews monthly">
       </div>
     </div>
-    <p><button type="submit">Create — passwords are generated automatically</button></p>
+    <p><button type="submit"><%= portalLogin ? 'Create — passwords are generated automatically' : 'Create' %></button></p>
   </form>
 </div>
 
@@ -61,7 +96,7 @@
 
 <div class="card">
   <table class="list">
-    <tr><th>Username</th><th>Telegram</th><th>Expires</th><th>Last login</th><th>Status</th><th></th></tr>
+    <tr><th>Username</th><th>Telegram</th><th>Expires</th><th><%= portalLogin ? 'Last login' : 'Added' %></th><th>Status</th><th></th></tr>
     <% for (const c of customers) { %>
     <tr>
       <td><a href="/admin/customers/<%= c.id %>"><strong><%= c.username %></strong></a>
@@ -73,7 +108,8 @@
         <% } else if (c.expires_at < nowTs + 7 * 86400) { %><span class="badge badge-warn"><%= formatDate(c.expires_at).slice(0, 10) %></span>
         <% } else { %><%= formatDate(c.expires_at).slice(0, 10) %><% } %>
       </td>
-      <td class="hint"><%= c.last_login_at ? formatDate(c.last_login_at) : 'never' %></td>
+      <td class="hint"><% if (portalLogin) { %><%= c.last_login_at ? formatDate(c.last_login_at) : 'never' %>
+        <% } else { %><%= c.created_at ? formatDate(c.created_at).slice(0, 10) : '—' %><% } %></td>
       <td><span class="badge <%= c.active ? 'badge-ok' : 'badge-dim' %>"><%= c.active ? 'active' : 'disabled' %></span></td>
       <td class="actions"><a class="btn btn-ghost btn-sm" href="/admin/customers/<%= c.id %>">Manage</a></td>
     </tr>

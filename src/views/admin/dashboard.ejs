@@ -1,7 +1,7 @@
 <%- include('../partials/admin-top', { title }) %>
 
 <h1>Dashboard</h1>
-<p class="sub">What your bot and portal have been up to.</p>
+<p class="sub">What the bot has been up to, and anything waiting on you.</p>
 
 <div class="cards">
   <div class="stat">
@@ -12,7 +12,7 @@
       <% } else if (bot.status === 'disabled') { %><span class="badge badge-dim">no token</span>
       <% } else { %><span class="badge badge-warn"><%= bot.status %></span><% } %>
     </div>
-    <div class="lbl">Bot <%= bot.username ? '@' + bot.username : '' %> · up <%= uptimeHours %>h</div>
+    <div class="lbl">bot · up <%= uptimeHours %>h</div>
   </div>
   <div class="stat"><div class="num"><%= stats.messages24h %></div><div class="lbl">messages seen (24h)</div></div>
   <div class="stat"><div class="num"><%= stats.answered24h %></div><div class="lbl">answered (24h)</div></div>
@@ -36,7 +36,7 @@
     <% } %>
     <tr><td><%= checklist.hasFaqs ? '✅' : '⬜' %></td><td><a href="/admin/faqs">Add knowledge entries</a> so common questions get instant answers</td></tr>
     <tr><td><%= checklist.aiConfigured ? '✅' : '⬜' %></td><td><a href="/admin/ai">Point the AI at your Llama endpoint</a> and test the connection</td></tr>
-    <tr><td><%= checklist.hasFile ? '✅' : '⬜' %></td><td><a href="/admin/files">Upload your first APK</a> for the customer portal</td></tr>
+    <tr><td><%= checklist.hasFile ? '✅' : '⬜' %></td><td><a href="/admin/files">Upload your first APK</a> so <code>/download</code> has something to send</td></tr>
     <tr><td><%= checklist.adminIds ? '✅' : '⬜' %></td><td><a href="/admin/reports">Set your admin Telegram ID</a> to receive alerts and digests</td></tr>
     <tr><td><%= checklist.adminContact ? '✅' : '⬜' %></td><td><a href="/admin/bot">Set your Telegram handle</a> — there's no ticket system, so everything the bot can't answer is pointed at you by name</td></tr>
     <% if (checklist.aiDown && checklist.aiDown.down) { %>

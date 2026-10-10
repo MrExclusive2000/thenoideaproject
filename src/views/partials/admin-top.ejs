@@ -12,8 +12,16 @@
 <% if (httpWarning) { %>
   <div class="http-warn">⚠ You are using this panel over plain HTTP — traffic (including passwords) is not encrypted. Put it behind HTTPS (reverse proxy) if it is reachable from the internet.</div>
 <% } %>
+<%#
+  The menu toggle is a checkbox rather than a script: the panel is often open
+  on a phone, the Content-Security-Policy here only allows nonced scripts, and
+  a menu that needs JavaScript to open is a menu that can fail to open. On a
+  wide screen the CSS ignores it entirely and the sidebar is simply there.
+-%>
+<input type="checkbox" id="navtoggle" class="nav-toggle" aria-label="Menu">
 <div class="admin-wrap">
   <nav class="sidebar">
+   <div class="sidebar-inner">
     <div class="brand">
       <% if (hasLogo) { %><img src="/admin/branding/logo" alt=""><% } else { %><span class="dot"></span><% } %>
       <span><%= appName %></span>
@@ -24,41 +32,40 @@
     <a class="nav active" href="/admin/password">Set new password</a>
     <div class="foot">The menu unlocks after you choose a new password.</div>
     <% } else { %>
-    <div class="group">Overview</div>
-    <a class="nav <%= path === '/admin' ? 'active' : '' %>" href="/admin">Dashboard</a>
-    <a class="nav <%= path.startsWith('/admin/problems') ? 'active' : '' %>" href="/admin/problems">Problem reports</a>
-    <a class="nav <%= path.startsWith('/admin/requests') ? 'active' : '' %>" href="/admin/requests">VOD requests</a>
-    <a class="nav <%= path.startsWith('/admin/unanswered') ? 'active' : '' %>" href="/admin/unanswered">Unanswered</a>
-    <a class="nav <%= path.startsWith('/admin/conversations') ? 'active' : '' %>" href="/admin/conversations">Conversations</a>
-
-    <div class="group">Bot</div>
-    <a class="nav <%= path.startsWith('/admin/bot') ? 'active' : '' %>" href="/admin/bot">Bot settings</a>
-    <a class="nav <%= path.startsWith('/admin/ai') ? 'active' : '' %>" href="/admin/ai">AI settings</a>
-    <a class="nav <%= path.startsWith('/admin/faqs') ? 'active' : '' %>" href="/admin/faqs">Knowledge</a>
-    <a class="nav <%= path.startsWith('/admin/broadcasts') ? 'active' : '' %>" href="/admin/broadcasts">Broadcasts</a>
-    <a class="nav <%= path.startsWith('/admin/reports') ? 'active' : '' %>" href="/admin/reports">Reports &amp; status</a>
-
-    <div class="group">Portal</div>
-    <a class="nav <%= path.startsWith('/admin/files') ? 'active' : '' %>" href="/admin/files">Downloads</a>
-    <a class="nav <%= path.startsWith('/admin/guides') ? 'active' : '' %>" href="/admin/guides">Guides</a>
-    <a class="nav <%= path.startsWith('/admin/customers') ? 'active' : '' %>" href="/admin/customers">Customers</a>
-
-    <div class="group">System</div>
-    <a class="nav <%= path.startsWith('/admin/admins') ? 'active' : '' %>" href="/admin/admins">Admins</a>
-    <a class="nav <%= path.startsWith('/admin/audit') ? 'active' : '' %>" href="/admin/audit">Audit log</a>
-    <a class="nav <%= path.startsWith('/admin/system') ? 'active' : '' %>" href="/admin/system">Branding &amp; backup</a>
+    <% for (const g of nav) { %>
+      <div class="group"><%= g.group %></div>
+      <% for (const item of g.items) { %>
+      <a class="nav <%= item.current ? 'active' : '' %>" href="<%= item.href %>">
+        <span class="nav-label"><%= item.label %></span>
+        <% if (item.badge) { %><span class="nav-count"><%= item.badge %></span><% } %>
+      </a>
+      <% } %>
     <% } %>
-
     <div class="foot">
-      <%= admin ? admin.username : '' %> (<%= admin ? admin.role : '' %>)<br>
-      <a href="/admin/password">Password &amp; 2FA</a><br>
-      <form method="post" action="/admin/logout" style="margin-top:6px">
+      <div title="Running build (commit · date)">build <%= buildId %></div>
+    </div>
+    <% } %>
+   </div>
+  </nav>
+  <%# Tapping the page closes the slide-out menu. Invisible on a wide screen. -%>
+  <label for="navtoggle" class="nav-scrim" aria-hidden="true"></label>
+
+  <main class="main">
+    <div class="topbar">
+      <label for="navtoggle" class="nav-burger" title="Menu">☰</label>
+      <span class="topbar-where"><%= section || title %></span>
+      <span class="spacer"></span>
+      <% if (botState.status === 'online') { %>
+        <a class="pill pill-ok" href="/admin" title="Bot connected to Telegram">● <%= botState.username ? '@' + botState.username : 'bot online' %></a>
+      <% } else if (botState.status === 'disabled') { %>
+        <a class="pill pill-dim" href="/admin" title="No bot token set">● bot off</a>
+      <% } else { %>
+        <a class="pill pill-bad" href="/admin" title="<%= botState.lastError || botState.status %>">● bot <%= botState.status %></a>
+      <% } %>
+      <span class="topbar-who"><%= admin ? admin.username : '' %></span>
+      <form method="post" action="/admin/logout">
         <input type="hidden" name="_csrf" value="<%= csrf %>">
         <button class="btn-ghost btn-sm">Log out</button>
       </form>
-      <div style="margin-top:8px;font-size:11px;opacity:.6" title="Running build (commit · date)">build <%= buildId %></div>
     </div>
-  </nav>
-
-  <main class="main">
     <% if (flash) { %><div class="flash flash-<%= flash.type %>"><%= flash.message %></div><% } %>

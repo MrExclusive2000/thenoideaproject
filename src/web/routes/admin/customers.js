@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { db, now } from '../../../db/db.js';
 import { hashPassword } from '../../accounts.js';
+import { setSetting } from '../../../settings.js';
 import { audit, randomPassword, formatDate } from '../../../util.js';
-import { flash } from '../../middleware.js';
+import { flash, portalLoginOn } from '../../middleware.js';
 
 export const customersRouter = Router();
 
@@ -35,6 +36,19 @@ customersRouter.get('/customers', (req, res) => {
     created: req.session.createdCustomers || null,
   });
   delete req.session.createdCustomers;
+});
+
+// The customer website's on/off switch lives here rather than in a settings
+// page, because this is the page it changes the meaning of: with it off, the
+// passwords this page mints are not used for anything.
+customersRouter.post('/customers/portal-login', (req, res) => {
+  const on = req.body.enabled === '1';
+  setSetting('portal.customerLogin', on);
+  audit('admin', res.locals.admin.username, on ? 'portal.login.enable' : 'portal.login.disable', '', req.ip);
+  flash(req, 'ok', on
+    ? 'Customer sign-in is ON. /login and the download pages are live again.'
+    : 'Customer sign-in is OFF. Anyone already signed in has been signed out. Short download codes still work.');
+  res.redirect('/admin/customers');
 });
 
 customersRouter.post('/customers', (req, res) => {
@@ -71,7 +85,9 @@ customersRouter.post('/customers', (req, res) => {
 
   audit('admin', res.locals.admin.username, 'customer.create', created.map((c) => c.username).join(', '), req.ip);
   req.session.createdCustomers = created;
-  flash(req, 'ok', `${created.length} account${created.length > 1 ? 's' : ''} created — passwords are shown below ONCE, copy them now.`);
+  flash(req, 'ok', portalLoginOn()
+    ? `${created.length} account${created.length > 1 ? 's' : ''} created — passwords are shown below ONCE, copy them now.`
+    : `${created.length} account${created.length > 1 ? 's' : ''} created. Customer sign-in is off, so the password is not used for anything — link their Telegram instead.`);
   res.redirect('/admin/customers');
 });
 

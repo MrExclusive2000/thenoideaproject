@@ -120,8 +120,8 @@ export async function notifyResolved(report) {
 // Several DIFFERENT people reporting service-wide symptoms (buffering,
 // streams not loading, login failures) inside a short window almost always
 // means real degradation. Flip the service status automatically: the bot then
-// leads every problem answer with the known-issue banner, /status and the
-// portal show it, and the AI knows. Single-title complaints (one episode, one
+// leads every problem answer with the known-issue banner, /status shows it,
+// and the AI knows. Single-title complaints (one episode, one
 // movie) never count — those reach the admin through normal escalation.
 // An admin-set status is never overwritten, and the auto-set one recovers by
 // itself once reports stop.
@@ -155,7 +155,7 @@ export function maybeAutoDegrade() {
     hub.notifyAdmins(
       `🔴 ${who} marked DEGRADED automatically: ${people} different people reported ${label} in the last ${windowMin} minutes.\n` +
       (scope === 'all'
-        ? 'Reporters now see the known-issue banner, and /status + the portal show it.\n'
+        ? 'Reporters now see the known-issue banner, and /status shows it.\n'
         : `Only ${label2(scope)} customers see the known-issue banner — the other service is untouched.\n`) +
       `It clears itself after ${recoverMin} quiet minutes — or set the status yourself in the panel → Reports.\n\n` +
       'Nobody else has been told. Tap below to post it to the group:',

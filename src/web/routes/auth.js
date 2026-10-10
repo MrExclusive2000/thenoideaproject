@@ -2,6 +2,7 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { authenticator } from 'otplib';
 import { attemptLogin } from '../accounts.js';
+import { portalLoginOn, portalClosed } from '../middleware.js';
 import { audit } from '../../util.js';
 
 export const authRouter = Router();
@@ -64,13 +65,20 @@ authRouter.post('/admin/logout', (req, res) => {
 });
 
 // ---- Customer ---------------------------------------------------------------
+//
+// Off by default — see portal.customerLogin. Both halves are gated, and the
+// POST refuses BEFORE attemptLogin: otherwise a form posted straight at the
+// endpoint would still tick failed_attempts, lock real accounts out and fill
+// the audit log, on a door that is supposed to be shut.
 
 authRouter.get('/login', (req, res) => {
+  if (!portalLoginOn()) return portalClosed(res);
   if (res.locals.customer) return res.redirect('/portal');
   res.render('portal/login', { error: null });
 });
 
 authRouter.post('/login', loginLimiter, async (req, res) => {
+  if (!portalLoginOn()) return portalClosed(res, 403);
   const { username, password } = req.body;
   const result = attemptLogin('customers', username, password);
 

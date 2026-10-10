@@ -1,0 +1,42 @@
+<%- include('../partials/admin-top', { title }) %>
+
+<h1>All settings</h1>
+<p class="sub">Everything you set once and forget. Each line under a page is what it is set to right now.</p>
+
+<%
+  // Built from the same menu definition the sidebar uses, so a page added
+  // there shows up here without anyone remembering to add it twice.
+  const group = nav.find((g) => g.group === 'Settings') || { items: [] };
+  const pages = group.items.filter((i) => i.href !== '/admin/settings');
+-%>
+<div class="tiles">
+  <% for (const p of pages) { %>
+  <a class="tile" href="<%= p.href %>">
+    <div class="tile-name"><%= p.label %></div>
+    <div class="tile-blurb"><%= p.blurb %></div>
+    <% for (const line of (current[p.href] || [])) { %>
+    <div class="tile-now">· <%= line %></div>
+    <% } %>
+  </a>
+  <% } %>
+</div>
+
+<h2>Elsewhere in the panel</h2>
+<p class="sub">Two switches that live with the thing they change rather than on a settings page.</p>
+<div class="tiles">
+  <a class="tile" href="/admin/customers">
+    <div class="tile-name">Customer sign-in on the website
+      <span class="badge <%= portalLogin ? 'badge-warn' : 'badge-ok' %>"><%= portalLogin ? 'ON' : 'OFF' %></span>
+    </div>
+    <div class="tile-blurb">Whether customers can sign in at <code>/login</code> for the downloads and guides pages.
+      Short download codes work either way.</div>
+    <div class="tile-now">· On the Customers page</div>
+  </a>
+  <a class="tile" href="/admin/files">
+    <div class="tile-name">Announce new uploads</div>
+    <div class="tile-blurb">Whether a new app build is broadcast to your chats automatically.</div>
+    <div class="tile-now">· On the Downloads page</div>
+  </a>
+</div>
+
+<%- include('../partials/admin-bottom') %>

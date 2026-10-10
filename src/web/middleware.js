@@ -17,6 +17,7 @@ export function locals(req, res, next) {
   res.locals.admin = null;
   res.locals.customer = null;
   res.locals.botState = state.bot;
+  res.locals.portalLogin = portalLoginOn();
   // Plain-HTTP warning for the admin panel (expected reality on a game-panel
   // allocation, but the admin should see it every time).
   res.locals.httpWarning = !req.secure && !['localhost', '127.0.0.1'].includes(req.hostname);
@@ -26,12 +27,32 @@ export function locals(req, res, next) {
       .get(req.session.adminId) || null;
     if (!res.locals.admin) delete req.session.adminId;
   }
-  if (req.session?.customerId) {
+  // Switched off, a session that was already open stops counting. Flipping
+  // the setting has to close the door on whoever is already inside, not just
+  // on the next person to knock.
+  if (res.locals.portalLogin && req.session?.customerId) {
     res.locals.customer = db.prepare('SELECT id, username, display_name, active, expires_at FROM customers WHERE id = ?')
       .get(req.session.customerId) || null;
     if (!res.locals.customer) delete req.session.customerId;
   }
   next();
+}
+
+// Is there a customer-facing website at all? See portal.customerLogin.
+export function portalLoginOn() {
+  return Boolean(getSetting('portal.customerLogin'));
+}
+
+// What a customer sees at /login or /portal when it is off. Not a 404: the
+// URL was handed out, is in browser history and is printed on nothing we can
+// recall, so it has to explain where to go instead.
+export function portalClosed(res, status = 200) {
+  return res.status(status).render('portal/closed', {
+    title: 'Support',
+    subtitle: '',
+    adminContact: String(getSetting('bot.adminContact') || '').trim(),
+    botUsername: state.bot.username || '',
+  });
 }
 
 export function flash(req, type, message) {
@@ -94,6 +115,7 @@ export function requireOwner(req, res, next) {
 }
 
 export function requireCustomer(req, res, next) {
+  if (!res.locals.portalLogin) return portalClosed(res, 403);
   const customer = res.locals.customer;
   if (!customer) return res.redirect('/login');
   if (!customer.active) return res.status(403).render('portal/blocked', { reason: 'disabled' });

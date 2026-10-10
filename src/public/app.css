@@ -88,16 +88,39 @@ button:hover, .btn:hover { filter: brightness(1.12); text-decoration: none; }
 
 .admin-wrap { display: flex; min-height: 100vh; }
 
+/* Opens the menu on narrow screens. See the comment in admin-top.ejs for why
+   this is a checkbox and not a script. Parked off-screen rather than
+   display:none so it stays keyboard-reachable. */
+.nav-toggle { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+.nav-burger {
+  display: none;
+  margin: 0;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 17px;
+  line-height: 1.2;
+  cursor: pointer;
+  color: var(--text);
+  user-select: none;
+}
+.nav-scrim { display: none; }
+
 .sidebar {
-  width: 224px;
+  width: 236px;
   flex-shrink: 0;
   background: var(--bg-raise);
   border-right: 1px solid var(--border);
-  padding: 18px 12px;
+}
+/* The column fills the page; its contents stay put while the page scrolls.
+   Doing both on one element meant a 100vh sidebar floating above bare
+   background on every page taller than the window. */
+.sidebar-inner {
   position: sticky;
   top: 0;
-  height: 100vh;
+  max-height: 100vh;
   overflow-y: auto;
+  padding: 18px 12px 28px;
 }
 .sidebar .brand {
   font-size: 17px;
@@ -109,20 +132,71 @@ button:hover, .btn:hover { filter: brightness(1.12); text-decoration: none; }
 }
 .sidebar .brand img { width: 26px; height: 26px; border-radius: 6px; }
 .sidebar .brand .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
-.sidebar .group { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-dim); margin: 16px 10px 4px; }
+.sidebar .group { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-dim); margin: 18px 10px 5px; }
 .sidebar a.nav {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 7px 10px;
   border-radius: 8px;
   color: var(--text);
   font-size: 14px;
   margin-bottom: 1px;
 }
+.sidebar a.nav .nav-label { flex: 1; min-width: 0; }
 .sidebar a.nav:hover { background: var(--bg-card); text-decoration: none; }
 .sidebar a.nav.active { background: var(--accent); color: #fff; font-weight: 600; }
-.sidebar .foot { margin-top: 18px; padding: 10px; font-size: 12.5px; color: var(--text-dim); }
+/* The count beside a menu item is only ever drawn when it is non-zero, so it
+   means "this needs you" wherever it appears. A zero badge everywhere trains
+   the eye to skip the whole column. */
+.nav-count {
+  flex-shrink: 0;
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(251, 191, 36, .16);
+  color: var(--warn);
+  font-size: 11.5px;
+  font-weight: 800;
+  text-align: center;
+}
+.sidebar a.nav.active .nav-count { background: rgba(0, 0, 0, .28); color: #fff; }
+.sidebar .foot { margin-top: 22px; padding: 10px; font-size: 12px; color: var(--text-dim); opacity: .75; }
 
-.main { flex: 1; padding: 26px 32px 60px; max-width: 1080px; min-width: 0; }
+.main { flex: 1; padding: 0 32px 60px; max-width: 1120px; min-width: 0; }
+
+/* Says where you are and whether the bot is actually up — the one fact that
+   decides whether anything else on the page means what it says. It used to be
+   a badge on the dashboard only, so a panel left open on any other page
+   showed nothing at all while the bot was down. */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0 13px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg);
+}
+.topbar form { margin: 0; }
+.topbar-where { font-weight: 700; font-size: 14px; }
+.topbar-who { font-size: 13px; color: var(--text-dim); }
+.pill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.pill:hover { text-decoration: none; filter: brightness(1.15); }
+.pill-ok { background: rgba(52, 211, 153, .14); color: var(--good); }
+.pill-bad { background: rgba(248, 113, 113, .14); color: var(--bad); }
+.pill-dim { background: var(--bg-raise); color: var(--text-dim); }
+
 .main h1 { font-size: 22px; margin: 0 0 4px; }
 .main .sub { color: var(--text-dim); margin: 0 0 22px; font-size: 14px; }
 .main h2 { font-size: 16px; margin: 26px 0 10px; }
@@ -168,8 +242,27 @@ table.list th {
 }
 table.list td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
 table.list tr:last-child td { border-bottom: 0; }
+table.list tbody tr:hover td, table.list tr:hover td { background: rgba(255, 255, 255, .022); }
+table.list tr:hover th { background: none; }
 table.list .actions { white-space: nowrap; text-align: right; }
 table.list .actions form { display: inline; }
+
+/* A settings page per link, each with the one sentence that says whether it
+   is the page you want. Twelve settings pages with names like "Reports &
+   status" is a guessing game otherwise. */
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.tile {
+  display: block;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 15px 17px;
+  color: var(--text);
+}
+.tile:hover { text-decoration: none; border-color: var(--accent); }
+.tile .tile-name { font-weight: 700; font-size: 15px; margin-bottom: 3px; }
+.tile .tile-blurb { font-size: 13px; color: var(--text-dim); line-height: 1.45; }
+.tile .tile-now { font-size: 12.5px; margin-top: 9px; }
 
 .row { display: flex; gap: 14px; flex-wrap: wrap; }
 .row > * { flex: 1; min-width: 220px; }
@@ -274,8 +367,34 @@ a.dl-btn:hover { text-decoration: none; }
 .status-degraded { background: rgba(251,191,36,.12); color: var(--warn); }
 .status-maintenance { background: rgba(248,113,113,.12); color: var(--bad); }
 
+/* On a phone the sidebar used to be a 20-link block above every page, so
+   reading any page started with a scroll past the menu. It slides in over the
+   content instead, and tapping the page closes it again. */
 @media (max-width: 860px) {
   .admin-wrap { display: block; }
-  .sidebar { width: auto; height: auto; position: static; }
-  .main { padding: 18px 16px 40px; }
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 40;
+    width: 252px;
+    height: 100%;
+    transform: translateX(-104%);
+    transition: transform .18s ease-out;
+  }
+  .nav-toggle:checked ~ .admin-wrap .sidebar { transform: translateX(0); }
+  .nav-toggle:focus ~ .admin-wrap .nav-burger { outline: 3px solid var(--accent); }
+  .nav-burger { display: inline-block; }
+  .nav-scrim { display: block; }
+  .nav-toggle:checked ~ .admin-wrap .nav-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 35;
+    background: rgba(0, 0, 0, .55);
+  }
+  .main { padding: 0 16px 40px; }
+  .topbar { gap: 9px; flex-wrap: wrap; padding: 11px 0; }
+  .topbar-who { display: none; }
+  .http-warn { padding: 8px 16px; }
 }

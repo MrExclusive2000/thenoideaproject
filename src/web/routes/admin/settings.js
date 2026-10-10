@@ -19,6 +19,49 @@ function walletField(raw, coin, current) {
 
 export const settingsRouter = Router();
 
+// ---- Settings index --------------------------------------------------------
+//
+// "Reports & status" holds the alert toggles; "Bot settings" holds the
+// wording of the replies; "Branding & backup" holds the app name. Knowing
+// which page holds the thing you want to change is knowledge, not
+// navigation. This page is the list: one sentence about each page, taken
+// from the same menu definition the sidebar is built from, plus what that
+// page is set to right now — so "is the digest on?" needs no page load.
+
+settingsRouter.get('/settings', (req, res) => {
+  const handle = String(getSetting('bot.adminContact') || '').trim();
+  const adminIds = (getSetting('reports.adminTelegramIds') || []).length;
+  const digest = getSetting('reports.digest');
+  const where = { all: 'every message', questions: 'questions only', mention: 'when mentioned' };
+
+  res.render('admin/settings-index', {
+    title: 'All settings',
+    // Keyed by href so the template can pair each menu item with its state
+    // without a second list of page names to keep in step.
+    current: {
+      '/admin/bot': [
+        getSetting('bot.enabled') ? `Answering in groups: ${where[getSetting('bot.responseMode')] || getSetting('bot.responseMode')}` : 'The bot is switched OFF — it answers nobody',
+        getSetting('bot.dmEnabled') ? 'Private messages on' : 'Private messages off',
+        handle ? `Escalates to ${handle.startsWith('@') ? handle : `@${handle}`}` : 'No admin handle set — "ask a human" lines name nobody',
+      ],
+      '/admin/ai': [
+        getSetting('ai.baseUrl') ? `${getSetting('ai.model') || 'no model set'} at ${String(getSetting('ai.baseUrl')).replace(/^https?:\/\//, '')}` : 'No endpoint set — answers come from keyword matching only',
+        Number(getSetting('bot.aiDailyBudget')) ? `Daily cap ${getSetting('bot.aiDailyBudget')} calls` : 'No daily cap',
+        getSetting('ai.embedEnabled') ? 'Matching by meaning (embeddings on)' : 'Matching by keyword (embeddings off)',
+      ],
+      '/admin/reports': [
+        `Service status: ${getSetting('service.status')}`,
+        adminIds ? `${adminIds} admin Telegram ID${adminIds > 1 ? 's' : ''} getting alerts` : 'Nobody is getting alerts — no admin Telegram ID set',
+        digest === 'off' ? 'Digest off' : `Digest ${digest} at ${getSetting('reports.digestHour')}:00`,
+      ],
+      '/admin/system': [
+        `Called "${getSetting('branding.appName')}"`,
+        getSetting('branding.logoFile') ? 'Logo set' : 'No logo',
+      ],
+    },
+  });
+});
+
 // ---- Bot settings ----------------------------------------------------------
 
 settingsRouter.get('/bot', (req, res) => {

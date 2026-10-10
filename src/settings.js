@@ -347,6 +347,26 @@ const DEFAULTS = {
   // topics that keep recurring without ever being resolved.
   'suggest.fromCases': true,
   'suggest.lastRunAt': 0,
+  // Customer sign-in on the website. OFF.
+  //
+  // The portal was built when the plan was a website customers logged into
+  // for their APK. It isn't how the service actually runs: installs go out
+  // through the bot's /download (the file itself in a DM, or a short code
+  // typed into the Downloader app), guides are answered in chat, and expiry
+  // is a DM. Nobody signs in — so the login page was a form on the open
+  // internet, guarding files that the bot hands over anyway, with one
+  // password per customer for the admin to mint, reset and explain.
+  //
+  // Turning it off closes /login and every /portal page and stops any
+  // session that was already open. Three things are untouched: /d/CODE (the
+  // short download code — no login, and what the Downloader app on a
+  // Firestick actually fetches), the customer RECORDS behind the scenes
+  // (expiry dates, Telegram links, download history, reminders) and the
+  // files and guides themselves, which the bot and the AI still use.
+  //
+  // It is a setting rather than deleted code because it is the admin's call,
+  // and switching it back on is one click.
+  'portal.customerLogin': false,
   // DM sent N days BEFORE expiry ({name}, {days}). Empty = off.
   'portal.expiryReminderMessage': '⏰ Heads up {name}: your access expires in {days} day(s). Renewing only takes a few minutes — {admin} or ask in the group and we will sort you out.',
   // DM sent ON/after expiry day ({name}). Empty = off.

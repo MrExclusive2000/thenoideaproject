@@ -1,0 +1,27 @@
+<%- include('../partials/portal-top', { title, subtitle }) %>
+
+<%#
+  Shown at /, /login and every /portal page while portal.customerLogin is off.
+  A dead end would be worse than the login form it replaces: the URL is in
+  people's browser history and in old messages, so this page has to say where
+  support actually is. No mention of /admin — this page is public.
+-%>
+<div class="portal-note">
+  <h1 style="font-size:21px;margin:0 0 10px">Support happens on Telegram</h1>
+  <p style="margin:0 0 14px">
+    There's no website login any more — everything is in the chat. Ask for your
+    app, your setup guides, a channel request or anything that's playing up, and
+    you'll get an answer straight away.
+  </p>
+  <% if (botUsername) { %>
+    <p style="margin:0 0 6px"><a class="dl-btn" href="https://t.me/<%= botUsername %>">Message the bot</a></p>
+    <p class="hint" style="margin-top:12px">Send it <code>/download</code> for the app, or just tell it what's wrong.</p>
+  <% } else { %>
+    <p style="margin:0">Open our Telegram group and ask there.</p>
+  <% } %>
+  <% if (adminContact) { %>
+    <p class="hint" style="margin-top:12px">Need a human? <%= adminContact.startsWith('@') ? adminContact : '@' + adminContact %></p>
+  <% } %>
+</div>
+
+<%- include('../partials/portal-bottom') %>
