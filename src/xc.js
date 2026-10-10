@@ -511,6 +511,22 @@ const CHANNEL_QUESTION = /\b(what|which|where)\b.{0,40}\b(channel|watch|showing|
 // The category shape on its own. The pipeline needs to tell it apart from
 // "what channel is BBC One": a generic FAQ can reasonably answer the second
 // one, and can never answer the first — see the comment where it is used.
+// Asking what there IS, rather than whether one thing is there. "What
+// channels do you have", "whats on the service", "full channel list".
+// PLURAL channels is the tell. "What channel is BBC One" asks about one
+// named channel and has a real answer; "what channels do you have" asks
+// what there is.
+const BROWSE_QUESTION =
+  /\b(?:what|which|how\s+many)\b[^.?!]{0,25}\bchannels\b|\bchannel\s+list\b|\blist\s+of\s+channels\b|\bfull\s+(?:channel\s+)?(?:list|lineup)\b|\bwhat\s+(?:do|dya|d'?ya)\s+(?:you|yous|u)\s+(?:have|got|carry|offer)\b|\bwhats?\s+(?:included|on\s+(?:the\s+)?service)\b|\bwhat\s+(?:am\s+i|do\s+i)\s+gett?ing\b/i;
+
+export const looksLikeBrowseQuestion = (text) => {
+  const t = String(text || '');
+  if (t.length > 160) return false;
+  // "what channels do you have for kids" is a genre question, not a browse.
+  if (/\b(?:kids?|sport|sports|news|music|movies?|documentar|racing|adult|polish|arabic|turkish|football|boxing)\b/i.test(t)) return false;
+  return BROWSE_QUESTION.test(t);
+};
+
 export const looksLikeChannelCategoryQuestion = (text) =>
   CHANNEL_CATEGORY.test(String(text || '')) && String(text || '').length < 160;
 
@@ -645,6 +661,71 @@ const CATEGORY_NOISE = new Set([
   'any', 'some', 'channel', 'channels', 'got', 'have', 'you', 'there', 'are', 'is', 'the', 'on',
   'live', 'tv', 'do', 'we', 'us', 'mate', 'please', 'uk', 'hd', 'all', 'other', 'more', 'bot',
 ]);
+
+// "What channels do you have?" — a fair question with 26,681 answers.
+//
+// It used to fall through to whichever entry shared a word with it; live
+// that was the channel-not-working one, so somebody asking what they were
+// buying got troubleshooting steps. A list is impossible and a vague "lots
+// of channels!" is worthless, so the shape of the lineup is described from
+// the lineup itself: home categories by name, then the biggest sections
+// beyond them, then how to actually find something.
+//
+// Generated rather than written down, so it cannot go stale — the day a
+// category is added or dropped, this changes with it.
+export function lineupOverview(service = 1) {
+  const rows = db.prepare('SELECT category FROM xc_channels WHERE service = ? AND category IS NOT NULL')
+    .all(service)
+    .filter((r) => !isAdultRow(r));
+  if (rows.length < 50) return null;
+
+  const tally = new Map();
+  for (const r of rows) tally.set(r.category, (tally.get(r.category) || 0) + 1);
+
+  // "UK | Sky Sports" -> group "UK", section "Sky Sports". A category with
+  // no divider is its own group, which is how the country-named ones
+  // ("Arabic", "Turkey") arrive.
+  // Grouped case-insensitively, because a real lineup writes "LIVE | ..."
+  // and "Live | ..." and they are the same section to a reader.
+  const tidy = (x) => x.replace(/[^\w &/+-]/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  const add = (map, name, n) => {
+    const key = name.toLowerCase();
+    const held = map.get(key);
+    map.set(key, { name: held?.name || name, n: (held?.n || 0) + n });
+  };
+  const home = new Map();
+  const abroad = new Map();
+  for (const [cat, n] of tally) {
+    const [headRaw, tailRaw] = String(cat).split('|');
+    const head = tidy(headRaw);
+    const tail = tidy(tailRaw || '');
+    if (HOME_REGION.test(head)) {
+      if (tail) add(home, tail, n);
+    } else if (head) {
+      add(abroad, head, n);
+    }
+  }
+
+  const top = (map, k) => [...map.values()]
+    .sort((a, b) => b.n - a.n)
+    .slice(0, k)
+    .map((x) => x.name);
+  const homeNames = top(home, 9);
+  // "LIVE", "VIP", "BACKUP" name no place and no genre — they are how the
+  // feed labels its own plumbing, and listing them tells a customer nothing.
+  const PLUMBING = /^(?:live|vip|backup|back\s*up|direct|other|misc|general|new|test|temp)$/i;
+  const abroadNames = top(abroad, 14).filter((x) => !PLUMBING.test(x)).slice(0, 8);
+  const total = rows.length;
+  const rounded = total >= 1000 ? `${Math.round(total / 1000)},000+` : `${Math.round(total / 50) * 50}+`;
+
+  const out = [`${rounded} live channels, and the easiest way in is to ask me for what you want.`];
+  if (homeNames.length) out.push(`\nUK and Ireland: ${homeNames.join(', ')}.`);
+  if (abroadNames.length) out.push(`Plus big international sections — ${abroadNames.join(', ')} and more.`);
+  out.push('\nAsk me for a channel by name ("what channel is Sky Sports Main Event?") or for a type '
+    + '("any kids channels?", "any Polish channels?") and I\'ll tell you exactly what we carry. '
+    + 'The full list is in the TV guide inside the app.');
+  return out.join('\n');
+}
 
 export function findChannelsByCategory(query, { service = 1, limit = 8 } = {}) {
   const words = (String(query || '').toLowerCase().match(/[a-z]{3,}/g) || [])

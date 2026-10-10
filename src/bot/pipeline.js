@@ -3,7 +3,7 @@ import { db, now } from '../db/db.js';
 import { getSetting, redactServiceUrls, serviceStatusFor, serviceNotesFor } from '../settings.js';
 import { matchFaq } from '../faq/matcher.js';
 import { askAi, aiBudgetExceeded, rephraseCanned } from '../ai/client.js';
-import { containsBannedWord, endsWithQuestion, offersNoNewHelp, repeatsPreviousAnswer } from '../ai/guardrails.js';
+import { containsBannedWord, endsWithQuestion, offersNoNewHelp, repeatsPreviousAnswer, offersSideloadToApple } from '../ai/guardrails.js';
 import { state } from '../state.js';
 import {
   sendChunked, logMessage, setLogSource, recordUnanswered, chatAllowed,
@@ -15,7 +15,7 @@ import { alertAdmins } from './reports.js';
 import { embed, retrieveFaqs, embeddingsProven } from '../ai/embeddings.js';
 import { lookupAnswer, rememberAnswer, cacheable } from '../ai/answer-cache.js';
 import { circuitOpen } from '../ai/breaker.js';
-import { looksLikeChannelQuestion, looksLikeChannelCategoryQuestion, findChannelsByCategory, findProgrammes, dedupeVariants, baseChannelName, looksLikeFixtureQuestion, channelGrounding, channelCount, findChannels, findVodTitle, vodKnown, xcConfigured } from '../xc.js';
+import { looksLikeChannelQuestion, looksLikeChannelCategoryQuestion, looksLikeBrowseQuestion, lineupOverview, findChannelsByCategory, findProgrammes, dedupeVariants, baseChannelName, looksLikeFixtureQuestion, channelGrounding, channelCount, findChannels, findVodTitle, vodKnown, xcConfigured } from '../xc.js';
 import { looksLikeGuideRequest, findGuide, visibleGuides, guideLeadIn, guideMessage } from '../guides.js';
 import { looksLikeWalletRequest, walletMessage } from '../payments.js';
 import { looksLikeInviteRequest, buildInvite, INVITE_NO_GROUP, INVITE_NO_PERMISSION } from './invites.js';
@@ -2435,6 +2435,41 @@ function bestServiceReply() {
 // FAQ instead of continuing the conversation. `suffix` is appended to any
 // actual answer (e.g. "flagged to the team" after a problem report).
 // Exported so tests can drive it with a fake ctx.
+// The knowledge entry that actually applies to an iPhone. Found by content
+// rather than by a hardcoded question, so renaming the entry in the panel
+// does not quietly break this.
+function iosEntry() {
+  try {
+    return db.prepare(`SELECT * FROM faqs WHERE enabled = 1
+      AND (question LIKE '%iPhone%' OR question LIKE '%iOS%' OR keywords LIKE '%ios%')
+      AND answer LIKE '%Smarters%' ORDER BY priority DESC, id LIMIT 1`).get() || null;
+  } catch {
+    return null;
+  }
+}
+
+// Somebody has posted their password. Nothing outranks this.
+//
+// It used to live inside answer(), which is most of the way down both
+// handlers — so anything that replies earlier swallowed it. Simulated: the
+// service had been auto-marked degraded a few messages before, and "cant
+// log in. username THM4821 password Hunter22" got the outage banner. The
+// password sat in the group, unremarked, and the admin was never told. A
+// pending which-service question would have eaten it the same way, and
+// taken the username for an answer.
+//
+// So it is checked first, in both entry points, before any other branch
+// can claim the message. Nothing on this path repeats the password back —
+// not the warning, not the admin alert.
+async function warnIfCredentials(ctx, text, logId, isDm, replyParams) {
+  if (!looksLikeCredentialDump(text)) return false;
+  setLogSource(logId, 'credential-warning');
+  const who = ctx.from?.username ? `@${ctx.from.username}` : ctx.from?.first_name || `id ${ctx.from?.id}`;
+  alertAdmins('frustrated', `🔒 ${who} sent what looks like their password in ${isDm ? 'a DM' : 'the group'}. I warned them and did not repeat it — worth changing it for them.`);
+  await ctx.api.sendMessage(ctx.chat.id, withAdminContact(CREDENTIAL_WARNING), replyParams).catch(() => {});
+  return true;
+}
+
 export async function answer(ctx, question, { isDm, logId, history: providedHistory = null, skipFaq = false, suffix = null, prefix = null, assumeOnTopic: forceOnTopic = false, directed = false, deepen = false }) {
   const faqs = db.prepare('SELECT * FROM faqs WHERE enabled = 1').all();
   const threshold = Number(getSetting('faq.threshold')) || 0.5;
@@ -2449,13 +2484,18 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
   // The bot taught them to do this by asking for it; the asking is fixed at
   // the source, but the habit outlives the bug. Nothing on this path repeats
   // the password back — not the warning, not the admin alert.
-  if (looksLikeCredentialDump(question)) {
-    setLogSource(logId, 'credential-warning');
-    const who = ctx.from?.username ? `@${ctx.from.username}` : ctx.from?.first_name || `id ${ctx.from?.id}`;
-    alertAdmins('frustrated', `🔒 ${who} sent what looks like their password in ${isDm ? 'a DM' : 'the group'}. I warned them and did not repeat it — worth changing it for them.`);
-    await ctx.api.sendMessage(ctx.chat.id, withAdminContact(CREDENTIAL_WARNING), replyParams).catch(() => {});
-    return 'credential-warning';
-  }
+  if (await warnIfCredentials(ctx, question, logId, isDm, replyParams)) return 'credential-warning';
+
+  // Is this person on an iPhone or iPad? Needed up here, not just in the AI
+  // path: in keyword mode a matched entry is sent AS the answer, so the
+  // guardrail that stops Android sideload instructions reaching an Apple
+  // device never saw it. Simulated — "how do I watch on my iphone" was
+  // answered correctly, and the bare follow-up "is there an app" came back
+  // with the Downloader code and the Fire TV developer-options steps.
+  const earlyHistory = providedHistory ?? (isDm ? (dmHistory.get(`${ctx.chat?.id}:${ctx.from?.id}`) || []) : []);
+  const onAppleDevice = namesApple(question)
+    || namesApple(getProblemState(ctx.from?.id)?.firstText || '')
+    || earlyHistory.some((h) => h.role === 'user' && namesApple(h.content));
 
   // Full-AI mode: the model writes every reply, and the FAQ becomes knowledge
   // handed to it rather than a canned answer that pre-empts it. Keyword
@@ -2511,6 +2551,20 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
     if (await askWhichService(ctx, question,
       'The two services carry different channels, so I want to give you the right answer.', logId, replyParams)) {
       return 'service-ask';
+    }
+  }
+
+  // "What channels do you have?" — fair question, 26,681 answers. It used
+  // to fall through to whichever entry shared a word with it, which live
+  // was the channel-not-working one: somebody asking what they were buying
+  // got troubleshooting steps. Described from the lineup itself, so it
+  // cannot go stale.
+  if (looksLikeBrowseQuestion(question)) {
+    const overview = lineupOverview(serviceNumberFor(ctx, question) || 1);
+    if (overview) {
+      setLogSource(logId, 'lineup-overview', overview);
+      await ctx.api.sendMessage(ctx.chat.id, withSuffix(overview), replyParams).catch(() => {});
+      return 'lineup-overview';
     }
   }
 
@@ -2874,6 +2928,15 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
   if (isServiceSpecific(question) && lineupCanAnswer(question, serviceNumberFor(ctx, question) || 1)) {
     result.match = null;
     result.nearMiss = null;
+  }
+
+  // A written entry full of Downloader codes and "allow unknown sources" is
+  // the right answer for a Firestick and impossible on an iPhone. Swap in
+  // the iOS entry when there is one; otherwise let it fall through rather
+  // than send instructions the device cannot follow.
+  if (onAppleDevice && result.match && offersSideloadToApple(result.match.answer)) {
+    result.match = iosEntry() || null;
+    result.nearMiss = result.match ? result.nearMiss : null;
   }
 
   if (result.match && !fullAi) {
@@ -3410,6 +3473,8 @@ export async function handleGroupMessage(ctx) {
   // 'url' keyword and must not swallow these). Asking requires question form
   // or clear intent so group banter containing "url" doesn't trigger it.
   const groupReplyParams = { reply_parameters: { message_id: ctx.message.message_id } };
+  // Before anything else can claim the message — see warnIfCredentials.
+  if (await warnIfCredentials(ctx, text, logId, false, groupReplyParams)) return;
   if (await handleUrlServiceReply(ctx, text, logId, groupReplyParams)) return;
   if (await handleServiceReply(ctx, text, logId, groupReplyParams)) return;
   if (await handleVodConfirmReply(ctx, text, logId, groupReplyParams)) return;
@@ -4073,6 +4138,7 @@ export async function handleDirectMessage(ctx) {
 
   // Per-user service URL flow: answer a pending username reply, or start the
   // flow when they ask for a URL — only ever THEIR service's URL.
+  if (await warnIfCredentials(ctx, text, logId, true, {})) return;
   if (await handleUrlServiceReply(ctx, text, logId, {})) return;
   if (await handleServiceReply(ctx, text, logId, {})) return;
   if (await handleVodConfirmReply(ctx, text, logId, {})) return;

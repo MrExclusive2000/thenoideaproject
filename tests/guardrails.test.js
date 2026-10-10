@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, stripWrongLoginAdvice, promisesALookup, claimsVodAvailability, driftsFromOriginal } from '../src/ai/guardrails.js';
+import { cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, stripWrongLoginAdvice, promisesALookup, claimsVodAvailability, driftsFromOriginal, namesNewSubject } from '../src/ai/guardrails.js';
 
 test('OFFTOPIC sentinel suppresses the reply', () => {
   assert.equal(cleanReply('OFFTOPIC'), null);
@@ -272,7 +272,61 @@ test('a rewrite that wandered off the subject is rejected', () => {
 
 // Short lines are exempt: "Hey, what can I sort for you?" rewritten as
 // "Alright mate — what's up?" shares no content words and is exactly what
-// was asked for. The length cap is what protects those.
+// was asked for. namesNewSubject below is what protects those.
 test('a short line is not judged on word overlap', () => {
   assert.equal(driftsFromOriginal('Hey 👋 What can I sort for you?', "Alright mate — what's up?"), false);
+});
+
+// The gap the exemption left. Simulated as a customer, a plain "hi mate how
+// are you" came back as "Yes, that should be available on the sports and PPV
+// channels in Live TV" — and every gate passed it: 72 characters against a
+// 91-character limit, no question added, no link, no placeholder, and too
+// few content words for the drift check to look at it. So the greeting, the
+// thanks line, "noted, you're on Exclusive" and the which-service question
+// could all come back as any sentence that fitted.
+const GREETING = 'Hey 👋 What can I sort for you?';
+
+test('a greeting rewritten into an answer is rejected', () => {
+  assert.equal(
+    namesNewSubject(GREETING, 'Yes, that should be available on the sports and PPV channels in Live TV.'),
+    true
+  );
+  // The same failure on the other short canned lines.
+  assert.equal(namesNewSubject('Anytime! 👍 Shout if you need anything else.',
+    'Install the Downloader app and enter the code.'), true);
+  assert.equal(namesNewSubject("👍 Noted — you're on Exclusive. What can I help with?",
+    'Your subscription runs out at the end of the month.'), true);
+});
+
+test('a genuine rewrite of a greeting still goes out', () => {
+  for (const good of ["Alright mate — what's up?", 'Hi there! What can I do for you today?',
+    'Hello! How can I give you a hand?', 'Hey, what do you need?']) {
+    assert.equal(namesNewSubject(GREETING, good), false, good);
+  }
+});
+
+test('a subject the customer themselves raised is not a new one', () => {
+  // The model is told to answer THIS person, so echoing the thing they just
+  // mentioned invents nothing — only a subject neither side raised is new.
+  assert.equal(
+    namesNewSubject('Anytime! 👍 Shout if you need anything else.', "Glad the buffering's sorted!",
+      { asked: 'cheers mate that fixed the buffering' }),
+    false
+  );
+  assert.equal(
+    namesNewSubject('Anytime! 👍 Shout if you need anything else.', "Glad the buffering's sorted!"),
+    true
+  );
+});
+
+test('a long answer about its own subject is left alone', () => {
+  // The saved text already names the devices and the apps, so the rewrite
+  // naming them is not drift — this check must not fire on real answers.
+  const steps = 'Install the Downloader app on your Firestick, enter the code, and log in '
+    + 'with your username and password.';
+  assert.equal(
+    namesNewSubject(steps, 'Grab Downloader on the Firestick, punch in the code, then sign in '
+      + 'with the username and password we sent you.'),
+    false
+  );
 });

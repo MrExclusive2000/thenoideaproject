@@ -573,3 +573,31 @@ export function driftsFromOriginal(original, rewrite, { minWords = 12, keep = 0.
   for (const w of after) if (before.has(w)) shared++;
   return shared / before.size < keep;
 }
+
+// The other half of the same problem. The drift check above deliberately
+// ignores short lines, because word overlap cannot tell a good rewrite of a
+// greeting from a bad one — "Hey, what can I sort for you?" and "Alright
+// mate, what do you need a hand with?" share nothing and both are fine. So
+// every short canned line — the greeting, the thanks, "noted, you're on
+// Exclusive", the which-service question — had no subject check at all, and
+// the only thing standing between it and an arbitrary sentence was the
+// length cap. Simulated, the greeting came back as "Yes, that should be
+// available on the sports and PPV channels in Live TV": 72 characters
+// against a 91-character limit, asking nothing, inventing no link, naming
+// no placeholder. Every gate passed it.
+//
+// Counting new words cannot separate those two either — both add four. What
+// separates them is that one is ABOUT something. A pleasantry names no
+// device, no channel, no payment and no fix, so a rewrite of one that names
+// one has stopped being a rewrite and started being an answer.
+const SUPPORT_SUBJECT = /\b(channels?|sports?|ppv|live ?tv|vod|films?|movies?|series|epg|install\w*|download\w*|apps?|apk|firestick|fire ?stick|android|iphone|ipad|smart ?tv|logins?|log ?in|usernames?|passwords?|credentials|buffer\w*|freez\w*|stream\w*|playback|subscriptions?|renew\w*|payments?|paypal|crypto|wallet|refund|trial|ethernet|wifi|router|reboot|restart|cache)\b/gi;
+
+export function namesNewSubject(original, rewrite, { asked = '' } = {}) {
+  // Judged against the saved text AND the customer's own message: the model
+  // is told to answer THIS person, so a rewrite that mentions the thing they
+  // just mentioned has invented nothing. Only a subject neither of them
+  // raised is new.
+  const known = `${original || ''} ${asked || ''}`.toLowerCase();
+  const found = String(rewrite || '').toLowerCase().match(SUPPORT_SUBJECT) || [];
+  return found.some((w) => !known.includes(w));
+}

@@ -4,7 +4,7 @@ import { scoreFaq, tokens } from '../faq/matcher.js';
 import { scoreGuide } from '../guides.js';
 import { redactWalletAddresses } from '../payments.js';
 import { circuitOpen, circuitError, recordFailure, recordSuccess } from './breaker.js';
-import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, echoesInstructions, stripPrematureHandoff, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail, asksForCredentials, redactCredentialUrls, inventsLink, invensSportsResult, stripWrongLoginAdvice, stripClaimedFixes, fixEthernetForStick, promisesALookup, offersSideloadToApple, claimsVodAvailability, driftsFromOriginal } from './guardrails.js';
+import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, echoesInstructions, stripPrematureHandoff, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail, asksForCredentials, redactCredentialUrls, inventsLink, invensSportsResult, stripWrongLoginAdvice, stripClaimedFixes, fixEthernetForStick, promisesALookup, offersSideloadToApple, claimsVodAvailability, driftsFromOriginal, namesNewSubject } from './guardrails.js';
 import { offersClaimedFix, FIX_LABELS } from '../bot/helpers.js';
 
 const usageStmt = db.prepare(
@@ -887,6 +887,11 @@ export async function rephraseCanned(message, { question = null } = {}) {
     // the right length, asks nothing, invents no link — and is about
     // something else. The saved text wins that argument every time.
     if (driftsFromOriginal(message, out)) return message;
+    // Drift is only measurable on a substantial line. A short one — the
+    // greeting, the thanks, the which-service question — gets the subject
+    // test instead, so the two together leave no length where a rewrite can
+    // quietly become an answer to something nobody asked.
+    if (namesNewSubject(message, out, { asked })) return message;
     return redactCredentialUrls(out);
   } catch {
     return message;

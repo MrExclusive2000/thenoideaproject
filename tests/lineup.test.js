@@ -284,3 +284,34 @@ test('section headings are not offered as channels', async () => {
   const names = findChannels('any kids channels', { service: 1 }).map((c) => c.name);
   assert.ok(!names.some((n) => /-----/.test(n)), 'a divider does not play');
 });
+
+// "What channels do you have?" is a fair question with 26,681 answers. It
+// used to fall through to whichever entry shared a word with it — live
+// that was the channel-not-working one, so somebody asking what they were
+// buying got troubleshooting steps.
+test('the browse question is answered from the shape of the lineup', async () => {
+  const { lineupOverview, looksLikeBrowseQuestion } = await import('../src/xc.js');
+  const rows = [];
+  const push = (name, cat, n) => { for (let i = 0; i < n; i++) rows.push([`${name} ${i}`, cat]); };
+  push('ent', 'UK | Entertainment', 40);
+  push('ss', 'UK | Sky Sports', 30);
+  push('us', 'USA', 25);
+  push('ar', 'Arabic', 20);
+  push('plumb', 'LIVE | ESPN+ (Direct)', 60);  // the feed's own plumbing
+  push('x', 'Adults', 50);                      // never mentioned
+  lineup(rows);
+
+  const text = lineupOverview(1);
+  assert.match(text, /Entertainment/, 'home sections are named');
+  assert.match(text, /Sky Sports/);
+  assert.match(text, /USA|Arabic/, 'and the big international ones');
+  assert.doesNotMatch(text, /Adults?/i, 'adult categories are never named');
+  assert.doesNotMatch(text, /\bLIVE\b/, 'nor the feed\'s own plumbing labels');
+
+  // Plural is what separates it from "what channel is BBC One".
+  assert.equal(looksLikeBrowseQuestion('what channels do you have'), true);
+  assert.equal(looksLikeBrowseQuestion('how many channels do you have'), true);
+  assert.equal(looksLikeBrowseQuestion('what channel is bbc one'), false);
+  assert.equal(looksLikeBrowseQuestion('what channels do you have for kids'), false,
+    'that is a genre question and has a better answer');
+});
