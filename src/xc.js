@@ -1275,8 +1275,12 @@ const FIXTURE_QUESTION = /\bwho('?s| is| are)?\s+(playing|on|against)\b|\bwho\s+
 // message so it cannot swallow "and the wifi", and the sports are a closed
 // list, so this is only ever read as a fixture question when a fixture
 // question is the only thing it could be.
+// "The" is typed "teh" often enough that insisting on it cost a real
+// answer: a customer mid-thread about the football followed up with "and
+// teh boxing" and got silence. The article is a closed little list now,
+// typo included, and the sport list is still what does the work.
 const BARE_SPORT =
-  /^\s*(?:and|also|what\s+about|how\s+about|plus|then)?\s*(?:the\s+)?(?:football|soccer|boxing|cricket|rugby|golf|tennis|darts|snooker|racing|f1|formula\s?1|ufc|mma|nfl|nba|hockey)\b[\s?!.]*$/i;
+  /^\s*(?:and|also|what\s+about|how\s+about|plus|then|ok|okay|right)?\s*(?:(?:the|teh|th|any|some|my)\s+)?(?:football|soccer|boxing|cricket|rugby|golf|tennis|darts|snooker|racing|f1|formula\s?1|ufc|mma|nfl|nba|hockey)\b[\s?!.]*$/i;
 
 export const looksLikeFixtureQuestion = (text) =>
   (FIXTURE_QUESTION.test(String(text || '')) || BARE_SPORT.test(String(text || '')))

@@ -416,3 +416,32 @@ test('a bare device name never changes the subject', async () => {
   await handleDirectMessage(second);
   assert.match(second.sent.join('\n'), /Pricing depends/i, 'still answering about price');
 });
+
+// A customer who had just been told what football was on followed up with
+// "and teh boxing" and got total silence in the group. No question mark,
+// no problem words, and no entry sharing a word with it, so the group's
+// should-we-speak gate never even considered answering — while the very
+// same message in a DM was answered properly. The room was the only
+// difference. A fixture or a genre question is a support question in both.
+test('a bare sport follow-up is answered in the group, typo and all', async () => {
+  setLineup([
+    [941, 'UK: Sky Sports Main Event', 'UK | SPORTS'],
+    [942, 'UK: Boxing 1', 'UK | SPORTS'],
+  ]);
+  aiResponse = 'Yes — we carry UK: Boxing 1.';
+
+  for (const asked of ['and the boxing', 'and teh boxing']) {
+    const ctx = groupCtx(asked);
+    await handleGroupMessage(ctx);
+    assert.ok(ctx.sent.length, `the group answered: ${asked}`);
+  }
+
+  // The looser lead-in must not turn anything else into a fixture
+  // question — the sport list is what does the work. Asserted on the test
+  // itself, because "and the wifi" reaches an entry of its own and being
+  // answered proves nothing either way.
+  const { looksLikeFixtureQuestion } = await import('../src/xc.js');
+  for (const chatter of ['and the wifi', 'and teh app', 'and the url', 'and teh password']) {
+    assert.equal(looksLikeFixtureQuestion(chatter), false, chatter);
+  }
+});

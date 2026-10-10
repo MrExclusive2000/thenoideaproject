@@ -3680,9 +3680,18 @@ export async function handleGroupMessage(ctx) {
 
   let shouldAnswer = mode === 'all' || mentioned;
   if (!shouldAnswer && mode === 'questions') {
+    // A fixture or a genre question is a support question whatever shape it
+    // arrives in, and the two tightest tests we have say so. A customer who
+    // had just been told what football was on followed up with "and the
+    // boxing" and got silence — no question mark, no problem words, no
+    // entry sharing a word with it, so the group never considered
+    // answering. The same message in a DM was answered properly, which is
+    // the tell: the room was the only difference.
+    const asksAboutTheLineup = looksLikeFixtureQuestion(question)
+      || looksLikeChannelCategoryQuestion(question);
     shouldAnswer = repliesToOtherUser
       ? (isProblem || standaloneFaqMatch())
-      : (looksLikeQuestion(text) || isProblem || standaloneFaqMatch());
+      : (looksLikeQuestion(text) || isProblem || asksAboutTheLineup || standaloneFaqMatch());
   }
 
   // Problem triage: fixes first, admin escalation only on confirmation.
