@@ -3865,7 +3865,13 @@ test('answering which service re-runs the original question — they never repea
   assert.match(ctx.sent[0].msg, /Exclusive or Flix/);
 
   aiResponse = 'It is on FLIX: Sky Sports F1.';
-  await handleDirectMessage(ctx, 'Flix');
+  // A NEW message saying "Flix" — handleDirectMessage reads ctx.message.text,
+  // so reusing the first ctx re-sent the original question. That passed only
+  // because the old code took the longest word in it ("channel") for a
+  // username and classified it as service 2; the test was asserting the
+  // right thing and getting there through the bug it was meant to outlive.
+  const reply = fakeCtx('Flix', { userId: 554434 });
+  await handleDirectMessage(reply);
   // The question was answered without them typing it again, grounded on
   // THEIR service's lineup.
   assert.match(JSON.stringify(lastAiRequest), /FLIX: Sky Sports F1/, "service 2's lineup was used");
@@ -5006,6 +5012,11 @@ test('an unclear answer to the service question is re-asked, not dropped', async
   db.prepare('DELETE FROM xc_channels').run();
   db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (1, 101, 'UK: BBC One HD', NULL, 'b1', 1)").run();
   db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (2, 201, 'FLIX: BBC One', NULL, 'b2', 1)").run();
+  // Only one service carries F1, so which one they are on genuinely decides
+  // the answer — which is now what makes the bot ask at all. With neither
+  // service carrying it, asking and then saying "no listing" would make
+  // them answer a question to receive a non-answer.
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (1, 102, 'UK: Sky Sports F1 HD', NULL, 'f1', 1)").run();
 
   const ask = fakeCtx('what channel is the f1 on', { userId: 99920 });
   await handleDirectMessage(ask, ask.message.text);
@@ -6602,4 +6613,55 @@ test('with embeddings on, "have you got X channels" still goes to the lineup', a
     setSetting('services.xcPass1', '');
     db.prepare('DELETE FROM xc_channels').run();
   }
+});
+
+// Simulated against a real two-service lineup: the bot asked which service
+// they were on, the customer carried on with their next question, and the
+// longest word in it was filed as their username —
+//
+//   "what channel is sky sports main event"  -> which service are you on?
+//   "do you have sky sports f1"              -> remembered: service 2,
+//                                               username "sports"
+//
+// Every answer after that came out of the other service's lineup, and the
+// memory is kept for 120 days. Two things were wrong: a question is not an
+// answer to "which service are you on?" (the URL flow has always known
+// that; this path did not), and "longest word of four characters" is a test
+// for a word, not for a username — plausibleUsername already rejects
+// "sports" and simply was not being asked.
+test('a question asked after the service question is not read as a username', async () => {
+  const { _resetServiceAsk } = await import('../src/bot/pipeline.js');
+  const { recallService, forgetService } = await import('../src/service-memory.js');
+  _resetServiceAsk();
+  forgetService(554460);
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+  setSetting('bot.cooldownSeconds', 0);
+  db.prepare('DELETE FROM xc_channels').run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (1, 301, 'UK: Sky Sports Main Event HD', 'UK | SPORTS', 'ssme1', 1)").run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (2, 302, 'FLIX: Sky Sports Main Event', 'SPORTS', 'ssme2', 1)").run();
+
+  const ask = fakeCtx('what channel is sky sports main event', { userId: 554460 });
+  await handleDirectMessage(ask);
+  assert.match(ask.sent.map((s) => s.msg).join('\n'), /Which service are you on/i);
+
+  const next = fakeCtx('do you have sky sports f1', { userId: 554460 });
+  await handleDirectMessage(next);
+  assert.equal(recallService(554460), null,
+    'a word out of their next question was filed as their username');
+
+  // A real username answer still works, and is still the strongest
+  // evidence. Its own thread, because the ask above was abandoned the
+  // moment they asked something else — there is nothing left to answer.
+  forgetService(554461);
+  const ask2 = fakeCtx('what channel is sky sports main event', { userId: 554461 });
+  await handleDirectMessage(ask2);
+  assert.match(ask2.sent.map((s) => s.msg).join('\n'), /Which service are you on/i);
+  const real = fakeCtx('THM4821', { userId: 554461 });
+  await handleDirectMessage(real);
+  assert.ok(recallService(554461), 'an actual username must still be taken');
+
+  forgetService(554460);
+  forgetService(554461);
+  db.prepare('DELETE FROM xc_channels').run();
 });

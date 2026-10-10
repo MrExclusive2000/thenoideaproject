@@ -120,7 +120,23 @@ export function channelsUpdatedAt(service = 1) {
 // Words that appear in half the lineup and so say nothing about which channel
 // someone means. Without this, "what channel is the F1 on" matches every
 // "SPORTS: ..." entry on the word "sport".
-const NOISE = new Set(['uk', 'hd', 'fhd', 'sd', '4k', 'tv', 'channel', 'the', 'on', 'is', 'what', 'whats', 'for', 'a', 'in']);
+// Words that must never pick a channel. The list started as the obvious
+// lineup decoration and grew the day "what's on it tonight" came back
+// "we carry UK: ITV2, UK: ITV1 HD, UK: MTV Hits" — "it" is two characters
+// and every ITV channel contains them, so a pronoun chose the answer.
+//
+// Short words stay matchable on purpose (E4, S4C, 5USA are real channels),
+// so the fix is naming the fillers rather than setting a length floor.
+const NOISE = new Set([
+  'uk', 'hd', 'fhd', 'sd', '4k', 'uhd', 'tv', 'channel', 'channels',
+  'the', 'on', 'is', 'what', 'whats', 'for', 'a', 'an', 'in', 'at', 'of', 'to', 'by', 'up',
+  'it', 'its', 'me', 'my', 'we', 'us', 'you', 'your', 'i', 'im', 'ive',
+  'any', 'some', 'all', 'more', 'other', 'else', 'got', 'get', 'have', 'has', 'had',
+  'are', 'am', 'be', 'do', 'does', 'did', 'can', 'could', 'would', 'will',
+  'this', 'that', 'there', 'here', 'now', 'tonight', 'today', 'tomorrow', 'later', 'tonite',
+  'please', 'pls', 'mate', 'bot', 'and', 'or', 'but', 'so', 'just', 'still', 'not', 'no', 'yes',
+  'watch', 'watching', 'show', 'showing', 'see', 'find', 'know', 'tell', 'ask',
+]);
 
 // Find channels whose NAME matches the words in a question. Deliberately
 // name-only and capped: the result is injected into the prompt, and a prompt
@@ -443,6 +459,45 @@ function dedupeProgrammeRows(rows) {
   return out;
 }
 
+// Channels by CATEGORY, for "have you got any kids channels?".
+//
+// findChannels searches names, which is right for "what channel is BBC One"
+// and useless for a genre: not one of CBeebies, Nick Jr or Cartoon Network
+// has "kids" in its name, and the lineup files all three under "UK | KIDS".
+// Simulated against a real two-service lineup, every genre question came
+// back "I don't have a listing for that" while the channels sat in the
+// table — the honest-sounding version of the same wrong answer the model
+// used to invent.
+//
+// Separate from findChannels on purpose. Folding categories into the name
+// search would make "sky sports" match all forty channels filed under
+// SPORTS and bury the one they asked for.
+const CATEGORY_NOISE = new Set([
+  'any', 'some', 'channel', 'channels', 'got', 'have', 'you', 'there', 'are', 'is', 'the', 'on',
+  'live', 'tv', 'do', 'we', 'us', 'mate', 'please', 'uk', 'hd', 'all', 'other', 'more', 'bot',
+]);
+
+export function findChannelsByCategory(query, { service = 1, limit = 8 } = {}) {
+  const words = (String(query || '').toLowerCase().match(/[a-z]{3,}/g) || [])
+    .filter((w) => !CATEGORY_NOISE.has(w));
+  if (!words.length) return [];
+  const rows = db.prepare(
+    'SELECT stream_id, name, category, epg_channel_id FROM xc_channels WHERE service = ? AND category IS NOT NULL'
+  ).all(service);
+  const scored = [];
+  for (const r of rows) {
+    const cat = String(r.category).toLowerCase();
+    // Matched on a prefix, because the word and the category label are
+    // almost never the same shape: "documentary" has to find
+    // "DOCUMENTARIES", "movie" has to find "MOVIES", "kid" has to find
+    // "KIDS". Suffix stripping gets the plurals and misses the y/ies pair,
+    // which is the one that matters most here.
+    const hit = words.some((w) => cat.includes(w) || cat.includes(w.slice(0, 6)));
+    if (hit) scored.push(r);
+  }
+  return scored.slice(0, limit);
+}
+
 export async function channelGrounding(question, { service = 1 } = {}) {
   if (!xcConfigured(service)) return null;
   const lines = [];
@@ -477,7 +532,12 @@ export async function channelGrounding(question, { service = 1 } = {}) {
 
   // Deduped BEFORE the limit, or six results are the same channel six times
   // and the genuinely different ones never make the list.
-  const hits = namedChannels.slice(0, 6);
+  // Nothing matched by name. If they asked for a GENRE, the lineup still
+  // knows the answer — it is in the category column.
+  const byCategory = namedChannels.length || !looksLikeChannelCategoryQuestion(question)
+    ? []
+    : findChannelsByCategory(question, { service, limit: 8 });
+  const hits = (namedChannels.length ? namedChannels : byCategory).slice(0, 6);
   if (hits.length) {
     if (lines.length) lines.push('');
     lines.push('Channels in OUR lineup matching what they asked about (these names are exact — use them as written):');

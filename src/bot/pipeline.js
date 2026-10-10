@@ -15,7 +15,7 @@ import { alertAdmins } from './reports.js';
 import { embed, retrieveFaqs, embeddingsProven } from '../ai/embeddings.js';
 import { lookupAnswer, rememberAnswer, cacheable } from '../ai/answer-cache.js';
 import { circuitOpen } from '../ai/breaker.js';
-import { looksLikeChannelQuestion, looksLikeChannelCategoryQuestion, looksLikeFixtureQuestion, channelGrounding, channelCount, findChannels, findVodTitle, vodKnown, xcConfigured } from '../xc.js';
+import { looksLikeChannelQuestion, looksLikeChannelCategoryQuestion, findChannelsByCategory, findProgrammes, looksLikeFixtureQuestion, channelGrounding, channelCount, findChannels, findVodTitle, vodKnown, xcConfigured } from '../xc.js';
 import { looksLikeGuideRequest, findGuide, visibleGuides, guideLeadIn, guideMessage } from '../guides.js';
 import { looksLikeWalletRequest, walletMessage } from '../payments.js';
 import { looksLikeInviteRequest, buildInvite, INVITE_NO_GROUP, INVITE_NO_PERMISSION } from './invites.js';
@@ -395,7 +395,14 @@ async function handleServiceReply(ctx, text, logId, replyParams) {
     return false;
   }
   // They moved on rather than answering — let the normal flow have it.
-  if (looksLikeProblem(text) || anyVodRequest(text) || looksLikeGreeting(text) || looksLikeThanks(text)) {
+  // A QUESTION is the commonest way that happens and was the one shape not
+  // listed: asked which service they were on, the customer carried on with
+  // "do you have sky sports f1", the longest word in it was taken for a
+  // username, and "sports" was filed as a Flix login. Every answer after
+  // that came out of the wrong lineup, and the memory is kept for 120 days.
+  // The URL flow has always had this guard; this one was missing it.
+  if (looksLikeQuestion(text) || looksLikeProblem(text) || anyVodRequest(text)
+      || looksLikeGreeting(text) || looksLikeThanks(text)) {
     pendingServiceQuestion.delete(key);
     return false;
   }
@@ -405,8 +412,13 @@ async function handleServiceReply(ctx, text, logId, replyParams) {
   let usedUsername = null;
   if (!svc) {
     // They may have replied with a username instead of a service name.
-    const cand = plainWords(text).sort((a, b) => b.length - a.length)[0] || '';
-    if (cand.length >= 4) {
+    // "Longest word in the message, if it is four characters" is not a test
+    // for a username — it is a test for a word. plausibleUsername is, and it
+    // already knows "sports" and "football" are not logins; it just was not
+    // being asked. A username answer is also a token, not a sentence.
+    const words = plainWords(text);
+    const cand = words.sort((a, b) => b.length - a.length)[0] || '';
+    if (words.length <= 3 && plausibleUsername(cand)) {
       svc = serviceForUsername(cand);
       usedUsername = cand;
     }
@@ -473,6 +485,65 @@ export const _looksLikeServiceStatement = (t) => looksLikeServiceStatement(t);
 
 function isServiceSpecific(question) {
   return looksLikeChannelQuestion(question) || looksLikeFixtureQuestion(question);
+}
+
+// Does the lineup or the downloaded guide actually hold the answer?
+//
+// The written entries were all composed before anyone knew what the panel
+// would carry, so where the panel knows, it wins. "What channel is the
+// boxing on" was answered by the live-sports entry — which replies "not
+// sure which channel? just ask me 'what channel is the boxing on?'", the
+// question they had just asked — while "Boxing: Fury v Usyk II" sat in the
+// guide against Sky Sports Main Event.
+//
+// Gated on there being something to say, not merely on the question's
+// shape: with no matching channel and no matching programme, the entry is
+// still the best thing we have and it stays.
+function lineupCanAnswer(question, service) {
+  if (!channelCount(service)) return false;
+  if (findChannels(question, { service, limit: 1 }).length) return true;
+  if (findProgrammes(question, { service, limit: 1 }).length) return true;
+  if (looksLikeChannelCategoryQuestion(question)
+      && findChannelsByCategory(question, { service, limit: 1 }).length) return true;
+  // A category question we hold no category for is still the lineup's to
+  // answer — "no, we don't carry those" is the truth, and an entry about
+  // something else is not.
+  return looksLikeChannelCategoryQuestion(question);
+}
+
+// Would both lineups give this person the same answer?
+//
+// "The two services carry different channels, so I want to give you the
+// right answer" is true of some questions and pure friction on the rest.
+// Simulated against a real two-service lineup, a new customer's FIRST
+// question got it almost every time — "what channel is sky sports main
+// event", "who's playing derby tonight", "do you have TNT" — all of which
+// have one answer, the same on both, sitting in the database. They were
+// made to answer a question before theirs would be looked at.
+//
+// This is the rule the VOD side already follows: answer outright only when
+// the two agree, and ask when it genuinely depends on who they are. Here
+// "agree" means the matching channels have the same names on both, or
+// neither service has anything — "no, we don't carry that" needs no
+// disambiguating either.
+function lineupsAgreeOn(question) {
+  if (!channelCount(1) || !channelCount(2)) return false;
+  const tidy = (c) => String(c.name).toLowerCase()
+    .replace(/\s*\b(?:hd|fhd|uhd|4k)\b\s*/g, ' ').replace(/\s+/g, ' ').trim();
+  const names = (service) => {
+    const byName = findChannels(question, { service, limit: 6 });
+    // A genre question is answered from the category column, so comparing
+    // only name matches would call two very different kids line-ups
+    // identical — and skip the ask that decides the answer.
+    const rows = byName.length || !looksLikeChannelCategoryQuestion(question)
+      ? byName
+      : findChannelsByCategory(question, { service, limit: 8 });
+    return rows.map(tidy).sort();
+  };
+  const one = names(1);
+  const two = names(2);
+  if (!one.length && !two.length) return true;
+  return one.length === two.length && one.every((n, i) => n === two[i]);
 }
 
 export const _startsNewTopic = (t) => startsNewTopic(t);
@@ -2381,7 +2452,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
   // per-service data, and asked for exactly once when it matters.
   const serviceNumber = serviceNumberFor(ctx, question);
   if (serviceNumber === null && serviceAmbiguous() && isServiceSpecific(question) &&
-      (channelCount(1) || channelCount(2))) {
+      (channelCount(1) || channelCount(2)) && !lineupsAgreeOn(question)) {
     if (await askWhichService(ctx, question,
       'The two services carry different channels, so I want to give you the right answer.', logId, replyParams)) {
       return 'service-ask';
@@ -2725,7 +2796,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
   // dropped: both here, where it would be sent verbatim, and from the
   // stand-in below, where it would be sent after the model was suppressed.
   // What is left is the real channel list, or an honest "no listing".
-  if (looksLikeChannelCategoryQuestion(question) && channelCount(serviceNumberFor(ctx, question) || 1) > 0) {
+  if (isServiceSpecific(question) && lineupCanAnswer(question, serviceNumberFor(ctx, question) || 1)) {
     result.match = null;
     result.nearMiss = null;
   }
