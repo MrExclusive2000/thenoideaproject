@@ -8,6 +8,7 @@ import { getSetting, setSettings, setSetting } from '../../../settings.js';
 import { audit, formatDate } from '../../../util.js';
 import { flash, csrfAfterUpload } from '../../middleware.js';
 import { localBuild, updateCheck, describeUpdate } from '../../../build.js';
+import { exportLineup } from '../../../lineup-export.js';
 
 export const systemRouter = Router();
 
@@ -107,6 +108,22 @@ systemRouter.get('/branding/logo', (req, res) => {
   const logo = getSetting('branding.logoFile');
   if (!logo) return res.status(404).end();
   res.sendFile(path.join(config.brandingDir, path.basename(logo)));
+});
+
+// The cached lineup and TV guide as a file, for sharing or for testing
+// against. Separate from the backup above for one reason: the backup is the
+// WHOLE database — panel URL, Xtream lookup password, wallet addresses, bot
+// token, every customer and every message — and must never leave the admin's
+// own machine. This is channel names, programme titles and times, which
+// identify nobody and open nothing. See src/lineup-export.js for the exact
+// columns; that list is the guarantee.
+systemRouter.get('/system/lineup.json', (req, res) => {
+  const data = exportLineup();
+  audit('admin', res.locals.admin.username, 'lineup.export', `${data.channels.length} channels`, req.ip);
+  const stamp = new Date().toISOString().slice(0, 10);
+  res.setHeader('Content-Disposition', `attachment; filename="lineup-${stamp}.json"`);
+  res.setHeader('Content-Type', 'application/json');
+  res.send(JSON.stringify(data, null, 1));
 });
 
 // Consistent snapshot via SQLite's online backup API — never copy a live WAL db.

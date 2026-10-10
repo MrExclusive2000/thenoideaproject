@@ -67,6 +67,18 @@
 </div>
 
 <div class="card">
+  <h2>Lineup export</h2>
+  <p>The channel list and TV guide the bot has cached, as a JSON file.</p>
+  <p><a class="btn" href="/admin/system/lineup.json">Download lineup export</a></p>
+  <p class="hint"><strong>Safe to share.</strong> Channel names, categories, programme titles and times, and VOD
+    names — nothing else. No settings, so no panel URL, Xtream lookup password, wallet address or bot token;
+    no customers, no messages, no logs. It is plain text, so you can open it and check before sending it anywhere.
+    (The database backup above is the opposite: it holds all of that, and should never leave your own machine.)</p>
+  <p class="hint">Empty? The panel has not been read yet — send the bot <code>/channels refresh</code> and
+    <code>/guide refresh</code> as an admin, then try again.</p>
+</div>
+
+<div class="card">
   <h2>Public address</h2>
   <% if (publicUrl) { %>
     <p>Customers reach the portal at: <code><%= publicUrl %></code> (login) and <code><%= publicUrl %>/d/CODE</code> (download codes).</p>

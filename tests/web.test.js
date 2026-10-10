@@ -456,3 +456,56 @@ test('the menu marks the current page, and counts only show when non-zero', asyn
   assert.ok(busy.html.includes('nav-count'), 'an open report puts a count in the menu');
   assert.match(busy.html, /href="\/admin\/problems"[\s\S]{0,200}nav-count">1</, 'against Problem reports');
 });
+
+// The panel offers this file as "safe to share", so that claim needs a test
+// rather than a careful SELECT and good intentions. The database it is read
+// from holds the Xtream lookup password, the panel URL, the bot token,
+// wallet addresses, every customer and every message; the export is
+// channel names, programme titles and times.
+test('the lineup export carries the lineup and none of the secrets', async () => {
+  const jar = await adminSession();
+  const { setSetting } = await import('../src/settings.js');
+
+  // Plant distinctive values everywhere a secret actually lives, so a leak
+  // shows up as an exact string rather than a judgement call.
+  setSetting('services.url1', 'https://panel.example.invalid');
+  setSetting('services.xcUser1', 'LOOKUPUSER-CANARY');
+  setSetting('services.xcPass1', 'LOOKUPPASS-CANARY');
+  setSetting('payments.ltcAddress', 'LTCWALLET-CANARY');
+  setSetting('bot.adminContact', '@AdminCanary');
+  db.prepare("INSERT INTO customers (username, password_hash, active, created_at) VALUES ('CUSTOMER-CANARY', 'HASH-CANARY', 1, 0)").run();
+  db.prepare('DELETE FROM xc_channels').run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (1, 991, 'UK: Sky Sports Main Event HD', 'UK | SPORTS', 'ssme', 1)").run();
+  const soon = Math.floor(Date.now() / 1000) + 1800;
+  db.prepare('INSERT INTO xc_programmes (service, channel_id, title, start_ts, stop_ts) VALUES (1, ?, ?, ?, ?)')
+    .run('ssme', 'Boxing: Fury v Usyk II', soon, soon + 10800);
+
+  const res = await fetch(`${base}/admin/system/lineup.json`, {
+    headers: { cookie: cookieHeader(jar) }, redirect: 'manual',
+  });
+  assert.equal(res.status, 200);
+  const body = await res.text();
+
+  // It has to be worth downloading.
+  const data = JSON.parse(body);
+  assert.match(JSON.stringify(data.channels), /Sky Sports Main Event/, 'the lineup is in it');
+  assert.match(JSON.stringify(data.programmes), /Fury v Usyk/, 'and the guide');
+
+  for (const canary of [
+    'LOOKUPUSER-CANARY', 'LOOKUPPASS-CANARY', 'LTCWALLET-CANARY',
+    'CUSTOMER-CANARY', 'HASH-CANARY', 'panel.example.invalid', 'AdminCanary',
+  ]) {
+    assert.ok(!body.includes(canary), `the export leaked ${canary}`);
+  }
+
+  // And it is admin-only, like everything else under /admin.
+  const out = await fetch(`${base}/admin/system/lineup.json`, { redirect: 'manual' });
+  assert.equal(out.status, 302, 'signed out, it redirects to the login');
+
+  db.prepare('DELETE FROM xc_programmes').run();
+  db.prepare('DELETE FROM xc_channels').run();
+  db.prepare("DELETE FROM customers WHERE username = 'CUSTOMER-CANARY'").run();
+  setSetting('services.xcUser1', '');
+  setSetting('services.xcPass1', '');
+  setSetting('bot.adminContact', '');
+});
