@@ -319,6 +319,33 @@ function peekServiceNumber(userId) {
 // service. Resolve it where we can, ask once where we cannot.
 
 // 1 or 2, or null when we genuinely cannot tell.
+// The service they scoped their LAST question to. Not the durable memory —
+// that is reserved for someone telling us who they are, and a question
+// mentioning a service does not say that. But losing it between one message
+// and the next is its own kind of wrong:
+//
+//   "on exclusive what channel is the boxing on"  -> answered
+//   "and the football"                            -> which service are you on?
+//
+// They just said. Held for the length of a conversation and no longer, and
+// never consulted when there is a real answer on file.
+const scopedService = new Map(); // chatId:userId -> { num, at }
+const SCOPED_SERVICE_MS = 15 * 60 * 1000;
+
+function rememberScopedService(ctx, num) {
+  scopedService.set(`${ctx.chat?.id}:${ctx.from?.id}`, { num, at: Date.now() });
+  if (scopedService.size > 1000) scopedService.delete(scopedService.keys().next().value);
+}
+
+function recallScopedService(ctx) {
+  const st = scopedService.get(`${ctx.chat?.id}:${ctx.from?.id}`);
+  if (!st) return null;
+  if (Date.now() - st.at >= SCOPED_SERVICE_MS) return null;
+  return st.num;
+}
+
+export function _resetScopedService() { scopedService.clear(); }
+
 function serviceNumberFor(ctx, question = '') {
   const s = serviceConfig();
   const id = ctx.from?.id;
@@ -328,7 +355,10 @@ function serviceNumberFor(ctx, question = '') {
   // Someone on Flix can perfectly well ask "is Big Bang Theory on Exclusive?"
   // and pinning them to Exclusive over it would be wrong from then on.
   const named = serviceNamedIn(question);
-  if (named) return named;
+  if (named) {
+    rememberScopedService(ctx, named);
+    return named;
+  }
 
   // A linked customer is authoritative — their username is on file, and the
   // username is what decides the service. Recorded so it survives unlinking.
@@ -353,7 +383,12 @@ function serviceNumberFor(ctx, question = '') {
     if (s.two.name && remembered.toLowerCase() === s.two.name.toLowerCase()) return 2;
     if (s.one.name && remembered.toLowerCase() === s.one.name.toLowerCase()) return 1;
   }
-  return null;
+  // Weakest of all, and last for that reason: the service they scoped their
+  // previous question to. It is not evidence about who they are, so it never
+  // beats anything above it — but "and the football" one message after "on
+  // exclusive what channel is the boxing on" should not be asked which
+  // service they are on.
+  return recallScopedService(ctx);
 }
 
 // With only one service configured there is nothing to ask about, so the
@@ -2599,6 +2634,26 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         await sendAvailability(ctx, await answerAvailability(ctx, waiting, question), replyParams);
         return 'vod-request';
       }
+    }
+  }
+
+  // Just the service name, on its own, with nothing pending. Simulated:
+  // "what channel is the boxing on" was answered straight from the guide,
+  // so no service question was asked — and the customer's next message,
+  // "Exclusive", had nothing to attach to. It fell through to the FAQ
+  // matcher and came back with Firestick install steps.
+  //
+  // Nobody types their service name alone meaning anything else, so take it
+  // as them telling us, say so, and stop. It saves the ask next time.
+  if (twoServicesNamed() && plainWords(question).length <= 2) {
+    const alone = serviceFromReply(question);
+    if (alone && !recallService(ctx.from?.id)) {
+      rememberService(ctx.from.id, alone.num, 'told');
+      rememberVodService(ctx.from.id, alone.name || `service ${alone.num}`, alone.num);
+      setLogSource(logId, 'service-noted');
+      await ctx.api.sendMessage(ctx.chat.id,
+        `👍 Noted — you're on ${alone.name}. What can I help with?`, replyParams).catch(() => {});
+      return 'service-noted';
     }
   }
 

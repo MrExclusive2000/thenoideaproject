@@ -836,6 +836,36 @@ const PROG_NOISE = new Set([
   'vs', 'v', 'against', 'uk', 'hd', 'sport', 'sports',
 ]);
 
+// Nobody writes "football" in a listing. The guide says "Premier League:
+// Derby County v Leeds United" and "UEFA Champions League: Arsenal v Inter
+// Milan", so a customer asking what football is on matched no title at all
+// and got the generic sports entry back — which is what happened live to
+// "What football is showing this weekend".
+//
+// The sport is the one word they are most likely to use and the one word
+// least likely to appear, so each sport is expanded into the competitions
+// that actually get written down.
+const SPORT_SYNONYMS = {
+  football: ['football', 'soccer', 'premier league', 'champions league', 'uefa', 'europa',
+    'fa cup', 'efl', 'carabao', 'la liga', 'serie a', 'bundesliga', 'ligue 1', 'eredivisie',
+    'scottish prem', 'world cup', 'womens super league'],
+  boxing: ['boxing', 'fight night', 'title fight', 'heavyweight', 'undercard', 'welterweight'],
+  f1: ['formula 1', 'formula one', 'grand prix', 'qualifying', 'practice', 'f1'],
+  formula: ['formula 1', 'formula one', 'grand prix', 'qualifying', 'practice'],
+  cricket: ['cricket', 'test match', 'odi', 't20', 'the ashes', 'the hundred'],
+  rugby: ['rugby', 'six nations', 'premiership rugby', 'super league', 'challenge cup'],
+  golf: ['golf', 'open championship', 'pga', 'ryder cup', 'masters'],
+  tennis: ['tennis', 'wimbledon', 'atp', 'wta', 'french open', 'australian open'],
+  darts: ['darts', 'pdc', 'matchplay'],
+  ufc: ['ufc', 'mma', 'bellator'],
+  mma: ['ufc', 'mma', 'bellator'],
+  nfl: ['nfl', 'super bowl'],
+  nba: ['nba'],
+  snooker: ['snooker', 'crucible'],
+  racing: ['racing', 'handicap', 'stakes', 'hurdle', 'chase'],
+  horse: ['racing', 'handicap', 'stakes', 'hurdle', 'chase'],
+};
+
 // Find programmes whose TITLE matches the question, within its time window.
 // Joined to the lineup so the answer is a channel NAME — the epg id means
 // nothing to a customer.
@@ -856,7 +886,13 @@ export function findProgrammes(question, { service = 1, limit = 6 } = {}) {
   // objects built per question, on top of a join that had no index to use.
   // An INNER JOIN also drops programmes whose channel is not in the lineup,
   // which were being discarded a moment later anyway.
-  const likes = terms.slice(0, 4);
+  // A sport name is expanded into the competitions a listing actually
+  // writes, both for the SQL filter and for the scoring below.
+  const expanded = [];
+  for (const t of terms) for (const syn of SPORT_SYNONYMS[t] || [t]) {
+    if (!expanded.includes(syn)) expanded.push(syn);
+  }
+  const likes = expanded.slice(0, 10);
   const rows = db.prepare(`
     SELECT p.title, p.start_ts, p.stop_ts, c.name AS channel
     FROM xc_programmes p
@@ -871,7 +907,7 @@ export function findProgrammes(question, { service = 1, limit = 6 } = {}) {
   for (const r of rows) {
     const title = r.title.toLowerCase();
     let score = 0;
-    for (const term of terms) if (title.includes(term)) score += term.length >= 5 ? 3 : 1;
+    for (const term of expanded) if (title.includes(term)) score += term.length >= 5 ? 3 : 1;
     if (!score) continue;
     if (r.start_ts < wantTo && r.stop_ts > wantFrom) score += 2;
     scored.push({ ...r, score });
@@ -888,8 +924,17 @@ export function findProgrammes(question, { service = 1, limit = 6 } = {}) {
 // arsenal game" names no verb at all, so requiring one missed it.
 const FIXTURE_QUESTION = /\bwho('?s| is| are)?\s+(playing|on|against)\b|\bwho\s+\w+\s+playing\b|\bwhat\s+time\b(?!\s+is\s+it\b)|\bkick\s?off\b|\bis\s+(the\s+)?[\w\s]{2,30}\s+(on|playing)\b|\bany\s+(football|boxing|games?|matches)\b/i;
 
+// A message that is nothing but a sport, which is how people ask the second
+// time: "and the football", "what about the cricket". Anchored to the whole
+// message so it cannot swallow "and the wifi", and the sports are a closed
+// list, so this is only ever read as a fixture question when a fixture
+// question is the only thing it could be.
+const BARE_SPORT =
+  /^\s*(?:and|also|what\s+about|how\s+about|plus|then)?\s*(?:the\s+)?(?:football|soccer|boxing|cricket|rugby|golf|tennis|darts|snooker|racing|f1|formula\s?1|ufc|mma|nfl|nba|hockey)\b[\s?!.]*$/i;
+
 export const looksLikeFixtureQuestion = (text) =>
-  FIXTURE_QUESTION.test(String(text || '')) && String(text || '').length < 160;
+  (FIXTURE_QUESTION.test(String(text || '')) || BARE_SPORT.test(String(text || '')))
+  && String(text || '').length < 160;
 
 // ---- the VOD library --------------------------------------------------------
 //

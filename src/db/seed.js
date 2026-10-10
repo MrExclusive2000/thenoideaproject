@@ -5,7 +5,7 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 30;
+const SEED_VERSION = 31;
 
 export const STARTER_FAQS = [
   {
@@ -29,7 +29,7 @@ export const STARTER_FAQS = [
   {
     question: 'Which Firestick is best / which one should I buy?',
     answer: "Any Firestick running Fire OS (the Android-based one) works with our apps. Quick guide:\n- Best value: Fire TV Stick 4K — smooth, handles 4K streams, usually the sweet spot on price.\n- Fastest: Fire TV Stick 4K Max — worth it if you want the snappiest menus.\n- Budget: the basic Fire TV Stick or Lite is fine for HD viewing.\n⚠️ AVOID the Fire TV Stick 4K Select or anything running Amazon's new Vega OS — that isn't Android, so our apps CANNOT be installed on it. If the listing mentions Vega OS, skip it.\nAlso avoid very old sticks (2016 and earlier). Whichever you get, setup takes two minutes: ask me how to install and I'll walk you through it.",
-    keywords: 'firestick, best, buy, buying, recommend, recommended, model, models, 4k, max, lite, select, vega, vegas, os, upgrade, new',
+    keywords: 'firestick, best, buy, buying, which one, recommend, recommended, model, models, 4k, max, lite, select, vega, vegas, os, upgrade, worth it',
   },
   {
     question: 'How do I install the app on my Firestick?',
@@ -38,7 +38,7 @@ export const STARTER_FAQS = [
     // has to be kept up to date, and it silently stops matching the day the
     // code changes. The codes live in Bot settings and reach the text as
     // {purple} / {skyglass}.
-    keywords: 'firestick, fire, stick, downloader, tv, code, codes, sideload, app, apps, purple, download code, downloader code',
+    keywords: 'firestick, fire, stick, downloader, tv, code, codes, sideload, app, apps, purple, download code, downloader code, setup, set up, setting up, first time, just got, new firestick',
     priority: 2,
   },
   {

@@ -6665,3 +6665,118 @@ test('a question asked after the service question is not read as a username', as
   forgetService(554461);
   db.prepare('DELETE FROM xc_channels').run();
 });
+
+// Nobody writes "football" in a listing. The guide says "Premier League:
+// Derby County v Leeds United", so "What football is showing this weekend"
+// — a real message from the live group — matched no title and got the
+// generic sports entry, which tells them to ask a question instead of
+// answering theirs.
+test('a sport name finds the competitions a listing actually writes', async () => {
+  const { findProgrammes } = await import('../src/xc.js');
+  db.prepare('DELETE FROM xc_channels').run();
+  db.prepare('DELETE FROM xc_programmes').run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (1, 601, 'UK: Sky Sports Premier League HD', 'UK | SPORTS', 'sspl', 1)").run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (1, 602, 'UK: Sky Sports Main Event HD', 'UK | SPORTS', 'ssme', 1)").run();
+  const soon = Math.floor(Date.now() / 1000) + 1800;
+  db.prepare('INSERT INTO xc_programmes (service, channel_id, title, start_ts, stop_ts) VALUES (1, ?, ?, ?, ?)')
+    .run('sspl', 'Premier League: Derby County v Leeds United', soon, soon + 7200);
+  db.prepare('INSERT INTO xc_programmes (service, channel_id, title, start_ts, stop_ts) VALUES (1, ?, ?, ?, ?)')
+    .run('ssme', 'Boxing: Fury v Usyk II', soon, soon + 10800);
+
+  const football = findProgrammes('what football is showing this weekend', { service: 1 });
+  assert.match(football[0]?.title || '', /Premier League/, 'football should find the league fixture');
+  const boxing = findProgrammes('whats the boxing', { service: 1 });
+  assert.match(boxing[0]?.title || '', /Boxing/);
+  // A sport we carry nothing of stays empty — the point is reach, not
+  // matching everything.
+  assert.equal(findProgrammes('any baseball on', { service: 1 }).length, 0);
+
+  db.prepare('DELETE FROM xc_programmes').run();
+  db.prepare('DELETE FROM xc_channels').run();
+});
+
+// "on exclusive what channel is the boxing on" → answered. "and the
+// football" → "which service are you on?". They had just said. A service
+// named in a question is not evidence about who they are, so it is not
+// stored as such — but it must not evaporate between two messages either.
+test('a service named in one question still scopes the next one', async () => {
+  const { _resetScopedService, _resetServiceAsk } = await import('../src/bot/pipeline.js');
+  const { forgetService } = await import('../src/service-memory.js');
+  _resetScopedService();
+  _resetServiceAsk();
+  forgetService(97961);
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+  for (const n of ['1', '2']) {
+    setSetting(`services.url${n}`, 'http://127.0.0.1:1');
+    setSetting(`services.xcUser${n}`, 'u');
+    setSetting(`services.xcPass${n}`, 'p');
+  }
+  db.prepare('DELETE FROM xc_channels').run();
+  db.prepare('DELETE FROM xc_programmes').run();
+  // Scoped to FLIX on purpose. Service 1 is the fallback when nothing is
+  // known, so a test scoped to service 1 would pass with the memory ripped
+  // out — the answer would be identical either way.
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (1, 611, 'UK: Sky Sports Premier League HD', 'UK | SPORTS', 'sspl2', 1)").run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (2, 612, 'FLIX: Football Extra', 'SPORTS', 'flixfoot', 1)").run();
+  const soon = Math.floor(Date.now() / 1000) + 1800;
+  db.prepare('INSERT INTO xc_programmes (service, channel_id, title, start_ts, stop_ts) VALUES (1, ?, ?, ?, ?)')
+    .run('sspl2', 'Premier League: Derby County v Leeds United', soon, soon + 7200);
+  db.prepare('INSERT INTO xc_programmes (service, channel_id, title, start_ts, stop_ts) VALUES (2, ?, ?, ?, ?)')
+    .run('flixfoot', 'Premier League: Everton v Brentford', soon, soon + 7200);
+
+  const before = aiResponse;
+  aiResponse = 'That one is on the channel shown in the guide.';
+  try {
+    const first = fakeCtx('on flix what channel is the football on', { userId: 97961 });
+    await handleDirectMessage(first);
+    assert.match(JSON.stringify(lastAiRequest), /Everton v Brentford/,
+      "they named Flix, so Flix's guide is the one to read");
+
+    // Cleared first: if the follow-up asks which service instead of
+    // answering, no AI call happens and lastAiRequest still holds the
+    // PREVIOUS turn's prompt — which is how this test passed with the
+    // memory ripped out.
+    lastAiRequest = null;
+    const follow = fakeCtx('and the football', { userId: 97961 });
+    await handleDirectMessage(follow);
+    assert.ok(lastAiRequest, 'the follow-up should be answered, not met with a question');
+    const sent = JSON.stringify(lastAiRequest);
+    assert.match(sent, /Everton v Brentford/, 'they named Flix one message ago');
+    assert.doesNotMatch(sent, /Derby County/, "and must not fall back to the other service's guide");
+  } finally {
+    aiResponse = before;
+    for (const n of ['1', '2']) {
+      setSetting(`services.xcUser${n}`, '');
+      setSetting(`services.xcPass${n}`, '');
+    }
+    forgetService(97961);
+    _resetScopedService();
+    db.prepare('DELETE FROM xc_programmes').run();
+    db.prepare('DELETE FROM xc_channels').run();
+  }
+});
+
+// "what channel is the boxing on" was answered from the guide, so no
+// service question was asked — and the customer's next message, "Exclusive",
+// had nothing to attach to. It fell through to the FAQ matcher and came
+// back with Firestick install steps.
+test('a bare service name is taken as them telling us, not matched as a question', async () => {
+  const { _resetScopedService } = await import('../src/bot/pipeline.js');
+  const { recallService, forgetService } = await import('../src/service-memory.js');
+  _resetScopedService();
+  forgetService(97971);
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('services.name1', 'Exclusive');
+  setSetting('services.name2', 'Flix');
+
+  const ctx = fakeCtx('Exclusive', { userId: 97971 });
+  await handleDirectMessage(ctx);
+  const msg = ctx.sent.map((s) => s.msg).join('\n');
+  assert.match(msg, /Noted/i, 'it should say it has taken the point');
+  assert.doesNotMatch(msg, /Downloader|install/i, 'and certainly not answer with install steps');
+  assert.equal(recallService(97971)?.service, 1, 'and remember it, so it stops asking');
+
+  forgetService(97971);
+});
