@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, stripWrongLoginAdvice, promisesALookup } from '../src/ai/guardrails.js';
+import { cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, stripWrongLoginAdvice, promisesALookup, claimsVodAvailability } from '../src/ai/guardrails.js';
 
 test('OFFTOPIC sentinel suppresses the reply', () => {
   assert.equal(cleanReply('OFFTOPIC'), null);
@@ -212,5 +212,38 @@ test('asking for something the bot genuinely needs is not refused', () => {
     'Clear the app cache, then restart the stick at the plug.',
   ]) {
     assert.equal(promisesALookup(reply), false, reply.slice(0, 60));
+  }
+});
+
+// One message after the system had correctly answered "Don't Look Back in
+// Anger (2026) isn't in there at the moment — I've checked", the model
+// said: "The F1 race 'Don't Look Back in Anger' is in the VOD section. You
+// can check it there." Wrong twice — it is not in the library and it is
+// not an F1 race, which came from a conversation three messages earlier.
+// Whether we carry a title is checked by code against the real library;
+// the model never answers it.
+test('the model never says what is or is not in the VOD library', () => {
+  for (const reply of [
+    "The F1 race 'Don't Look Back in Anger' is in the VOD section. You can check it there.",
+    'The F1 Sprint results are in the VOD section.',
+    'Oppenheimer is available in our library.',
+    "That film is not in the VOD at the moment.",
+    'We have it — check the Movies section.',
+  ]) {
+    assert.equal(claimsVodAvailability(reply), true, reply.slice(0, 55));
+  }
+});
+
+// True, useful sentences about how requests work say nothing about a
+// particular title and have to survive — the ack the bot sends after every
+// request contains one.
+test('talking about the VOD section in general is still allowed', () => {
+  for (const reply of [
+    'New titles land in batches — keep an eye on the VOD section.',
+    'Post "Request: Oppenheimer (2023)" and I will get it checked for you.',
+    'Netflix-style boxsets sit under Series, same login as everything else.',
+    'The TV guide inside the app shows what is on.',
+  ]) {
+    assert.equal(claimsVodAvailability(reply), false, reply.slice(0, 55));
   }
 });

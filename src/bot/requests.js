@@ -224,7 +224,7 @@ function stripServiceTail(title) {
   return String(title).replace(new RegExp(`\\s+(?:on|for|in|to)\\s+(?:the\\s+)?(?:${alt})\\s*$`, 'i'), '').trim();
 }
 
-export function stripTitleTail(title) {
+function stripTails(title) {
   let out = String(title).trim();
   for (let i = 0; i < 4; i++) {
     const next = out.replace(TITLE_VERB_TAIL, '').replace(TITLE_TAIL, '').trim();
@@ -236,9 +236,35 @@ export function stripTitleTail(title) {
   return out;
 }
 
+export function stripTitleTail(title) {
+  const start = String(title).trim();
+  const out = stripTails(start);
+  if (out !== start) return out;
+
+  // Nothing came off, and every tail pattern is anchored to the end — so a
+  // year sitting on the end blocks the lot. Live:
+  //
+  //   "Could we have the documentary don't look back in anger added please
+  //    2026"
+  //
+  // went to the admin, and back to the customer, as a request for a film
+  // called "the documentary don't look back in anger added please 2026".
+  //
+  // Only tried when the normal strip found nothing, and only kept when
+  // removing the year actually unblocks a tail. "Blade Runner 2049" and
+  // "1917" have no tail hiding behind the number, so they are left exactly
+  // as they were typed.
+  const yr = out.match(/\s+((?:19|20)\d{2})\s*$/);
+  if (!yr) return out;
+  const head = out.slice(0, yr.index).trim();
+  const stripped = stripTails(head);
+  if (stripped === head || stripped.length < 2) return out;
+  return `${stripped} (${yr[1]})`;
+}
+
 // Words that mean a "can we get ..." is about the SERVICE, not a title —
 // URLs, logins, devices, refunds. These flow to the normal FAQ/AI handling.
-const NOT_VOD_TOPIC = /\b(urls?|codes?|links?|login|logins|password|passwords|account|accounts|sub|subs|subscription|trial|refund|refunds|discount|invite|invites|invited|help|support|admin|app|apps|apk|update|updates|updated|guide|guides|service|services|multiroom|multi ?room|stream|streams|connection|connections|screen|screens|firestick|fire stick|iphone|ipad|ios|android|phone|tablet|tv|telly|samsung|lg|box|device|devices|working|fixed|sorted|access|pin|wifi|wi ?fi|internet|broadband|router|ethernet|remote|batteries|signal|speed|buffering|vpn)\b/i;
+const NOT_VOD_TOPIC = /\b(channels?|urls?|codes?|links?|login|logins|password|passwords|account|accounts|sub|subs|subscription|trial|refund|refunds|discount|invite|invites|invited|help|support|admin|app|apps|apk|update|updates|updated|guide|guides|service|services|multiroom|multi ?room|stream|streams|connection|connections|screen|screens|firestick|fire stick|iphone|ipad|ios|android|phone|tablet|tv|telly|samsung|lg|box|device|devices|working|fixed|sorted|access|pin|wifi|wi ?fi|internet|broadband|router|ethernet|remote|batteries|signal|speed|buffering|vpn)\b/i;
 
 // A SECOND title, with the question left implied because they already asked
 // it once. "have you got paw patrol" → "and oppenheimer" → "what about the

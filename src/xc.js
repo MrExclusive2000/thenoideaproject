@@ -313,10 +313,23 @@ export function pruneEpgCache(maxAgeDays = 7) {
 // answer the question, not a dump of the lineup, which would cost a minute of
 // prompt reading on a CPU node and bury the answer.
 
+// "On Exclusive are there any hunting channels on Live TV" matched none of
+// these — no what/which/where, no "is X on" — so no lineup went to the
+// model and it answered from nothing: "Yes, hunting channels are available
+// on the sports and PPV channels in Live TV." There is no such thing, and
+// the customer went looking. The lineup was sitting in the database.
+//
+// Asking whether a KIND of channel exists is as much a lineup question as
+// asking which number one is on, and it is the shape people use for
+// anything not mainstream — hunting, fishing, Polish, racing, horror.
+const CHANNEL_CATEGORY =
+  /\b(?:any|some)\b[^.?!]{0,30}?\bchannels?\b|\b(?:are|is)\s+there\b[^.?!]{0,40}?\bchannels?\b|\b(?:do|does|have|has)\s+(?:you|yous|u|ya|we)\b[^.?!]{0,40}?\bchannels?\b/i;
+
 const CHANNEL_QUESTION = /\b(what|which|where)\b.{0,40}\b(channel|watch|showing|on)\b|\bis\s+(the\s+)?\w+\s+on\b|\bwhat'?s\s+on\b|\bchannel\s+(for|number)\b/i;
 
 export const looksLikeChannelQuestion = (text) =>
-  CHANNEL_QUESTION.test(String(text || '')) && String(text || '').length < 160;
+  (CHANNEL_QUESTION.test(String(text || '')) || CHANNEL_CATEGORY.test(String(text || '')))
+  && String(text || '').length < 160;
 
 const hhmm = (raw) => {
   const m = String(raw || '').match(/\d{4}-\d{2}-\d{2}[ T](\d{2}:\d{2})/);

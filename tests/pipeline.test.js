@@ -2614,10 +2614,14 @@ test('replies inventing third-party apps (BBC iPlayer) are suppressed', async ()
   // And the strict rules now spell the ban out to the model directly.
   assert.match(lastAiRequest.messages[0].content, /never through a broadcaster's or another provider's app/);
 
-  // Brands the knowledge/conversation DOES mention stay allowed.
-  aiResponse = 'Yes — loads of Netflix series are in the VOD section.';
+  // Brands the knowledge/conversation DOES mention stay allowed. The
+  // sentence used to be "loads of Netflix series are in the VOD section",
+  // which is also the model stating what the library holds — something it
+  // does not know and is now dropped for. The brand is the point here, so
+  // the claim went and the brand stayed.
+  aiResponse = 'Netflix-style boxsets sit under Series, same login as everything else.';
   const ok = await askAi('do you have netflix stuff on there?');
-  assert.match(ok, /Netflix series/);
+  assert.match(ok, /Netflix/);
   aiResponse = 'Open Settings, then Applications, and clear the cache of the app.';
 });
 
@@ -6447,4 +6451,54 @@ test('telling the bot its answer was wrong is not "all sorted"', async () => {
 
   setSetting('bot.problemAutoCloseMinutes', 0);
   hub.api = null;
+});
+
+// "On Exclusive are there any hunting channels on Live TV" →
+//   "Yes, hunting channels are available on the sports and PPV channels in
+//    Live TV. Check around fight or kickoff time to find them."
+//
+// There is no such thing, and the customer went looking for it. The lineup
+// was in the database the whole time; the question just never looked like a
+// channel question — no what/which/where, no "is X on" — so nothing was
+// attached to the prompt and the model answered from nothing.
+test('"are there any hunting channels" is answered from the lineup, not invented', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('services.url1', 'http://127.0.0.1:1');
+  setSetting('services.xcUser1', 'lookup');
+  setSetting('services.xcPass1', 'pw');
+  setSetting('bot.noListingMessage', "I don't have a listing for that. Give me the channel name.");
+  db.prepare('DELETE FROM xc_channels').run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (1, 801, 'UK: Sky Sports Main Event', 'UK | SPORTS', 'ssme.uk', 1)").run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (1, 802, 'UK: Hunting & Fishing TV', 'UK | OUTDOORS', 'hunt.uk', 1)").run();
+
+  const { rememberService, forgetService } = await import('../src/service-memory.js');
+  rememberService(97931, 1, 'told');
+  const before = aiResponse;
+  aiResponse = 'UK: Hunting & Fishing TV is in the lineup — it is in the TV guide in your app.';
+  try {
+    const ctx = fakeCtx('are there any hunting channels on Live TV', { userId: 97931 });
+    await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+    // The real channel has to reach the model, or the answer is a guess
+    // however good it sounds.
+    assert.match(JSON.stringify(lastAiRequest), /Hunting & Fishing TV/,
+      'the matching channel was never attached to the prompt');
+  } finally {
+    aiResponse = before;
+    forgetService(97931);
+  }
+
+  // And when the lineup has nothing of the kind, the bot says so rather
+  // than inventing a category.
+  rememberService(97932, 1, 'told');
+  try {
+    const ctx = fakeCtx('are there any polish channels', { userId: 97932 });
+    await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+    const msg = ctx.sent.map((s) => s.msg).join('\n');
+    assert.match(msg, /listing|channel name/i, 'no match in the lineup should say so plainly');
+  } finally {
+    forgetService(97932);
+    setSetting('services.xcUser1', '');
+    setSetting('services.xcPass1', '');
+    db.prepare('DELETE FROM xc_channels').run();
+  }
 });

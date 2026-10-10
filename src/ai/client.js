@@ -4,7 +4,7 @@ import { scoreFaq, tokens } from '../faq/matcher.js';
 import { scoreGuide } from '../guides.js';
 import { redactWalletAddresses } from '../payments.js';
 import { circuitOpen, circuitError, recordFailure, recordSuccess } from './breaker.js';
-import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, echoesInstructions, stripPrematureHandoff, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail, asksForCredentials, redactCredentialUrls, inventsLink, invensSportsResult, stripWrongLoginAdvice, stripClaimedFixes, fixEthernetForStick, promisesALookup, offersSideloadToApple } from './guardrails.js';
+import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, echoesInstructions, stripPrematureHandoff, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail, asksForCredentials, redactCredentialUrls, inventsLink, invensSportsResult, stripWrongLoginAdvice, stripClaimedFixes, fixEthernetForStick, promisesALookup, offersSideloadToApple, claimsVodAvailability } from './guardrails.js';
 import { offersClaimedFix, FIX_LABELS } from '../bot/helpers.js';
 
 const usageStmt = db.prepare(
@@ -714,6 +714,15 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
       return null;
     }
     reply = pruned;
+  }
+
+  // Whether we carry a title is checked against the real library by code
+  // and answered without the model. A reply that states it anyway is
+  // dropped: one message after the system had correctly said a title was
+  // not in there, the model said it was, and called it an F1 race.
+  if (claimsVodAvailability(reply)) {
+    console.error('AI guardrail: suppressed a reply claiming what is or is not in the VOD library');
+    return null;
   }
 
   // "You can ask me directly: 'What channel is Boxing on this Saturday?'

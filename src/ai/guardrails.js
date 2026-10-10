@@ -511,3 +511,39 @@ const SIDELOAD =
 export function offersSideloadToApple(reply) {
   return SIDELOAD.test(String(reply || ''));
 }
+
+// The model telling a customer whether we carry a title.
+//
+// Live, one message after the system had correctly said "Don't Look Back in
+// Anger (2026) isn't in there at the moment — I've checked":
+//
+//   "Don't look back in anger VOD"
+//   → "The F1 race 'Don't Look Back in Anger' is in the VOD section. You
+//      can check it there."
+//
+// Wrong twice over: it is not in the library, and it is not an F1 race —
+// that came from the F1 conversation three messages earlier. The customer
+// is sent hunting through the app for something we do not have, on the word
+// of a bot that had just told them the opposite.
+//
+// The prompt already forbids this in as many words ("Never say a film or
+// series IS available, IS in the VOD section, or is NOT there"). It is a
+// rule the system can enforce instead of asking: availability is checked
+// against the real library by code, and the model is never the one to
+// answer it. A reply that does is dropped.
+//
+// Narrow on purpose. "New titles land in the VOD section" is a true,
+// useful sentence about how requests work and says nothing about a
+// particular title, so it has to survive.
+const CLAIMS_VOD = new RegExp(
+  '\\b(?:is|are|isn(?:\'|’)?t|aren(?:\'|’)?t|is\\s+not|was|will\\s+be)\\s+(?:already\\s+|now\\s+|currently\\s+)?'
+  + '(?:in|on|available\\s+(?:in|on))\\s+(?:the\\s+|our\\s+)?(?:vod|movies?|series|library|catalogue|catalog)\\b'
+  + '|\\b(?:you\\s+can\\s+)?(?:find|watch|check|see)\\s+(?:it|that|this|them)\\s+(?:in|on|under)\\s+(?:the\\s+|our\\s+)?(?:vod|movies?|series|library)\\b'
+  + '|\\bit(?:\'|’)?s\\s+(?:in|on)\\s+(?:the\\s+|our\\s+)?(?:vod|movies?|series|library)\\b'
+  + '|\\bwe\\s+(?:have|carry|do\\s+have|don(?:\'|’)?t\\s+have|do\\s+not\\s+have)\\s+(?:it|that|this)\\b',
+  'i'
+);
+
+export function claimsVodAvailability(reply) {
+  return CLAIMS_VOD.test(String(reply || ''));
+}
