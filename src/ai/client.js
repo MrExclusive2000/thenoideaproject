@@ -4,7 +4,7 @@ import { scoreFaq, tokens } from '../faq/matcher.js';
 import { scoreGuide } from '../guides.js';
 import { redactWalletAddresses } from '../payments.js';
 import { circuitOpen, circuitError, recordFailure, recordSuccess } from './breaker.js';
-import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, echoesInstructions, stripPrematureHandoff, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail, asksForCredentials, redactCredentialUrls, inventsLink, invensSportsResult, stripWrongLoginAdvice, stripClaimedFixes, fixEthernetForStick } from './guardrails.js';
+import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, echoesInstructions, stripPrematureHandoff, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail, asksForCredentials, redactCredentialUrls, inventsLink, invensSportsResult, stripWrongLoginAdvice, stripClaimedFixes, fixEthernetForStick, promisesALookup } from './guardrails.js';
 import { offersClaimedFix, FIX_LABELS } from '../bot/helpers.js';
 
 const usageStmt = db.prepare(
@@ -699,6 +699,16 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
       return null;
     }
     reply = pruned;
+  }
+
+  // "You can ask me directly: 'What channel is Boxing on this Saturday?'
+  // I'll look up the channel list." They had just asked that. Suppressed
+  // rather than trimmed, because the whole reply is the deferral — what is
+  // left after cutting it is nothing. The caller then answers with the
+  // no-listing line, which at least tells the truth.
+  if (promisesALookup(reply)) {
+    console.error('AI guardrail: suppressed a reply that told the customer to ask the question again');
+    return null;
   }
 
   // Asked "I want to invite my friend", the model replied "share your

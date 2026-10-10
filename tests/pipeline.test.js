@@ -6237,3 +6237,120 @@ test('"thanks" for an invite link does not close an unrelated open case', async 
   assert.match(worked.sent.map((s) => s.msg).join('\n'), /glad it's sorted/i);
   assert.equal(open(99702), 0, 'closed');
 });
+
+// A guide went into the live group reading "open https://aftv.news/{skyglass}".
+// The answer pipeline substituted placeholders before sending and the guides
+// menu button did not, so the same guide was correct down one path and
+// useless down the other. Both now go through guideMessage(), and this
+// checks the rendered text rather than which function was called — a third
+// call site that builds the string by hand is caught by the test below it.
+test('a guide is sent with its placeholders filled in, whichever path sends it', async () => {
+  const { guideMessage } = await import('../src/guides.js');
+  setSetting('apps.skyGlassCode', '3793766');
+  setSetting('apps.purpleCode', '3775005');
+  setSetting('bot.adminContact', '@ExclusiveDoctor');
+  setSetting('services.name1', 'Exclusive');
+
+  db.prepare('DELETE FROM guides').run();
+  db.prepare('INSERT INTO guides (title, slug, body_md, sort, visible, updated_at) VALUES (?, ?, ?, 0, 1, 0)')
+    .run('Install on Android phone / tablet', 'install-android',
+      'Open https://aftv.news/{skyglass} in your browser.\n\nThe Purple App is at https://aftv.news/{purple}.\n\nStuck? {admin}. You are on {service1}.');
+
+  const guide = db.prepare("SELECT * FROM guides WHERE slug = 'install-android'").get();
+
+  // The menu button path, which is the one that leaked.
+  const direct = guideMessage(guide);
+  // The answer-pipeline path.
+  const ctx = fakeCtx('can you send me the android install guide');
+  assert.equal(await answer(ctx, ctx.message.text, { isDm: true, logId: null }), 'guide');
+  const piped = ctx.sent.map((s) => s.msg).join('\n');
+
+  for (const [label, text] of [['menu button', direct], ['answer pipeline', piped]]) {
+    assert.doesNotMatch(text, /\{(skyglass|purple|admin|service1|service2)\}/, `${label} leaks a placeholder`);
+    assert.match(text, /aftv\.news\/3793766/, `${label} fills the Sky Glass code`);
+    assert.match(text, /aftv\.news\/3775005/, `${label} fills the Purple code`);
+    assert.match(text, /@ExclusiveDoctor/, `${label} fills the admin handle`);
+    assert.match(text, /\bExclusive\b/, `${label} fills the service name`);
+  }
+
+  setSetting('bot.adminContact', '');
+  setSetting('services.name1', '');
+});
+
+// The companion to the test above, and the one that would actually have
+// caught the live bug: the leak was not a wrong value, it was a sender that
+// never called the substitution at all. Reaching into body_md is how you
+// write that sender, so the two modules that send guides may not do it.
+test('nothing outside guides.js renders a guide body itself', async () => {
+  for (const file of ['src/bot/commands.js', 'src/bot/pipeline.js']) {
+    const src = fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
+    assert.doesNotMatch(src, /body_md/,
+      `${file} must send guides through guideMessage(), which fills {skyglass}/{purple}/{admin} and strips service URLs`);
+  }
+});
+
+// End to end: whatever the model says, the customer must not be told to
+// re-send the question. The suppression is only worth having if what lands
+// instead is useful, so this checks the message they actually receive.
+test('the "ask me again" loop never reaches the customer', async () => {
+  const { rememberService, forgetService } = await import('../src/service-memory.js');
+  const before = aiResponse;
+  aiResponse = 'To find the correct channel for Boxing on Saturday, you can ask me directly: '
+    + '"What channel is Boxing on this Saturday?" I\'ll look up the channel list and TV guide '
+    + 'to give you the exact channel.';
+  // The live loop started AFTER the customer answered "Exclusive"; without
+  // that, the service question answers first and the model reply is never
+  // reached — the test would pass without the guardrail doing anything.
+  rememberService(97701, 1, 'told');
+  try {
+    const ctx = fakeCtx('What channel is boxing on this Saturday', { userId: 97701 });
+    await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+    const msg = ctx.sent.map((s) => s.msg).join('\n');
+    assert.doesNotMatch(msg, /ask me (?:directly|to look)/i, 'the loop reply was sent anyway');
+    // Suppressing it is only half the job — what lands instead has to be
+    // honest and actionable, not silence and not "I'm not sure".
+    assert.match(msg, /listing|channel name/i, 'they should be told it has no listing, and what would help');
+  } finally {
+    aiResponse = before;
+    forgetService(97701);
+  }
+});
+
+// Live DM, two messages apart:
+//   "What's the best download from the downloader?" -> Sky Glass
+//   "Do you have a number?"                         -> "✅ Yes — that's a
+//      live channel on the service \"Radio Number One TV\""
+//
+// They wanted the Downloader code. "Do you have X" is the availability
+// shape, "a number" became the title, and the lineup happens to carry a
+// channel with Number in its name. Two separate things had to be wrong for
+// that answer to exist, so both are pinned here.
+test('"do you have a number?" is not answered with a channel called Radio Number One', async () => {
+  const { parseAvailabilityQuestion } = await import('../src/bot/requests.js');
+  db.prepare('DELETE FROM xc_channels').run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (1, 701, 'UK: Radio Number One TV', 'UK | RADIO', 'rno.uk', 1)").run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (1, 702, 'UK: Dave', 'UK | ENTERTAINMENT', 'dave.uk', 1)").run();
+
+  // 1. A bare support word is not a title to go looking up.
+  assert.equal(parseAvailabilityQuestion('Do you have a number?'), null);
+  assert.equal(parseAvailabilityQuestion('have you got a code'), null);
+  // Still a title when they mean one.
+  assert.equal(parseAvailabilityQuestion('Do you have Oppenheimer'), 'Oppenheimer');
+
+  // 2. And even if it got that far, one word buried inside a longer channel
+  //    name is not "yes, we carry that". A one-word ask that IS the channel
+  //    still answers.
+  // The availability branch lives in the DM handler, not in answer().
+  const yes = fakeCtx('Do you have Dave', { userId: 97811 });
+  await handleDirectMessage(yes);
+  assert.match(yes.sent.map((s) => s.msg).join('\n'), /live channel/i,
+    'a one-word ask that IS the channel still gets "yes we carry it"');
+
+  const no = fakeCtx('Do you have a number?', { userId: 97812 });
+  await handleDirectMessage(no);
+  const noMsg = no.sent.map((s) => s.msg).join('\n');
+  assert.doesNotMatch(noMsg, /Radio Number One/i, 'and a support word never claims a channel');
+  assert.doesNotMatch(noMsg, /live channel/i);
+
+  db.prepare('DELETE FROM xc_channels').run();
+});

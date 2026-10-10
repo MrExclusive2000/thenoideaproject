@@ -13,7 +13,7 @@ import { state } from '../state.js';
 import { localBuild, updateCheck, describeUpdate, applyUpdate } from '../build.js';
 import { composeFaqFromAnswer } from '../ai/client.js';
 import { xcConfigured, refreshChannels, channelCount, channelsUpdatedAt, findChannels, xcLastError, epgCacheStats, refreshGuide, programmeCount, guideRefreshedAt, findProgrammes, refreshVod, vodCount, vodUpdatedAt, findVodTitle } from '../xc.js';
-import { mdToPlain } from '../guides.js';
+import { guideMessage } from '../guides.js';
 import { recallService, rememberService, forgetService, serviceMemoryStats } from '../service-memory.js';
 import { addressLooksValid, acceptedCoins } from '../payments.js';
 import { buildInvite, INVITE_NO_GROUP, INVITE_NO_PERMISSION } from './invites.js';
@@ -666,8 +666,6 @@ export function registerCommands(bot) {
     await ctx.answerCallbackQuery();
     const guide = db.prepare('SELECT * FROM guides WHERE id = ? AND visible = 1').get(ctx.match[1]);
     if (!guide) return;
-    // Guides can carry a pasted service URL — per-user URLs only ever come
-    // from the dedicated flow, so scrub them here.
-    await sendChunked(ctx.api, ctx.chat.id, redactServiceUrls(`📖 ${guide.title}\n\n${mdToPlain(guide.body_md)}`));
+    await sendChunked(ctx.api, ctx.chat.id, guideMessage(guide));
   });
 }

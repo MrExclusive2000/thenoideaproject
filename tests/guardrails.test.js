@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, stripWrongLoginAdvice } from '../src/ai/guardrails.js';
+import { cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, stripWrongLoginAdvice, promisesALookup } from '../src/ai/guardrails.js';
 
 test('OFFTOPIC sentinel suppresses the reply', () => {
   assert.equal(cleanReply('OFFTOPIC'), null);
@@ -181,4 +181,36 @@ test('advice that cannot fix an invalid login is cut out of the reply', () => {
   assert.equal(stripWrongLoginAdvice(right), right);
 
   assert.equal(stripWrongLoginAdvice(''), '');
+});
+
+// Live DM, four messages in a row. "Bot what channel is boxing on this
+// weekend?" → which service? → "Exclusive" → "I don't have specific details…
+// could you provide the day?" → "Saturday" → "you can ask me directly: 'What
+// channel is Boxing on this Saturday?' I'll look up the channel list" → the
+// customer asked exactly that → "I need to know the specific day or time".
+// Then the same loop for football, then "I did just ask you that".
+test('a reply that tells the customer to ask again is refused', () => {
+  for (const reply of [
+    'To find the correct channel for Boxing on Saturday, you can ask me directly: "What channel is Boxing on this Saturday?" I\'ll look up the channel list and TV guide to give you the exact channel.',
+    'To find the specific football matches showing this weekend, you can ask me directly: "What football is showing this weekend?" I\'ll look up the schedule and provide you with the exact channels and times.',
+    'You can ask me to look up the track details for the F1 Sprint, and I\'ll provide you with that information.',
+  ]) {
+    assert.equal(promisesALookup(reply), true, reply.slice(0, 60));
+  }
+});
+
+// The reason both halves are required. A clarifying question asks for
+// something the bot has not got; the loop above asks for something it was
+// just handed. Killing the first to stop the second would be a bad trade —
+// "which service are you on?" is how half the answers get grounded.
+test('asking for something the bot genuinely needs is not refused', () => {
+  for (const reply of [
+    'Tell me which app you mean and I\'ll send the code over.',
+    'Which service are you on — Exclusive or Flix? Reply with the username you log in with and I\'ll work it out.',
+    'Give me the channel name and I\'ll look it up.',
+    'Sky Sports Main Event is channel 402. It is in the TV guide in your app.',
+    'Clear the app cache, then restart the stick at the plug.',
+  ]) {
+    assert.equal(promisesALookup(reply), false, reply.slice(0, 60));
+  }
 });

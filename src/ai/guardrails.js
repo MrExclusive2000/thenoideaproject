@@ -451,3 +451,33 @@ export function fixEthernetForStick(reply) {
   if (!body) return '';
   return `${body}\n\n${FIRESTICK_ETHERNET_NOTE}`;
 }
+
+// "To find the correct channel for Boxing on Saturday, you can ask me
+// directly: 'What channel is Boxing on this Saturday?' I'll look up the
+// channel list and TV guide to give you the exact channel."
+//
+// They had just asked that, in those words. They asked it again. The bot
+// replied "To find the exact channel for Boxing on Saturday, I need to know
+// the specific day or time you're interested in." They had said Saturday.
+// Then the same loop for football, and after "I did just ask you that" the
+// bot gave up and messaged the admin.
+//
+// This is the model deferring its own job: promising a lookup instead of
+// doing one, and routing the customer back to the start. There is no reply
+// where it is right — the customer is already talking to the bot, so there
+// is no "directly" to ask it, and nothing happens later. Either the answer
+// is in this message or the bot has to say it has not got it.
+//
+// Both halves are required, which is what keeps a genuine clarifying
+// question out of it: "tell me which app and I'll send the code" asks for
+// something the bot does not have. "Ask me X and I'll look X up" asks for
+// something it was just given.
+const ASK_ME = /\b(?:ask|asking)\s+(?:me|the\s+bot)\b|\bsend\s+me\s+(?:the\s+)?(?:same\s+)?(?:question|message)\s+again\b|\bre-?ask\b/i;
+const WILL_LOOK_IT_UP =
+  /\bI(?:'|’)?(?:ll|\s+will|\s+can|\s+could|\s+shall)\s+(?:then\s+)?(?:look|check|find|search|pull|fetch|get|provide|give|tell|show|list)\b|\bI(?:'|’)?m\s+able\s+to\s+(?:look|check|find)\b/i;
+
+export function promisesALookup(reply) {
+  const text = String(reply || '');
+  if (!text.trim()) return false;
+  return ASK_ME.test(text) && WILL_LOOK_IT_UP.test(text);
+}

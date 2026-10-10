@@ -16,7 +16,7 @@ import { embed, retrieveFaqs, embeddingsProven } from '../ai/embeddings.js';
 import { lookupAnswer, rememberAnswer, cacheable } from '../ai/answer-cache.js';
 import { circuitOpen } from '../ai/breaker.js';
 import { looksLikeChannelQuestion, looksLikeFixtureQuestion, channelGrounding, channelCount, findChannels, findVodTitle, vodKnown, xcConfigured } from '../xc.js';
-import { looksLikeGuideRequest, findGuide, visibleGuides, mdToPlain, guideLeadIn } from '../guides.js';
+import { looksLikeGuideRequest, findGuide, visibleGuides, guideLeadIn, guideMessage } from '../guides.js';
 import { looksLikeWalletRequest, walletMessage } from '../payments.js';
 import { looksLikeInviteRequest, buildInvite, INVITE_NO_GROUP, INVITE_NO_PERMISSION } from './invites.js';
 import { looksLikeCredentialDump, CREDENTIAL_WARNING } from './credentials.js';
@@ -550,7 +550,21 @@ function channelsCarrying(title, service) {
   return findChannels(title, { service, limit: 6 })
     .filter((c) => {
       const name = String(c.name).toLowerCase();
-      return meaningful.every((w) => name.includes(w));
+      if (!meaningful.every((w) => name.includes(w))) return false;
+      // One word is not enough to claim a channel by, when the word merely
+      // appears somewhere inside a longer name. "Do you have a number?" —
+      // meant the Downloader code — came back "✅ Yes, that's a live channel
+      // on the service \"Radio Number One TV\"". A single-word ask has to BE
+      // the channel, or start it: "Dave" and "Dave ja vu" are fair, "Radio
+      // Number One TV" for "number" is not.
+      if (meaningful.length > 1) return true;
+      // Lineups prefix almost everything with a country or category — "UK:
+      // Dave", "UK | SPORTS: Sky Sports F1". Matching against the raw name
+      // would fail every genuine one-word channel there is, so the prefix
+      // comes off first and the word has to start what is left.
+      const bare = name.replace(/^[^:|]{0,12}[:|]\s*/, '').replace(/[^a-z0-9]/g, '');
+      const word = meaningful[0];
+      return bare === word || bare.startsWith(word);
     });
 }
 
@@ -2408,8 +2422,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
     if (guide) {
       setLogSource(logId, 'guide');
       const lead = guideLeadIn(question, guide);
-      await sendChunked(ctx.api, ctx.chat.id,
-        redactServiceUrls(withAdminContact(`📖 ${guide.title}\n${lead ? `\n${lead}\n` : ''}\n${mdToPlain(guide.body_md)}`)), replyParams);
+      await sendChunked(ctx.api, ctx.chat.id, guideMessage(guide, lead), replyParams);
       return 'guide';
     }
     // They named something specific and no guide covers it. Asked "can you

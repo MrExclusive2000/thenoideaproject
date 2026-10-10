@@ -1,4 +1,5 @@
 import { db } from './db/db.js';
+import { redactServiceUrls, withAdminContact } from './settings.js';
 import { tokens, tokensMatch } from './faq/matcher.js';
 
 // Asking the bot for a guide used to be the one request it reliably failed.
@@ -124,4 +125,27 @@ export function mdToPlain(md) {
     .replace(/[*_`]/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+// A guide, ready to send. There were two call sites building this string by
+// hand — the answer pipeline and the guides menu button — and only one of
+// them ran the text through withAdminContact. So the menu button posted the
+// Android install guide into the group reading
+//
+//     1. Open this link in the browser on your Android device:
+//        https://aftv.news/{skyglass}
+//
+// A customer was handed a link with the placeholder still in it, on the one
+// message whose entire job is to get the app installed. {admin}, {purple},
+// {service1} and {service2} were all going out raw by the same route.
+//
+// Both substitutions matter and neither is optional, so there is now one
+// function that does both and nowhere left to forget one:
+//   withAdminContact  — fills {admin}, {purple}, {skyglass}, {service1/2}
+//   redactServiceUrls — strips a login URL an admin pasted into a guide,
+//                       which is per-customer and must never go to a group
+export function guideMessage(guide, lead = '') {
+  const head = `📖 ${guide.title}`;
+  const body = mdToPlain(guide.body_md);
+  return redactServiceUrls(withAdminContact(`${head}\n${lead ? `\n${lead}\n` : ''}\n${body}`));
 }

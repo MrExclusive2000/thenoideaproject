@@ -15,6 +15,29 @@ import { alertAdmins } from './reports.js';
 // requested a movie called "an issue".
 const NOT_A_TITLE = /^(a |an |the |my |to |for |some |any )*\s*(refund|refunds|cancel|cancell?ed|cancell?ing|cancellation|money|payment|pay|callback|call ?back|help|support|assistance|password|login|log ?in|account|invoice|receipt|chargeback|renewal|renew|upgrade|change|problem|problems|issue|issues|trouble|troubles|bother|fault|faults|question|questions|complaint|complaints|hassle|grief|difficulty)\b/i;
 
+// A "title" that is nothing but a support word. Live, in a DM about
+// installing an app:
+//
+//   "What's the best download from the downloader?"  -> Sky Glass
+//   "Do you have a number?"                          -> "✅ Yes — that's a
+//      live channel on the service \"Radio Number One TV\""
+//
+// They were asking for the Downloader code. "Do you have X" is the
+// availability shape, "a number" came out as the title, and the lineup has
+// a channel with "Number" in its name — so the bot confidently answered a
+// question nobody asked and the customer never got their code.
+//
+// Anchored to the WHOLE title on purpose: "The Number 23" and "Dial M for
+// Murder" are real titles that contain these words, and only a title that is
+// ENTIRELY one of them is certainly not a film.
+const SUPPORT_NOUN_ONLY = new RegExp(
+  '^(?:a|an|the|my|your|our|some|any)?\\s*(?:'
+  + 'numbers?|codes?|links?|apps?|apks?|downloads?|downloader|guides?|instructions?|steps?|'
+  + 'usernames?|logins?|details?|subscriptions?|subs?|lines?|updates?|versions?|trials?|'
+  + 'prices?|costs?|plans?|urls?|addresses|address|ids?|pins?|slots?|connections?|devices?'
+  + ')\\s*$', 'i'
+);
+
 export function parseVodRequest(text) {
   const extract = (msg) => {
     const hit = msg.match(/^\s*request\b\s*[:\-–]?\s*(.{2,200})/i);
@@ -94,10 +117,15 @@ export function parseAvailabilityQuestion(text) {
   if (!onService && !/\b(have|got|carry|available|on here|on there|in vod|on demand|where can i (?:find|watch))\b/i.test(s)) return null;
   const m = onService ? [null, onService] : s.match(AVAILABILITY);
   if (!m) return null;
-  let title = stripTitleTail(m[1].trim().replace(/\s+/g, ' '));
+  const rawTitle = m[1].trim().replace(/\s+/g, ' ');
+  let title = stripTitleTail(rawTitle);
   if (title.length < 2 || title.length > 100) return null;
   if (/^(it|this|that|them|these|those|me|us|my|your|our|any|anything|everything|a|an|the)$/i.test(title)) return null;
   if (NOT_A_TITLE.test(title)) return null;
+  // Checked against what they actually typed as well as the stripped form:
+  // "do you have The Number (2024)" loses its year to stripTitleTail and
+  // would otherwise read as the bare support word. A year means a film.
+  if (SUPPORT_NOUN_ONLY.test(title) && SUPPORT_NOUN_ONLY.test(rawTitle)) return null;
   if (NOT_VOD_TOPIC.test(title)) return null;
   return title;
 }
@@ -259,6 +287,7 @@ export function parseNaturalVodRequest(text) {
   // "can we get this sorted" / "can you add me" — pronouns, not titles.
   if (/^(it|this|that|them|these|those|me|us|my|your|our|in|on|at|to|back|going|him|her)\b/i.test(title)) return null;
   if (NOT_A_TITLE.test(title)) return null;
+  if (SUPPORT_NOUN_ONLY.test(title)) return null;
   if (NOT_VOD_TOPIC.test(title)) return null;
   return title;
 }
