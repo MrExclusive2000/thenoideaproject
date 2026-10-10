@@ -15,7 +15,7 @@ import { alertAdmins } from './reports.js';
 import { embed, retrieveFaqs, embeddingsProven } from '../ai/embeddings.js';
 import { lookupAnswer, rememberAnswer, cacheable } from '../ai/answer-cache.js';
 import { circuitOpen } from '../ai/breaker.js';
-import { looksLikeChannelQuestion, looksLikeFixtureQuestion, channelGrounding, channelCount, findChannels, findVodTitle, vodKnown, xcConfigured } from '../xc.js';
+import { looksLikeChannelQuestion, looksLikeChannelCategoryQuestion, looksLikeFixtureQuestion, channelGrounding, channelCount, findChannels, findVodTitle, vodKnown, xcConfigured } from '../xc.js';
 import { looksLikeGuideRequest, findGuide, visibleGuides, guideLeadIn, guideMessage } from '../guides.js';
 import { looksLikeWalletRequest, walletMessage } from '../payments.js';
 import { looksLikeInviteRequest, buildInvite, INVITE_NO_GROUP, INVITE_NO_PERMISSION } from './invites.js';
@@ -2705,6 +2705,29 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
       await ctx.api.sendMessage(ctx.chat.id, withSuffix(plug), replyParams);
       return 'canned';
     }
+  }
+
+  // "On Exclusive are there any hunting channels on Live TV" was answered
+  // with "Yes, hunting channels are available on the sports and PPV
+  // channels in Live TV. Check around fight or kickoff time to find them."
+  //
+  // That is not an invention — it is the live-sports entry, almost word for
+  // word, with "hunting" pasted on the front. It matched at 0.44 on "live",
+  // "tv", "channel" and "on"; the one word that made the question specific
+  // appears in no entry at all and counted for nothing. So the answer was
+  // chosen entirely by filler words, and a customer was told we carry
+  // something nobody had checked.
+  //
+  // Whether we carry a KIND of channel is a fact about the lineup, and the
+  // lineup is sitting in the database. No written entry can answer it —
+  // they were written before anyone knew what the panel would carry — so
+  // when the question has that shape and we hold a lineup, the entry is
+  // dropped: both here, where it would be sent verbatim, and from the
+  // stand-in below, where it would be sent after the model was suppressed.
+  // What is left is the real channel list, or an honest "no listing".
+  if (looksLikeChannelCategoryQuestion(question) && channelCount(serviceNumberFor(ctx, question) || 1) > 0) {
+    result.match = null;
+    result.nearMiss = null;
   }
 
   if (result.match && !fullAi) {

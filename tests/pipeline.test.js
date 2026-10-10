@@ -6533,3 +6533,73 @@ test('a code that did not work is not sent again', async () => {
 
   setSetting('bot.adminContact', '');
 });
+
+// The same question again, but with the entry that actually answered it
+// live sitting in the table. This is what the first version of this test
+// missed: with no FAQs loaded there was nothing to collide with, so it
+// passed while the live bug was untouched.
+//
+//   "On Exclusive are there any hunting channels on Live TV"
+//   → "Yes, hunting channels are available on the sports and PPV channels
+//      in Live TV. Check around fight or kickoff time to find them."
+//
+// That is the live-sports entry almost word for word. It matched at 0.44 on
+// "live", "tv", "channel" and "on" — the one word that made the question
+// specific appears in no entry and counted for nothing — so the answer was
+// picked by filler and a customer was told we carry something nobody had
+// checked.
+// The keyword-matching half of this — the mode the live bot is actually in
+// — is in tests/lineup.test.js, which needs a process where embeddings have
+// never worked. This is the same question with embeddings proven.
+test('with embeddings on, "have you got X channels" still goes to the lineup', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('services.url1', 'http://127.0.0.1:1');
+  setSetting('services.xcUser1', 'u');
+  setSetting('services.xcPass1', 'p');
+  setSetting('bot.noListingMessage', "I don't have a listing for that. Give me the channel name.");
+  db.prepare('DELETE FROM faqs WHERE question LIKE ?').run('%live sports and events%');
+  db.prepare(`INSERT INTO faqs (question, answer, keywords, enabled, priority, hit_count, created_at, updated_at)
+              VALUES ('Where can I watch live sports and events (UFC, boxing, PPV, football)?',
+                      'Big live events are shown on the sports and PPV channels in Live TV — check around fight or kickoff time.',
+                      'ufc, boxing, fight, ppv, sports, sport, football, match, event, events, live, tonight, watch, channel, vod',
+                      1, 0, 0, 0, 0)`).run();
+
+  const { rememberService, forgetService } = await import('../src/service-memory.js');
+  const before = aiResponse;
+  try {
+    // Nothing of the kind in the lineup: say so, never borrow an entry that
+    // happens to share four filler words.
+    db.prepare('DELETE FROM xc_channels').run();
+    db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (1, 901, 'UK: Sky Sports Main Event', 'UK | SPORTS', 'ssme.uk', 1)").run();
+    rememberService(97951, 1, 'told');
+    aiResponse = 'Yes, hunting channels are available on the sports and PPV channels in Live TV.';
+    // In the group, where it happened. The live bot is on keyword matching
+    // (its embedding model has never answered), which is the mode where a
+    // matched entry is sent as the answer rather than fed to the model —
+    // so that is the path this has to exercise.
+    db.prepare('INSERT OR REPLACE INTO allowed_chats (chat_id, title, enabled, added_at) VALUES (-100123, ?, 1, 0)').run('Test Group');
+    const none = fakeCtx('On Exclusive are there any hunting channels on Live TV', { chatType: 'supergroup', userId: 97951 });
+    await handleGroupMessage(none);
+    const noneMsg = none.sent.map((s) => s.msg).join('\n');
+    assert.doesNotMatch(noneMsg, /sports and PPV channels/i,
+      'the live-sports entry answered a question about hunting channels');
+    assert.match(noneMsg, /listing|channel name/i, 'it should say it has no listing for that');
+    forgetService(97951);
+
+    // And when the lineup does carry one, the real channel reaches the
+    // model instead of a written entry about something else.
+    db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (1, 902, 'UK: Hunting & Fishing TV', 'UK | OUTDOORS', 'hunt.uk', 1)").run();
+    rememberService(97952, 1, 'told');
+    aiResponse = 'Yes — UK: Hunting & Fishing TV is in the lineup, under Outdoors.';
+    const has = fakeCtx('On Exclusive are there any hunting channels on Live TV', { chatType: 'supergroup', userId: 97952 });
+    await handleGroupMessage(has);
+    assert.match(JSON.stringify(lastAiRequest), /Hunting & Fishing TV/,
+      'the matching channel was never attached to the prompt');
+    forgetService(97952);
+  } finally {
+    aiResponse = before;
+    setSetting('services.xcUser1', '');
+    setSetting('services.xcPass1', '');
+    db.prepare('DELETE FROM xc_channels').run();
+  }
+});

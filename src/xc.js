@@ -327,6 +327,12 @@ const CHANNEL_CATEGORY =
 
 const CHANNEL_QUESTION = /\b(what|which|where)\b.{0,40}\b(channel|watch|showing|on)\b|\bis\s+(the\s+)?\w+\s+on\b|\bwhat'?s\s+on\b|\bchannel\s+(for|number)\b/i;
 
+// The category shape on its own. The pipeline needs to tell it apart from
+// "what channel is BBC One": a generic FAQ can reasonably answer the second
+// one, and can never answer the first — see the comment where it is used.
+export const looksLikeChannelCategoryQuestion = (text) =>
+  CHANNEL_CATEGORY.test(String(text || '')) && String(text || '').length < 160;
+
 export const looksLikeChannelQuestion = (text) =>
   (CHANNEL_QUESTION.test(String(text || '')) || CHANNEL_CATEGORY.test(String(text || '')))
   && String(text || '').length < 160;
