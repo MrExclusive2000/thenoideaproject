@@ -9,7 +9,8 @@
   },
   "scripts": {
     "start": "node src/index.js",
-    "test": "node --test 'tests/**/*.test.js'"
+    "test": "node --test 'tests/**/*.test.js'",
+    "export-lineup": "node tools/export-lineup.mjs"
   },
   "dependencies": {
     "@grammyjs/auto-retry": "2.0.2",

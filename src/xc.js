@@ -846,9 +846,10 @@ const PROG_NOISE = new Set([
 // least likely to appear, so each sport is expanded into the competitions
 // that actually get written down.
 const SPORT_SYNONYMS = {
-  football: ['football', 'soccer', 'premier league', 'champions league', 'uefa', 'europa',
-    'fa cup', 'efl', 'carabao', 'la liga', 'serie a', 'bundesliga', 'ligue 1', 'eredivisie',
-    'scottish prem', 'world cup', 'womens super league'],
+  football: ['football', 'soccer', 'premier league', 'premiership', 'champions league', 'uefa',
+    'europa', 'fa cup', 'efl', 'carabao', 'la liga', 'serie a', 'bundesliga', 'ligue 1',
+    'eredivisie', 'scottish prem', 'world cup', 'womens super league', 'league cup',
+    'conference league', 'internationals'],
   boxing: ['boxing', 'fight night', 'title fight', 'heavyweight', 'undercard', 'welterweight'],
   f1: ['formula 1', 'formula one', 'grand prix', 'qualifying', 'practice', 'f1'],
   formula: ['formula 1', 'formula one', 'grand prix', 'qualifying', 'practice'],
@@ -892,7 +893,12 @@ export function findProgrammes(question, { service = 1, limit = 6 } = {}) {
   for (const t of terms) for (const syn of SPORT_SYNONYMS[t] || [t]) {
     if (!expanded.includes(syn)) expanded.push(syn);
   }
-  const likes = expanded.slice(0, 10);
+  // Generous, because the cap used to be shorter than the synonym list
+  // itself: "football" expands past ten patterns, so "scottish prem" fell
+  // off the end and a Scottish Premiership fixture was invisible to anyone
+  // who called it football. The query already scans with leading-wildcard
+  // LIKEs, so a few more ORs cost nothing it was not paying.
+  const likes = expanded.slice(0, 24);
   const rows = db.prepare(`
     SELECT p.title, p.start_ts, p.stop_ts, c.name AS channel
     FROM xc_programmes p

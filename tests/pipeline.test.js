@@ -6780,3 +6780,32 @@ test('a bare service name is taken as them telling us, not matched as a question
 
   forgetService(97971);
 });
+
+// The synonym list for football is longer than the cap that was applied to
+// it, so everything past the tenth pattern was sliced off before the query
+// ran. Found by pointing the simulator at an exported lineup from a panel
+// with different naming: a Scottish Premiership fixture was invisible to
+// anyone who called it football, because "scottish prem" sat at position
+// fifteen. A test lineup written by hand would never have shown it.
+test('a competition late in the synonym list is still found', async () => {
+  const { findProgrammes } = await import('../src/xc.js');
+  db.prepare('DELETE FROM xc_channels').run();
+  db.prepare('DELETE FROM xc_programmes').run();
+  db.prepare("INSERT INTO xc_channels (service, stream_id, name, category, epg_channel_id, updated_at) VALUES (1, 701, 'EXCL | UK: BT Sport 1 FHD', 'EXCL | SPORT', 'bt1', 1)").run();
+  const soon = Math.floor(Date.now() / 1000) + 1800;
+  db.prepare('INSERT INTO xc_programmes (service, channel_id, title, start_ts, stop_ts) VALUES (1, ?, ?, ?, ?)')
+    .run('bt1', 'Scottish Premiership: Celtic v Rangers', soon, soon + 7200);
+  // Deliberately one that is late in the list AND shares no word with any
+  // early entry — "Scottish Premiership" also matches "premiership" near the
+  // front, so on its own it proves nothing about the cap.
+  db.prepare('INSERT INTO xc_programmes (service, channel_id, title, start_ts, stop_ts) VALUES (1, ?, ?, ?, ?)')
+    .run('bt1', 'Womens Super League: Arsenal v Chelsea', soon + 7200, soon + 14400);
+
+  const found = findProgrammes('what football is on', { service: 1 }).map((p) => p.title).join(' | ');
+  assert.match(found, /Scottish Premiership/);
+  assert.match(found, /Womens Super League/,
+    'football has to reach the whole list, not the first ten of it');
+
+  db.prepare('DELETE FROM xc_programmes').run();
+  db.prepare('DELETE FROM xc_channels').run();
+});
