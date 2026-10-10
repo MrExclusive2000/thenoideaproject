@@ -21,7 +21,7 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-lineup-'));
 const { db } = await import('../src/db/db.js');
 const { seedStarterContent } = await import('../src/db/seed.js');
 const { setSetting } = await import('../src/settings.js');
-const { handleGroupMessage } = await import('../src/bot/pipeline.js');
+const { handleGroupMessage, handleDirectMessage } = await import('../src/bot/pipeline.js');
 
 let aiServer;
 let aiResponse = '';
@@ -64,6 +64,20 @@ function groupCtx(text) {
     chat: { id: -100123, type: 'supergroup', title: 'Exclusive Support' },
     from: { id: 55501, username: 'Y4FM', first_name: 'Y4FM' },
     message: { message_id: 11, text },
+    me: { id: 999, username: 'Exclusive_Manager_Bot' },
+    api: { sendMessage: async (c, m) => { sent.push(m); return { message_id: 1 }; } },
+    reply: async (m) => { sent.push(m); return { message_id: 1 }; },
+    replyWithChatAction: async () => {},
+    sent,
+  };
+}
+
+function dmCtx(text, userId) {
+  const sent = [];
+  return {
+    chat: { id: userId, type: 'private' },
+    from: { id: userId, username: 'cust', first_name: 'Cust' },
+    message: { message_id: Math.floor(Math.random() * 1e6), text },
     me: { id: 999, username: 'Exclusive_Manager_Bot' },
     api: { sendMessage: async (c, m) => { sent.push(m); return { message_id: 1 }; } },
     reply: async (m) => { sent.push(m); return { message_id: 1 }; },
@@ -314,4 +328,91 @@ test('the browse question is answered from the shape of the lineup', async () =>
   assert.equal(looksLikeBrowseQuestion('what channel is bbc one'), false);
   assert.equal(looksLikeBrowseQuestion('what channels do you have for kids'), false,
     'that is a genre question and has a better answer');
+});
+
+// Simulated as a customer who asks four times rather than once, the bot got
+// it right on the canonical phrasing and then gave three different wrong
+// answers: EPG refresh steps for "polish tv?", dead-channel troubleshooting
+// for "channels from poland", and how to change the audio language for "ok
+// and arabic ones". Each came from a keyword entry sharing a word with the
+// question. The matcher wanted one of three English question frames wrapped
+// around the word "channels", and a person asking again drops the frame.
+test('the same channel question is understood however it is asked', async () => {
+  const { looksLikeChannelCategoryQuestion: isCategory } = await import('../src/xc.js');
+
+  for (const asked of ['do you have any polish channels', 'polish tv?', 'channels from poland',
+    'ok and arabic ones', 'any kids channels', 'kids tv', 'anything for the kids',
+    'and cartoons', 'what about arabic', 'german ones', 'got any turkish',
+    'do you have any news channels']) {
+    assert.equal(isCategory(asked), true, asked);
+  }
+
+  // A fault is not a request to browse: "my polish channels are gone" needs
+  // the troubleshooting, and a list of what we carry answers nothing.
+  for (const asked of ['my polish channels are not working', 'the kids channels are all frozen',
+    'polish channels keep buffering', 'all my turkish channels have gone']) {
+    assert.equal(isCategory(asked), false, asked);
+  }
+
+  // Words that only count next to "channels" or "tv". "Any news?" after a
+  // film request asks whether it has been added; "the music is out of sync"
+  // is a fault; "any films" is a VOD request. Each still arrives through the
+  // question frames, so nothing is lost by refusing to read them alone.
+  for (const asked of ['any news?', 'any films', 'the music is out of sync',
+    'what channel is the boxing on', 'how do i install the app', 'i want a refund']) {
+    assert.equal(isCategory(asked), false, asked);
+  }
+});
+
+// Live, in a DM: "How to clear data for sky glass" was answered, and the
+// follow-up "On firestick" came back "I'm not sure about the Firestick
+// either" — about the device the bot had just named in its own reply. A
+// bare device name is not a new question, it is the answer to "which
+// device?", asked or not; the clarify memory only arms when the bot ENDS
+// with a question, and a plain answer never does.
+//
+// Here rather than in pipeline.test.js because that file latches full-AI
+// mode, where the stubbed model answers everything and the test passes
+// whatever the routing does.
+test('a bare device name continues the question before it', async () => {
+  aiResponse = '';
+  const first = dmCtx('how do i clear the app data', 93311);
+  await handleDirectMessage(first);
+  assert.match(first.sent.join('\n'), /Clearing app data/i, 'the clear-data entry answered');
+
+  const second = dmCtx('on firestick', 93311);
+  await handleDirectMessage(second);
+  const followUp = second.sent.join('\n');
+  assert.ok(followUp, 'the follow-up got a reply at all');
+  assert.doesNotMatch(followUp, /not (?:totally )?sure/i, 'and not a brush-off');
+  assert.match(followUp, /Clearing app data/i, 'still about clearing data, not installing');
+  assert.doesNotMatch(followUp, /Downloader app from the Amazon/i,
+    'a device name must not hand the question to the install entry');
+});
+
+// This one already worked, and is here so it keeps working: where the
+// topic genuinely HAS a per-device answer, the device must still win —
+// "how do I install it" then "iphone" means the iOS entry, not the generic
+// one repeated. It is the case any fix for the one above can easily break.
+test('a bare device name picks the device-specific entry when there is one', async () => {
+  aiResponse = '';
+  const first = dmCtx('how do i install it', 93312);
+  await handleDirectMessage(first);
+
+  const second = dmCtx('iphone', 93312);
+  await handleDirectMessage(second);
+  const followUp = second.sent.join('\n');
+  assert.match(followUp, /Smarters Player Lite/i, 'the iOS entry answered');
+  assert.doesNotMatch(followUp, /aftv\.news|Downloader/i, 'no sideloading at an Apple device');
+});
+
+// And a device name after a question the device cannot change is still
+// that question: pricing is pricing on a Firestick.
+test('a bare device name never changes the subject', async () => {
+  aiResponse = '';
+  const first = dmCtx('how much does it cost', 93313);
+  await handleDirectMessage(first);
+  const second = dmCtx('firestick', 93313);
+  await handleDirectMessage(second);
+  assert.match(second.sent.join('\n'), /Pricing depends/i, 'still answering about price');
 });

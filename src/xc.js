@@ -527,12 +527,90 @@ export const looksLikeBrowseQuestion = (text) => {
   return BROWSE_QUESTION.test(t);
 };
 
-export const looksLikeChannelCategoryQuestion = (text) =>
-  CHANNEL_CATEGORY.test(String(text || '')) && String(text || '').length < 160;
+// Nobody asks the same question twice the same way. "Do you have any polish
+// channels" was understood; asked again as "polish tv?", then "channels from
+// poland", then "ok and arabic ones", it was not — the pattern above wants
+// one of three English question frames wrapped around the word "channels",
+// and a person repeating themselves drops the frame rather than rebuilding
+// it. Simulated as a customer who asks four times, the bot got it right
+// once and then gave three different wrong answers: EPG refresh steps, dead
+// channel troubleshooting, and how to change the audio language — each from
+// a keyword entry that happened to share a word with the question.
+//
+// So the SUBJECT carries it instead of the frame. A genre or a country next
+// to a word meaning television is a category question however it is phrased,
+// including the shorthand a follow-up uses once the previous turn has
+// established what is being counted ("and arabic ones").
+//
+// Sports are deliberately absent: "what channel is the boxing on" has a
+// fixture path of its own that reads the guide, and routing it here would
+// answer a question about tonight with a list of category names.
+// Countries and the regions people name instead of a country. These are the
+// safe ones: nobody writes "poland" or "cartoons" in a message about
+// anything else, so they carry a question on their own.
+const PLACE_OR_GENRE = [
+  ...Object.keys(NATIONALITY), ...Object.values(NATIONALITY),
+  'arabic', 'arab', 'asian', 'african', 'latino', 'hispanic', 'kurdish',
+  'balkan', 'scandinavian', 'nordic', 'ex-?yu', 'exyu',
+  'kids?', "children'?s?", 'cartoons?',
+];
+
+// These only count next to a word meaning television. "Any news?" after a
+// film request means "has it been added yet", not "list your news channels";
+// "the music is out of sync" is a fault; "any films" is a VOD request. Each
+// of them still reaches here through the question frames above — "do you
+// have any movie channels" matches "any … channels" — so nothing is lost by
+// refusing to read them on their own.
+const NEEDS_TV_NOUN = ['news', 'music', 'radio', 'documentar\\w+', 'religious', 'christian', 'islamic'];
+
+const CATEGORY_SUBJECT = new RegExp(`\\b(?:${[...PLACE_OR_GENRE, ...NEEDS_TV_NOUN].join('|')})\\b`, 'i');
+const BARE_SUBJECT = new RegExp(`^(?:${PLACE_OR_GENRE.join('|')})$`, 'i');
+
+const TV_NOUN = /\b(?:channels?|tv|telly|television|stations?|ones?|stuff|content|section)\b/i;
+
+// Words a follow-up is made of. "And cartoons", "anything for the kids",
+// "what about arabic" — the noun is gone, carried over from the turn before,
+// and all that is left is the subject and scaffolding. So the test is that
+// the WHOLE message is subject plus scaffolding: a subject buried in a
+// sentence ("the music is out of sync") is not a request to browse.
+const CATEGORY_FILLER = new Set([
+  'and', 'or', 'also', 'ok', 'okay', 'kk', 'right', 'so', 'then', 'plus', 'too', 'as', 'well',
+  'what', 'whats', 'about', 'how', 'any', 'anything', 'some', 'something', 'owt', 'got',
+  'do', 'does', 'did', 'you', 'yous', 'u', 'ya', 'we', 'have', 'has', 'there', 'is', 'are',
+  'the', 'a', 'an', 'for', 'of', 'from', 'in', 'on', 'my', 'me', 'i', 'please', 'plz',
+  'mate', 'cheers', 'thanks', 'ta', 'yeah', 'yes', 'more', 'other', 'others', 'else',
+  'to', 'with', 'like', 'want', 'need', 'looking', 'after', 'bit', 'stuff', 'ones', 'one',
+]);
+
+const bareCategoryQuestion = (text) => {
+  const words = String(text || '').toLowerCase().match(/[a-z']+/g) || [];
+  if (!words.length || words.length > 6) return false;
+  let subjects = 0;
+  for (const w of words) {
+    if (BARE_SUBJECT.test(w)) { subjects += 1; continue; }
+    if (!CATEGORY_FILLER.has(w)) return false;
+  }
+  return subjects > 0;
+};
+
+// A channel that has stopped working is a fault report, not a request to
+// browse. "My polish channels are gone" needs the troubleshooting; a list of
+// what we carry answers a question they did not ask.
+const FAULT_WORDS =
+  /\b(?:buffer\w*|freez\w*|frozen|lag\w*|broken|blank|crash\w*|error|black\s+screen|not\s+work\w*|stopped\s+work\w*|won'?t\s+(?:play|load|open|work)|keeps?\s+(?:dropping|cutting|freezing|buffering)|gone|missing|disappear\w*)\b/i;
+
+export const looksLikeChannelCategoryQuestion = (text) => {
+  const t = String(text || '');
+  if (t.length >= 160) return false;
+  if (FAULT_WORDS.test(t)) return false;
+  if (CHANNEL_CATEGORY.test(t)) return true;
+  if (CATEGORY_SUBJECT.test(t) && TV_NOUN.test(t)) return true;
+  return bareCategoryQuestion(t);
+};
 
 export const looksLikeChannelQuestion = (text) =>
-  (CHANNEL_QUESTION.test(String(text || '')) || CHANNEL_CATEGORY.test(String(text || '')))
-  && String(text || '').length < 160;
+  (CHANNEL_QUESTION.test(String(text || '')) && String(text || '').length < 160)
+  || looksLikeChannelCategoryQuestion(text);
 
 const hhmm = (raw) => {
   const m = String(raw || '').match(/\d{4}-\d{2}-\d{2}[ T](\d{2}:\d{2})/);

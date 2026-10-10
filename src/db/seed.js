@@ -5,7 +5,7 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 32;
+const SEED_VERSION = 33;
 
 export const STARTER_FAQS = [
   {
@@ -17,6 +17,17 @@ export const STARTER_FAQS = [
     question: 'How much does it cost / what are the prices?',
     answer: "Pricing depends on the package and how long you sign up for — the admin sorts you out directly with the current prices. Ask here in the group or {admin}. Payment is by crypto (Litecoin) and the step-by-step guide makes it easy, even if you've never used crypto before.",
     keywords: 'price, prices, pricing, cost, costs, how much, cheap, expensive, monthly, yearly, deal, deals, trial, free, quote, packages',
+  },
+  {
+    // A person asking about THEMSELVES. The friend entry below owned the
+    // words "signup", "sign up" and "interested", so the single most
+    // valuable message this bot ever receives — "hi mate, thinking of
+    // signing up" — was answered with "Happy to get them set up!" and three
+    // steps about somebody who does not exist. Simulated as a brand-new
+    // customer's opening line, which is exactly when it happens.
+    question: 'How do I sign up?',
+    answer: "Good to have you 👋 Three steps:\n1. Ask the admin here in the group, or {admin} — they sort your package and tell you the current price.\n2. Payment is by crypto (Litecoin or Bitcoin). Ask me for the payment guide and I'll post the steps — you can buy it with a normal bank card in about ten minutes, even if you've never touched crypto.\n3. Once you're activated you get your own login, and installing takes two minutes: enter code {skyglass} in the Downloader app, install Sky Glass and sign in. Ask me for the Firestick guide and I'll post the full steps.\nSigning up a mate rather than yourself? Same three steps for them — and send me /invite for a one-use link to get them into this group.\nWant to check something first — channels, devices, what's included? Just ask me.",
+    keywords: 'sign up, signup, signing up, sign me up, join, joining, subscribe, interested, how do i start, want in, getting started',
   },
   {
     // Owns the device-less phrasings ("don't know how to install the apps");
@@ -87,7 +98,16 @@ export const STARTER_FAQS = [
   {
     question: 'How can my friend join the service?',
     answer: "Happy to get them set up!\n1. First they need their own login (username + password) — ask the admin here in the group, or {admin} to sort out access and pricing.\n2. Bring them into this group: send me /invite and I'll give you a personal one-use invite link for them.\n3. Once they have their login, installing takes two minutes: enter code {skyglass} in the Downloader app, install Sky Glass and sign in. Ask me for the Firestick guide and I'll post the full steps here.",
-    keywords: 'friend, join, joining, signup, sign up, mate, refer, referral, trial, interested, bring, invite, inviting, group',
+    // "signup", "sign up", "join", "joining" and "interested" moved to the
+    // sign-up entry above: they are what somebody says about themselves, and
+    // this entry answers in the third person. What is left is what actually
+    // marks a message as being about someone else.
+    // Not a single keyword here may contain the word "join": keywords are
+    // tokenised, so "wants to join" hands this entry the word "join" and
+    // "how do I join" — a person asking about themselves — lands back on
+    // the third-person answer. "Wants" is the discriminator that works: you
+    // want to join, your mate wants to.
+    keywords: 'friend, friends, mate, mates, refer, referral, bring, invite, inviting, someone, somebody, else, another, wants, wanting, group',
   },
   {
     question: 'Which app should I use — Purple, XC or Smarters?',

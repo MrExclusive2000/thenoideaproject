@@ -1,7 +1,7 @@
 import { InlineKeyboard } from 'grammy';
 import { db, now } from '../db/db.js';
 import { getSetting, redactServiceUrls, serviceStatusFor, serviceNotesFor } from '../settings.js';
-import { matchFaq } from '../faq/matcher.js';
+import { matchFaq, scoreFaq } from '../faq/matcher.js';
 import { askAi, aiBudgetExceeded, rephraseCanned } from '../ai/client.js';
 import { containsBannedWord, endsWithQuestion, offersNoNewHelp, repeatsPreviousAnswer, offersSideloadToApple } from '../ai/guardrails.js';
 import { state } from '../state.js';
@@ -57,6 +57,101 @@ function takePendingClarify(chatId, userId) {
   if (!entry) return null;
   pendingClarify.delete(key);
   return Date.now() - entry.at < CLARIFY_TTL_MS ? entry : null;
+}
+
+// A bare device name is not a new question — it is the answer to "which
+// device?", whether or not anybody asked it.
+//
+// Live: "How to clear data for sky glass" was answered, and the follow-up
+// "On firestick" came back "I'm not sure about the Firestick either" — about
+// the device the bot had just named in its own reply. The clarify memory
+// above only arms when the bot ENDS with a question, and a plain answer does
+// not, so the refinement stood alone and went to the matcher as a
+// two-word question. Simulated, it matches whatever entry shares the word:
+// the install steps, for somebody who already has it installed.
+const DEVICE_NAME =
+  /^(?:fire|firestick|stick|tv|android|iphone|ipad|ios|apple|samsung|lg|sony|hisense|smart|nvidia|shield|chromecast|roku|vega|box|phone|tablet|mobile|laptop)$/i;
+
+// Everything a person wraps a device name in. Anything else in the message
+// means they said something, and it stands on its own.
+const DEVICE_FILLER = new Set([
+  'on', 'in', 'my', 'a', 'an', 'the', 'its', 'it', 'is', 'im', 'i', 'am', 'using', 'use',
+  'used', 'with', 'for', 'got', 'have', 'has', 'ive', 'and', 'ok', 'okay', 'just', 'only',
+  'mate', 'please', 'plz', 'thanks', 'cheers', 'this', 'that', 'to', 'of', 'me', 'at',
+  'from', 'but', 'so', 'yeah', 'yes', 'well', 'both', 'all',
+]);
+
+function namesOnlyADevice(text) {
+  const words = String(text || '').toLowerCase().match(/[a-z]+/g) || [];
+  if (!words.length || words.length > 5) return false;
+  let devices = 0;
+  for (const w of words) {
+    if (DEVICE_NAME.test(w)) { devices += 1; continue; }
+    if (!DEVICE_FILLER.has(w)) return false;
+  }
+  return devices > 0;
+}
+
+// What they asked just before this. In a DM that is the conversation memory;
+// in a group it is the question the replied-to bot message was answering,
+// which replyContext already stores for the 👎 button.
+function previousAsk(ctx, isDm) {
+  if (isDm) {
+    const history = dmHistory.get(`${ctx.chat?.id}:${ctx.from?.id}`) || [];
+    return [...history].reverse().find((m) => m.role === 'user')?.content || null;
+  }
+  const repliedTo = ctx.message?.reply_to_message;
+  if (!repliedTo || repliedTo.from?.id !== ctx.me?.id) return null;
+  return replyContext.get(`${ctx.chat?.id}:${repliedTo.message_id}`)?.question || null;
+}
+
+// Returns the question to actually answer, and whether it was swapped.
+//
+// Gluing the two together ("how do I clear the app data — on firestick") was
+// the obvious move and the wrong one: a device name is a strong keyword in
+// its own right, so the splice handed the question to whichever entry is
+// about that device. "Which app should I use" plus "on android" even picked
+// up a which-service ask, because the word "on" arrived with the device and
+// the channel-question pattern reads "which … on".
+//
+// So this picks one of the two questions instead of inventing a third. The
+// device alone is the right thing to answer when the entry it finds is
+// still about what they were asking — "how do I install it" then "iphone"
+// lands on the iOS entry, which is the same question for another device.
+// It is the wrong thing when that entry has nothing to do with it: "my app
+// keeps crashing" then "firestick" lands on the install steps, for somebody
+// whose app is already installed.
+function withDeviceRefinement(ctx, text, isDm) {
+  if (!namesOnlyADevice(text)) return { question: text, refined: false };
+  const asked = previousAsk(ctx, isDm);
+  // "How do I install on firestick" followed by "firestick" is someone
+  // repeating themselves, and needs nothing from here.
+  if (!asked || namesOnlyADevice(asked)) return { question: text, refined: false };
+  // Which of the two entries actually answers "that question, on that
+  // device"? The two questions are spliced ONLY to rank them — the splice
+  // never becomes the question, so it cannot drag the message into a
+  // different classification the way concatenating it did.
+  //
+  // Comparing how well the device's entry matches the previous question on
+  // its own does not work: "how do I install it" scores 0.337 against the
+  // Firestick entry and "how do I clear the app data" scores 0.416 against
+  // the same one, so the wrong case outranks the right one. Shared words
+  // like "app" and "how do I" drive that number, not the subject. Scored
+  // against both halves together, they separate cleanly.
+  const faqs = db.prepare('SELECT * FROM faqs WHERE enabled = 1').all();
+  const threshold = Number(getSetting('faq.threshold')) || 0.5;
+  const deviceEntry = matchFaq(text, faqs, threshold).match;
+  if (!deviceEntry) return { question: asked, refined: true };
+  const askedEntry = matchFaq(asked, faqs, threshold).match;
+  const both = `${asked} ${text}`;
+  const forDevice = scoreFaq(both, deviceEntry).score;
+  const forAsked = askedEntry ? scoreFaq(both, askedEntry).score : 0;
+  // Confident in its own right AND clearly better. Without the floor, a
+  // question with no entry of its own hands every follow-up to the device
+  // entry by default — "everything is buffering" then "on firestick" came
+  // back as install steps on a score of 0.364.
+  if (forDevice >= 0.5 && forDevice > forAsked + 0.15) return { question: text, refined: false };
+  return { question: asked, refined: true };
 }
 
 // Remembers what each bot reply answered so 👎 can feed the unanswered inbox.
@@ -1585,7 +1680,7 @@ function looksLikeQuestion(text) {
 // count on their own; generic words ("calm DOWN mate", "the PROBLEM with
 // him is...") only count when the message also mentions the service.
 const STRONG_PROBLEM =
-  /\b(buffer(ing|s)?|freez\w*|frozen|lag(gy|ging|s)?|stutter\w*|glitch\w*|crash\w*|playback|black ?screen|no (sound|audio|picture|video|streams?|channels?|epg|vod)|invalid|unauthori[sz]ed|logged (out|off)|wrong password|access denied|wrong (language|audio|sound|version|copy|cut|file)|(us|american|censored|dubbed) (version|copy|cut)|only (one|1) (language|audio( track)?|track)|not work\w*|(doesnt|don'?t|isn'?t|ain'?t|won'?t|can'?t|stopped)( even| still| ever| really| actually)? work\w*|wont (work|load|play|open|start)|cant (log ?in|sign in|watch|open|play|stream|connect)|keeps? (stopping|buffering|freezing|crashing|cutting|loading)|(is|are|was|were|gone|went|still) down|offline|(?:sound|audio|picture|video|epg|guide|signal|channels?|streams?)\s+(?:ha(?:s|ve)\s+|is\s+|are\s+|just\s+)*(?:gone|dropped|died|vanished|disappeared)|pixel+at\w*|pixel+ated|pixel+y|blocky|block+ing up|artefact\w*|artifact\w*|judder\w*|screen tear\w*|tearing|choppy|grainy|blurry|fuzzy|distort\w*|ghosting|green screen|out of sync|outta sync|lip ?sync|de-?sync\w*|audio delay|sound delay|behind the picture|lost (?:the )?(?:sound|audio|picture|signal|connection|channels)|spoke too soon)\b/i;
+  /\b(buffer(ing|s)?|freez\w*|frozen|lag(gy|ging|s)?|stutter\w*|glitch\w*|crash\w*|playback|black ?screen|no (sound|audio|picture|video|streams?|channels?|epg|vod)|invalid|unauthori[sz]ed|logged (out|off)|wrong password|access denied|wrong (language|audio|sound|version|copy|cut|file)|(us|american|censored|dubbed) (version|copy|cut)|only (one|1) (language|audio( track)?|track)|not work\w*|(doesnt|don'?t|isn'?t|ain'?t|won'?t|can'?t|stopped)( even| still| ever| really| actually)? work\w*|wont (work|load|play|open|start)|cant (log ?in|sign in|watch|open|play|stream|connect)|keeps? (stopping|buffering|freezing|crashing|cutting|loading|dropping|droppin|disconnecting|reconnecting|restarting|rebooting|failing|breaking|kicking|logging|pausing|spinning)|drops? out|dropp?(?:ed|ing) out|cuts? out|cut out|(?:kick|boot|chuck|throw|log)(?:s|ed|ing)? (?:me )?(?:out|off)|break(?:s|ing) up|(is|are|was|were|gone|went|still) down|offline|(?:sound|audio|picture|video|epg|guide|signal|channels?|streams?)\s+(?:ha(?:s|ve)\s+|is\s+|are\s+|just\s+)*(?:gone|dropped|died|vanished|disappeared)|pixel+at\w*|pixel+ated|pixel+y|blocky|block+ing up|artefact\w*|artifact\w*|judder\w*|screen tear\w*|tearing|choppy|grainy|blurry|fuzzy|distort\w*|ghosting|green screen|out of sync|outta sync|lip ?sync|de-?sync\w*|audio delay|sound delay|behind the picture|lost (?:the )?(?:sound|audio|picture|signal|connection|channels)|spoke too soon)\b/i;
 const WEAK_PROBLEM = /\b(down|error|issues?|problems?|stuck|loading|broken|broke|bust|knackered|useless)\b/i;
 
 // Blunt, whole-message complaints. "Nothing works" and "it's broke" are
@@ -2470,7 +2565,7 @@ async function warnIfCredentials(ctx, text, logId, isDm, replyParams) {
   return true;
 }
 
-export async function answer(ctx, question, { isDm, logId, history: providedHistory = null, skipFaq = false, suffix = null, prefix = null, assumeOnTopic: forceOnTopic = false, directed = false, deepen = false }) {
+export async function answer(ctx, question, { isDm, logId, history: providedHistory = null, skipFaq = false, suffix = null, prefix = null, assumeOnTopic: forceOnTopic = false, directed = false, deepen = false, refined = false }) {
   const faqs = db.prepare('SELECT * FROM faqs WHERE enabled = 1').all();
   const threshold = Number(getSetting('faq.threshold')) || 0.5;
   const result = skipFaq ? { match: null, nearMiss: null } : matchFaq(question, faqs, threshold);
@@ -3191,8 +3286,25 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
             // sent the customer nothing at all — a question answered with
             // total silence, which reads as the bot ignoring them. So outside
             // triage it hands over to a human instead of just going quiet.
+            //
+            // Repeating a FIX is a wall; repeating a FACT is the answer.
+            // Asked "polish tv?" right after "do you have any polish
+            // channels", the only honest reply is the same list again — and
+            // this turned it into "I'm not totally sure on that one, message
+            // the admin" about a question the bot had just answered
+            // correctly. Judged on what the answer was BUILT from, the same
+            // signal the cache decision below uses: written from the lineup
+            // or the guide, it is a statement of fact, and a customer who
+            // asks twice gets the same facts twice.
+            //
+            // A device refinement is the same question again on purpose —
+            // this IS the question being re-asked, so of course the answer
+            // repeats. Live: "How to clear data for sky glass", then "On
+            // firestick", answered with "I'm not sure about the Firestick
+            // either". The bot had named the Firestick in its own previous
+            // sentence.
             const lastSaid = [...history].reverse().find((m) => m.role === 'assistant')?.content;
-            if (reply && lastSaid && repeatsPreviousAnswer(reply, lastSaid)) {
+            if (reply && lastSaid && !refined && !channels && !sports && repeatsPreviousAnswer(reply, lastSaid)) {
               setLogSource(logId, 'no-new-help');
               // Only `deepen` has a caller that catches this and escalates.
               // Gating on "no case open" instead left an angry customer's
@@ -3525,9 +3637,22 @@ export async function handleGroupMessage(ctx) {
   // somebody else reported something minutes ago — see pilesOntoRecentReport.
   const isProblem = looksLikeProblem(text) || pilesOntoRecentReport(ctx, text);
   const faqThreshold = Number(getSetting('faq.threshold')) || 0.5;
+  // Whether to SPEAK in a group is rightly a stricter decision than what to
+  // say once it is made — but it was stricter than the answering path can
+  // actually answer, which is a different thing. matchFaq returns a
+  // near-miss as well as a match and answer() sends the near-miss; this only
+  // ever looked at the match. So "I want a refund" — 0.481 against a 0.5
+  // threshold, landing squarely on the refunds entry — was answered properly
+  // in a DM and got total silence in the group, which is the room the
+  // customer is actually standing in.
+  //
+  // Not the whole near-miss band though: that opens at 0.3, and a bot that
+  // chimes in on a 0.3 match is the one nobody wants in their group. Nearly
+  // confident speaks, a guess stays quiet.
   const standaloneFaqMatch = () => {
     const faqs = db.prepare('SELECT * FROM faqs WHERE enabled = 1').all();
-    return Boolean(matchFaq(question, faqs, faqThreshold).match);
+    const { match, score } = matchFaq(question, faqs, faqThreshold);
+    return Boolean(match) || score >= faqThreshold * 0.9;
   };
 
   // Answer to a pending clarifying question? A bare fragment ("firestick")
@@ -3860,7 +3985,10 @@ export async function handleGroupMessage(ctx) {
   // support message by definition. Refusing it as off-topic in the same breath
   // is incoherent, and it is what happened to "nothing is loading at all":
   // recorded as a fault, answered with silence.
-  const outcome = await answer(ctx, question, { isDm: false, logId, history, skipFaq: isFollowUp, suffix: problemSuffix, prefix: problemPrefix, assumeOnTopic: isFollowUp || isProblem, directed: mentioned || isFollowUp });
+  // Same in the group, but only on a reply to the bot — a bare "firestick"
+  // shouted into the room belongs to whoever was talking, not to us.
+  const groupAsk = withDeviceRefinement(ctx, question, false);
+  const outcome = await answer(ctx, groupAsk.question, { isDm: false, logId, history, skipFaq: isFollowUp, suffix: problemSuffix, prefix: problemPrefix, assumeOnTopic: isFollowUp || isProblem, directed: mentioned || isFollowUp, refined: groupAsk.refined });
   noteAside(ctx, outcome);
 
   // Only mark the report answered when a real answer actually went out —
@@ -4216,7 +4344,10 @@ export async function handleDirectMessage(ctx) {
     return;
   }
 
-  const outcome = await answer(ctx, text, { isDm: true, logId, suffix: problemSuffix, prefix: problemPrefix });
+  // "On firestick" after a question means that question, on a Firestick.
+  const dmAsk = withDeviceRefinement(ctx, text, true);
+  const outcome = await answer(ctx, dmAsk.question,
+    { isDm: true, logId, suffix: problemSuffix, prefix: problemPrefix, refined: dmAsk.refined });
   noteAside(ctx, outcome);
   if (problemId) {
     const gotAnswer = ['faq', 'ai'].includes(outcome);

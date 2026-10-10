@@ -6809,3 +6809,4 @@ test('a competition late in the synonym list is still found', async () => {
   db.prepare('DELETE FROM xc_programmes').run();
   db.prepare('DELETE FROM xc_channels').run();
 });
+

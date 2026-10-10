@@ -162,8 +162,24 @@ test('starter FAQs actually match how people ask', () => {
     ['its saying invalid user??', 'login'],
     ['keeps logging me out, invalid details', 'login'],
     ['how can my friend join the service?', 'friend'],
-    ['my mate wants to sign up', 'friend'],
+    // Asserted on what the person needs rather than which entry wins. A
+    // bag-of-words matcher cannot tell "I want to sign up" from "my mate
+    // wants to sign up" — the sentences differ only by their subject — so
+    // both entries carry the /invite line and either one serves them.
+    ['my mate wants to sign up', '/invite'],
+    ['my mate wants to join', 'friend'],
+    ['can i refer someone', 'friend'],
     ['how do i invite them to this group', 'friend'],
+    // The friend entry owned "signup", "sign up", "join" and "interested",
+    // so the most valuable message this bot receives — a new customer's
+    // "thinking of signing up" — was answered with "Happy to get THEM set
+    // up!" and three steps about somebody who does not exist.
+    ['hi mate, thinking of signing up', 'How do I sign up?'],
+    ['thinking of signing up', 'How do I sign up?'],
+    ['how do i join', 'How do I sign up?'],
+    ['can i sign up', 'How do I sign up?'],
+    ['im interested', 'How do I sign up?'],
+    ['how do i get started', 'How do I sign up?'],
     ['dont know how to install the apps', 'Depends on your device'],
     ['how do i get the apps on my firestick', 'Downloader'],
     ['how do i install this on my android phone', 'aftv.news'],
