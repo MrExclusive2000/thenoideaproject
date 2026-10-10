@@ -4,7 +4,7 @@ import { scoreFaq, tokens } from '../faq/matcher.js';
 import { scoreGuide } from '../guides.js';
 import { redactWalletAddresses } from '../payments.js';
 import { circuitOpen, circuitError, recordFailure, recordSuccess } from './breaker.js';
-import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, echoesInstructions, stripPrematureHandoff, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail, asksForCredentials, redactCredentialUrls, inventsLink, invensSportsResult, stripWrongLoginAdvice, stripClaimedFixes, fixEthernetForStick, promisesALookup, offersSideloadToApple, claimsVodAvailability } from './guardrails.js';
+import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, echoesInstructions, stripPrematureHandoff, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail, asksForCredentials, redactCredentialUrls, inventsLink, invensSportsResult, stripWrongLoginAdvice, stripClaimedFixes, fixEthernetForStick, promisesALookup, offersSideloadToApple, claimsVodAvailability, driftsFromOriginal } from './guardrails.js';
 import { offersClaimedFix, FIX_LABELS } from '../bot/helpers.js';
 
 const usageStmt = db.prepare(
@@ -868,7 +868,12 @@ export async function rephraseCanned(message, { question = null } = {}) {
     // A personalised rewrite earns a little more room than a plain reword,
     // but it is still a rewrite of this line and not a new essay.
     const roomFor = asked ? 2.4 : 2;
-    if (out.length > Math.max(String(message).length * roomFor, String(message).length + 120)) return message;
+    // The absolute floor is there so a short line has room to breathe. At
+    // +120 it was five times the length of a greeting, which is not room to
+    // breathe, it is room to write something else: "Hey, what can I sort
+    // for you?" came back as a 118-character answer about PPV channels and
+    // went out instead. 60 still fits a reworded one-liner comfortably.
+    if (out.length > Math.max(String(message).length * roomFor, String(message).length + 60)) return message;
     const bannedWords = db.prepare('SELECT word FROM banned_words').all().map((r) => r.word);
     if (containsBannedWord(out, bannedWords)) return message;
     // A personalised rewrite has more room to improvise than a plain reword,
@@ -877,6 +882,11 @@ export async function rephraseCanned(message, { question = null } = {}) {
     // not already contain. Failing either, the saved text goes out unchanged.
     if (asksForCredentials(out)) return message;
     if (inventsLink(out, `${message} ${asked}`)) return message;
+    // And it has to still be a rewrite of THIS line. Everything above
+    // checks the shape of the new text; none of it notices a reply that is
+    // the right length, asks nothing, invents no link — and is about
+    // something else. The saved text wins that argument every time.
+    if (driftsFromOriginal(message, out)) return message;
     return redactCredentialUrls(out);
   } catch {
     return message;

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, stripWrongLoginAdvice, promisesALookup, claimsVodAvailability } from '../src/ai/guardrails.js';
+import { cleanReply, leaksSystemPrompt, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, stripWrongLoginAdvice, promisesALookup, claimsVodAvailability, driftsFromOriginal } from '../src/ai/guardrails.js';
 
 test('OFFTOPIC sentinel suppresses the reply', () => {
   assert.equal(cleanReply('OFFTOPIC'), null);
@@ -246,4 +246,33 @@ test('talking about the VOD section in general is still allowed', () => {
   ]) {
     assert.equal(claimsVodAvailability(reply), false, reply.slice(0, 55));
   }
+});
+
+// rephraseCanned checks commands, @handles, placeholders, length, banned
+// words, credentials and invented links — and never whether the rewrite is
+// still about the same thing. A reply of roughly the right length that
+// shares nothing with the original passed every gate, and the saved text is
+// the one category of reply the admin fully controls.
+test('a rewrite that wandered off the subject is rejected', () => {
+  const playbook = 'Try these in order: restart the app and your device, restart your router, '
+    + 'clear the app cache, use 5GHz WiFi, switch to a backup app with the same login, '
+    + 'try a lower quality stream, and run a speed test.';
+  assert.equal(
+    driftsFromOriginal(playbook, 'Yes, that should be available on the sports and PPV channels in Live TV.'),
+    true
+  );
+  // A real rewrite keeps the substance even when every other word changes.
+  assert.equal(
+    driftsFromOriginal(playbook, 'Give these a go in order — reboot the app and the device, restart '
+      + 'your router, clear the cache, get on 5GHz WiFi, try a backup app with the same login, '
+      + 'drop the stream quality, and run a speed test.'),
+    false
+  );
+});
+
+// Short lines are exempt: "Hey, what can I sort for you?" rewritten as
+// "Alright mate — what's up?" shares no content words and is exactly what
+// was asked for. The length cap is what protects those.
+test('a short line is not judged on word overlap', () => {
+  assert.equal(driftsFromOriginal('Hey 👋 What can I sort for you?', "Alright mate — what's up?"), false);
 });

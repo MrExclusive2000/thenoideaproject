@@ -547,3 +547,29 @@ const CLAIMS_VOD = new RegExp(
 export function claimsVodAvailability(reply) {
   return CLAIMS_VOD.test(String(reply || ''));
 }
+
+// Has a "rewrite this line" come back about something else entirely?
+//
+// rephraseCanned checks a lot — commands, @handles, placeholders, length,
+// banned words, credentials, invented links — and not whether the rewrite
+// is still about the same subject. A reply of roughly the right length that
+// shares nothing with the original passes every one of those gates, and the
+// saved text is the one category of reply the admin fully controls: the
+// buffering playbook, the payment steps, the escalation line. Replacing one
+// of those with something the model made up is the worst trade in the
+// system, and on a small CPU-hosted model a drifting rewrite is not an
+// exotic failure.
+//
+// Only applied to substantial lines. A greeting rewritten from "Hey, what
+// can I sort for you?" to "Alright mate — what's up?" shares no content
+// words at all and is exactly what was asked for; a seven-step playbook
+// that shares none has gone somewhere else.
+export function driftsFromOriginal(original, rewrite, { minWords = 12, keep = 0.25 } = {}) {
+  const before = contentWords(original);
+  if (before.size < minWords) return false;
+  const after = contentWords(rewrite);
+  if (!after.size) return true;
+  let shared = 0;
+  for (const w of after) if (before.has(w)) shared++;
+  return shared / before.size < keep;
+}
