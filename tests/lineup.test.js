@@ -218,3 +218,69 @@ test('a genre question is answered from the category, not from programme titles'
   assert.ok(rows.includes('CBeebies') && rows.includes('Nick Jr'),
     'the channels filed under a Kids category are the answer');
 });
+
+// The lineup is a reseller feed and is mostly not British — UK categories
+// are about 2% of 26,681 channels — so with no preference at all, "any
+// music channels?" came back with Canadian ones and "any news channels?"
+// with Australian ones.
+test('a genre question with no country named prefers home', async () => {
+  const { findChannelsByCategory } = await import('../src/xc.js');
+  lineup([
+    ['CA STINGRAY CLASSIC ROCK', 'Canada | Music'],
+    ['PL|Music BOX', 'Poland | Music'],
+    ['CLUBLAND TV', 'UK | Music'],
+    ['KERRANG', 'UK | Music'],
+  ]);
+  const names = findChannelsByCategory('any music channels', { service: 1 }).map((c) => c.name);
+  assert.deepEqual(names.sort(), ['CLUBLAND TV', 'KERRANG']);
+});
+
+test('naming a country stands the preference down — including by nationality', async () => {
+  const { findChannelsByCategory } = await import('../src/xc.js');
+  lineup([
+    ['CLUBLAND TV', 'UK | Music'],
+    ['PL|Music BOX', 'Poland | Music'],
+    ['PL|4Fun Dance', 'Poland | Music'],
+  ]);
+  // Customers say the nationality; the lineup writes the country.
+  const names = findChannelsByCategory('any polish music channels', { service: 1 }).map((c) => c.name);
+  assert.ok(names.includes('PL|Music BOX'), 'polish has to find Poland');
+  assert.ok(!names.includes('CLUBLAND TV'), 'and not be overridden by home');
+});
+
+test('home is decided by the category, not by words in the name', async () => {
+  const { findChannelsByCategory } = await import('../src/xc.js');
+  lineup([
+    ['AU Sky News UK', 'Australia | Bar TV'],
+    ['AU GB News', 'Australia | Bar TV'],
+    ['BBC NEWS FHD', 'UK | News'],
+  ]);
+  const names = findChannelsByCategory('do you have any news channels', { service: 1 }).map((c) => c.name);
+  assert.deepEqual(names, ['BBC NEWS FHD'],
+    'an Australian channel with UK in its name is not a UK channel');
+});
+
+test('adult channels are never volunteered', async () => {
+  const { findChannels, findChannelsByCategory } = await import('../src/xc.js');
+  lineup([
+    ['Babestation', 'Adults'],
+    ['Playboy TV', 'Adults'],
+    ['BBC ONE HD', 'UK | Entertainment'],
+  ]);
+  assert.equal(findChannelsByCategory('what channels do you have', { service: 1 })
+    .some((c) => /babestation|playboy/i.test(c.name)), false);
+  // Not even when the words line up — the section is answered from the
+  // knowledge instead, which says it exists and is PIN-locked.
+  assert.equal(findChannels('do you have adult channels', { service: 1 }).length, 0);
+});
+
+test('section headings are not offered as channels', async () => {
+  const { findChannels } = await import('../src/xc.js');
+  lineup([
+    ['------- Kids Channels -------', 'Arabic'],
+    ['======== SPORTS ========', 'Arabic'],
+    ['CBeebies', 'UK | Kids'],
+  ]);
+  const names = findChannels('any kids channels', { service: 1 }).map((c) => c.name);
+  assert.ok(!names.some((n) => /-----/.test(n)), 'a divider does not play');
+});

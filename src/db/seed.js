@@ -5,7 +5,7 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 31;
+const SEED_VERSION = 32;
 
 export const STARTER_FAQS = [
   {
@@ -164,6 +164,15 @@ export const STARTER_FAQS = [
     // is worse than no entry: unfilled, the bot quotes "the default PIN is
     // DEFAULT-PIN" at a customer. It now names the PINs the apps themselves
     // ship with and falls back to a human, so there is nothing to fill in.
+    // The channel lookup never lists adult channels — not in a genre
+    // answer, not in a browse answer, and never in a group where everyone
+    // sees it. So the question has to be answerable from knowledge, or
+    // asking it plainly gets nothing at all.
+    question: 'Is there an adult section, and how do I get into it?',
+    answer: "Yes — there's an adult section in the app, and it's PIN-locked by default so it can't be opened by accident.\nIt's in the categories list with the rest; scroll to it and the app will ask for the PIN. Out of the box that's usually 0000 or 1234, and you can set your own in the app's settings under Parental Controls.\nI won't list those channels out in chat — have a look in the app and they're all there.",
+    keywords: 'adult, adults, xxx, porn, 18, erotic, section, locked, hidden, blocked',
+  },
+  {
     question: 'What is the PIN for locked categories (parental controls)?',
     answer: "Some categories are PIN-locked (parental controls). Out of the box our apps use one of the usual defaults — try 0000 first, then 1234. Once you're in you can set your own in the app's settings under Parental Controls, so write it down somewhere.\nIf neither works, ask here and we'll sort it out — don't keep guessing, some apps lock you out for a while after a few wrong tries.",
     keywords: 'pin, locked, lock, parental, control, controls, categories, category, restricted',

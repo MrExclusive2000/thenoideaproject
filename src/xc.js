@@ -156,6 +156,70 @@ const tagOf = (name) => {
   return (m?.[1] || m?.[2] || '').toLowerCase();
 };
 
+// Adult channels are never volunteered.
+//
+// Service 2 carries 642 of them in an "Adults" category, and a genre or
+// browse question has no business surfacing one — least of all in a group
+// chat, where everybody sees the answer. They are filtered out of channel
+// lookups entirely; "is there an adult section?" is answered from the
+// knowledge, which confirms it exists and is PIN-locked without reading
+// out a list of names.
+const ADULT_CATEGORY = /\b(?:adult|adults|xxx|porn|erotic|18\+)\b/i;
+const isAdultRow = (r) => ADULT_CATEGORY.test(String(r.category || ''));
+
+// Where the customers are. The lineup is a reseller feed and is mostly not
+// British — UK categories are about 2% of it — so without this "any music
+// channels?" came back with Canadian ones and "any news channels?" with
+// Australian ones. A question that names no country gets the home region
+// when the home region has anything to offer, and everywhere else when it
+// does not; naming a country still works exactly as before.
+const HOME_REGION = /\b(?:uk|gb|united\s+kingdom|britain|british|ire|irish|ireland|eire)\b/i;
+// The CATEGORY decides, when there is one. Going by the name as well made
+// "AU Sky News UK" and "AU GB News" count as British — they are Australian
+// channels that happen to carry the words, and they were offered to a UK
+// customer asking for news.
+const isHomeRow = (r) => (r.category
+  ? HOME_REGION.test(String(r.category))
+  : HOME_REGION.test(String(r.name || '')));
+
+// Lineups use rows as section headings — "------- Kids Channels -------",
+// "=== SPORTS ===". They are not channels, they do not play, and offering
+// one as an answer is worse than offering nothing. 46 of them in the real
+// lineup, and they match genre words beautifully.
+const DIVIDER = /^[\s\-=_*#~.·•▬━─|+<>]*$/;
+const isDividerRow = (r) => {
+  const n = String(r.name || '');
+  if (!/[a-z]/i.test(n)) return true;
+  // Decoration at BOTH ends is a heading; a channel is not written that way.
+  return /^[\s\-=_*#~.·•▬━─]{3,}/.test(n) && /[\s\-=_*#~.·•▬━─]{3,}$/.test(n);
+};
+void DIVIDER;
+
+// Customers say the nationality; lineups write the country. "Any polish
+// channels?" has to find a category called "Poland", and it also has to
+// count as naming a country so the home-region preference stands aside.
+const NATIONALITY = {
+  polish: 'poland', turkish: 'turkey', german: 'germany', spanish: 'spain',
+  french: 'france', brazilian: 'brazil', serbian: 'serbia', italian: 'italy',
+  dutch: 'netherlands', greek: 'greece', portuguese: 'portugal', swedish: 'sweden',
+  norwegian: 'norway', danish: 'denmark', finnish: 'finland', romanian: 'romania',
+  bulgarian: 'bulgaria', hungarian: 'hungary', russian: 'russia', indian: 'india',
+  pakistani: 'pakistan', albanian: 'albania', croatian: 'croatia', american: 'usa',
+  canadian: 'canada', australian: 'australia', mexican: 'mexico', chinese: 'china',
+  japanese: 'japan', korean: 'korea', israeli: 'israel', persian: 'iran',
+};
+
+// Words a category name shares with half the questions ever asked. Without
+// this, "are there any kids CHANNELS" matched the word "Channels" in a
+// category called "★ 24/7 Channels" and the bot concluded the customer had
+// named a country.
+const CATEGORY_GENERIC = new Set([
+  'channels', 'channel', 'live', 'sports', 'sport', 'kids', 'news', 'music', 'movies',
+  'movie', 'entertainment', 'documentary', 'documentaries', 'radio', 'general', 'regionals',
+  'series', 'cinema', 'adult', 'adults', 'other', 'misc', 'events', 'event', 'back', 'only',
+  'direct', 'plus', 'extra', 'club', 'store', 'premium',
+]);
+
 // Whole-word containment, with the channel-name punctuation (|, :, parens,
 // decorations) treated as a boundary like whitespace.
 const wordIn = (haystack, needle) => {
@@ -192,7 +256,9 @@ export function findChannels(query, { service = 1, limit = 8 } = {}) {
 
   // The meaningful words run together, for the phrase test below.
   const phrase = terms.join('');
-  const rows = db.prepare('SELECT stream_id, name, category, epg_channel_id FROM xc_channels WHERE service = ?').all(service);
+  const rows = db.prepare('SELECT stream_id, name, category, epg_channel_id FROM xc_channels WHERE service = ?')
+    .all(service)
+    .filter((r) => !isAdultRow(r) && !isDividerRow(r));
   const scored = [];
   for (const r of rows) {
     const name = String(r.name).toLowerCase();
@@ -240,11 +306,52 @@ export function findChannels(query, { service = 1, limit = 8 } = {}) {
     }
   }
 
-  return scored
+  const ranked = scored
     .filter((r) => r.score > 0)
-    .sort((a, b) => b.score - a.score || a.name.length - b.name.length)
-    .slice(0, limit);
+    .sort((a, b) => b.score - a.score || a.name.length - b.name.length);
+  return preferHome(ranked, query).slice(0, limit);
 }
+
+// Which region's channels does this question want?
+//
+// Three answers, in order. They named one, so give them that one. They
+// named none and home has something, so give them home — the lineup is a
+// reseller feed and mostly not British, so with no preference "any music
+// channels?" came back Canadian. Home has nothing, so give them whatever
+// there is, which is how a Polish or Arabic customer still gets served.
+//
+// Applied after scoring, so it never promotes a worse match; it only
+// chooses between matches that were going to be offered anyway.
+function preferHome(rows, query) {
+  const q = String(query || '');
+  const asked = new Set((q.toLowerCase().match(/[a-z]{3,}/g) || [])
+    .flatMap((w) => [w, NATIONALITY[w]].filter(Boolean)));
+
+  // The leading segment of the category is where the country lives
+  // ("Australia | Bar TV"), plus any tag on the name ("(AR) ", "CL: ").
+  const categoryWords = (r) => String(r.category || '').split('|')[0]
+    .replace(/[^a-z ]/gi, ' ').trim().toLowerCase()
+    .split(/\s+/).filter((w) => w.length >= 4 && !CATEGORY_GENERIC.has(w));
+
+  // The tag is checked against the raw question rather than the word set,
+  // because a tag is often two letters — "(AR)", "CL:" — and the set only
+  // holds words of three or more.
+  const namesRegion = (r) => {
+    const tag = tagOf(r.name);
+    if (tag && new RegExp(`\\b${tag}\\b`, 'i').test(q)) return true;
+    return categoryWords(r).some((w) => asked.has(w));
+  };
+
+  if (HOME_REGION.test(q)) {
+    const home = rows.filter(isHomeRow);
+    return home.length ? home : rows;
+  }
+  const named = rows.filter(namesRegion);
+  if (named.length) return named;
+  const home = rows.filter(isHomeRow);
+  return home.length ? home : rows;
+}
+
 
 // ---- what's on --------------------------------------------------------------
 
@@ -545,7 +652,7 @@ export function findChannelsByCategory(query, { service = 1, limit = 8 } = {}) {
   if (!words.length) return [];
   const rows = db.prepare(
     'SELECT stream_id, name, category, epg_channel_id FROM xc_channels WHERE service = ? AND category IS NOT NULL'
-  ).all(service);
+  ).all(service).filter((r) => !isAdultRow(r) && !isDividerRow(r));
   const scored = [];
   for (const r of rows) {
     const cat = String(r.category).toLowerCase();
@@ -554,10 +661,13 @@ export function findChannelsByCategory(query, { service = 1, limit = 8 } = {}) {
     // "DOCUMENTARIES", "movie" has to find "MOVIES", "kid" has to find
     // "KIDS". Suffix stripping gets the plurals and misses the y/ies pair,
     // which is the one that matters most here.
-    const hit = words.some((w) => cat.includes(w) || cat.includes(w.slice(0, 6)));
+    const hit = words.some((w) => {
+      const forms = [w, NATIONALITY[w]].filter(Boolean);
+      return forms.some((f) => cat.includes(f) || cat.includes(f.slice(0, 6)));
+    });
     if (hit) scored.push(r);
   }
-  return scored.slice(0, limit);
+  return preferHome(scored, query).slice(0, limit);
 }
 
 export async function channelGrounding(question, { service = 1 } = {}) {
