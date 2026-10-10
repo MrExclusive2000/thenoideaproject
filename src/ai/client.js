@@ -4,7 +4,7 @@ import { scoreFaq, tokens } from '../faq/matcher.js';
 import { scoreGuide } from '../guides.js';
 import { redactWalletAddresses } from '../payments.js';
 import { circuitOpen, circuitError, recordFailure, recordSuccess } from './breaker.js';
-import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, echoesInstructions, stripPrematureHandoff, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail, asksForCredentials, redactCredentialUrls, inventsLink, invensSportsResult, stripWrongLoginAdvice, stripClaimedFixes, fixEthernetForStick, promisesALookup } from './guardrails.js';
+import { OFFTOPIC_SENTINEL, cleanReply, leaksSystemPrompt, echoesInstructions, stripPrematureHandoff, containsBannedWord, stripDeadEndQuestion, stripInvitationTail, endsWithQuestion, trimTruncatedTail, asksForCredentials, redactCredentialUrls, inventsLink, invensSportsResult, stripWrongLoginAdvice, stripClaimedFixes, fixEthernetForStick, promisesALookup, offersSideloadToApple } from './guardrails.js';
 import { offersClaimedFix, FIX_LABELS } from '../bot/helpers.js';
 
 const usageStmt = db.prepare(
@@ -487,7 +487,7 @@ export function _aiQueueState() {
 // `smallTalk`: the caller is spending the user's one off-topic free pass —
 // permit ONE brief friendly answer to an off-topic message. Replies that are
 // (or end as) a question are suppressed: banter must never fish for more chat.
-export async function askAi(question, { history = [], assumeOnTopic = false, smallTalk = false, playback = null, grounding = null, secondRound = false, knowledgeFaqs = null, knownOutage = false, channels = null, service = null, alreadyTried = false, sports = null, tried = null, firestick = false } = {}) {
+export async function askAi(question, { history = [], assumeOnTopic = false, smallTalk = false, playback = null, grounding = null, secondRound = false, knowledgeFaqs = null, knownOutage = false, channels = null, service = null, alreadyTried = false, sports = null, tried = null, firestick = false, apple = false } = {}) {
   if (!getSetting('ai.enabled')) return null;
   if (aiBudgetExceeded()) {
     const err = new Error('Daily AI budget reached');
@@ -595,6 +595,12 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
           content: "This customer is on a Fire TV Stick. It has NO ethernet port — the whole stick range is HDMI and WiFi only, and wired needs Amazon's Ethernet Adapter, bought separately, which goes into the micro-USB power socket. Never tell them to plug in, run or connect an ethernet cable: they will go looking for a socket their device does not have. For a connection problem on a stick the advice is the 5GHz band, moving the router nearer, or freeing up storage. (A Fire TV CUBE is the exception and does have a port — this rule is about the stick.)",
         }]
       : []),
+    ...(apple
+      ? [{
+          role: 'system',
+          content: 'This customer is on an iPhone or iPad. iOS cannot sideload: there is no Downloader app, no APK, no aftv.news link and no "allow installs from unknown sources" setting — none of that exists on Apple. Telling them any of it sends them hunting for something their device does not have. The only route is Smarters Player Lite, free from the App Store, then "Login with Xtream Codes API" using their username, password and the service URL. If you are not sure of the steps, say so and stop; do not fall back on the Android instructions because they are the ones you can see.',
+        }]
+      : []),
     ...(playback === 'login'
       ? [{
           role: 'system',
@@ -676,6 +682,15 @@ export async function askAi(question, { history = [], assumeOnTopic = false, sma
       return null;
     }
     reply = pruned;
+  }
+
+  // An APK, a Downloader code or "allow unknown sources" given to an
+  // iPhone. None of it exists on iOS, so the whole reply is built on the
+  // wrong device — suppressed, and the stand-in sends the iOS entry, which
+  // is the complete correct answer and was in the prompt all along.
+  if (apple && offersSideloadToApple(reply)) {
+    console.error('AI guardrail: suppressed Android sideload instructions given to an Apple device');
+    return null;
   }
 
   // Wired ethernet on a device with no ethernet port. The clause is cut and

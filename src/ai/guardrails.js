@@ -481,3 +481,33 @@ export function promisesALookup(reply) {
   if (!text.trim()) return false;
   return ASK_ME.test(text) && WILL_LOOK_IT_UP.test(text);
 }
+
+// "Bot can you send iOS guide" →
+//
+//   "To install the app on an iOS device, open https://aftv.news/3793766 in
+//    your browser. This link works for the Sky Glass app. Allow installs
+//    from unknown sources if your device asks. Install the app, open it,
+//    and log in with your service details."
+//
+// Every sentence of that is impossible on an iPhone. aftv.news serves an
+// Android APK, there is no Downloader app on iOS, and "allow installs from
+// unknown sources" is a setting Apple does not have. The customer is sent
+// to a dead end by a reply that sounds completely confident.
+//
+// The correct answer was already in the prompt: the iOS entry scores 1.0
+// for "how do I install on my iphone" and Smarters Player Lite was sitting
+// in the KNOWLEDGE block the model was handed. It reached past it for the
+// Android instructions that were in there too. That is what a guardrail is
+// for — the prompt was right and the model was wrong anyway.
+//
+// Suppressed whole rather than trimmed. Cutting the offending sentences
+// leaves "This link works for the Sky Glass app" with no link above it, and
+// a reply built on the wrong idea of the device does not have a good half.
+// Suppression hands it to the stand-in, which sends the iOS entry verbatim
+// — the complete, correct answer, App Store link and all.
+const SIDELOAD =
+  /\baftv\.news\b|\bdownloader\b|\bapk\b|\bunknown\s+sources\b|\bside-?load\w*\b|\bdeveloper\s+options\b|\bthird-?party\s+sources\b|\bdownload(?:er)?\s+code\b/i;
+
+export function offersSideloadToApple(reply) {
+  return SIDELOAD.test(String(reply || ''));
+}

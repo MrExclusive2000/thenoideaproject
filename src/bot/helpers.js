@@ -558,3 +558,20 @@ export function namesFirestick(text) {
   // so leave it alone rather than strip something that may be right.
   return !ETHERNET_CAPABLE.test(t);
 }
+
+// An Apple device, said plainly enough to act on. Deliberately narrow: this
+// turns on a hard rule below, and getting it wrong on an Android customer
+// would strip the only install instructions that work for them.
+//
+// "Apple TV" is excluded on purpose — it is a different box with different
+// apps, and lumping it in here would answer it as an iPhone.
+const APPLE = /\b(?:iphones?|ipads?|ipod|ios|i\s?os|apple\s+(?:phone|tablet|device)|app\s?store)\b/i;
+const NOT_APPLE = /\bandroid\b|\bfire\s?stick\b|\bfirestick\b|\bfire\s?tv\b|\bapple\s?tv\b|\bsamsung\b|\bsmart\s?tv\b|\bwindows\b|\bpc\b/i;
+
+export function namesApple(text) {
+  const t = String(text || '');
+  if (!APPLE.test(t)) return false;
+  // "I've got an iPhone and a Firestick" — the sideload advice is right for
+  // one of them, so leave it alone rather than cut something that is true.
+  return !NOT_APPLE.test(t);
+}

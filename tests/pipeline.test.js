@@ -6354,3 +6354,97 @@ test('"do you have a number?" is not answered with a channel called Radio Number
 
   db.prepare('DELETE FROM xc_channels').run();
 });
+
+// "Bot can you send iOS guide" came back with the Android answer:
+//   "To install the app on an iOS device, open https://aftv.news/3793766 in
+//    your browser... Allow installs from unknown sources if your device
+//    asks."
+// None of that exists on an iPhone. The correct answer was in the prompt —
+// the iOS entry scores 1.0 for an iPhone install question and Smarters
+// Player Lite was in the KNOWLEDGE block — and the model reached past it
+// for the Android instructions that were in there too.
+test('an iPhone is never sent to aftv.news, Downloader or an APK', async () => {
+  // The stand-in answers from knowledge when a reply is suppressed, so the
+  // iOS entry has to be there — it is seeded on every real install.
+  db.prepare('DELETE FROM faqs WHERE question LIKE ?').run('%iPhone or iPad%');
+  db.prepare(`INSERT INTO faqs (question, answer, keywords, enabled, priority, hit_count, created_at, updated_at)
+              VALUES ('How do I install the app on an iPhone or iPad (iOS)?',
+                      'On iPhone/iPad use Smarters Player Lite — install it free from the App Store, then choose "Login with Xtream Codes API".',
+                      'ios, iphone, ipad, apple, store, lite, install, app', 1, 0, 0, 0, 0)`).run();
+
+  const before = aiResponse;
+  aiResponse = 'To install the app on an iOS device, open https://aftv.news/3793766 in your browser. '
+    + 'This link works for the Sky Glass app. Allow installs from unknown sources if your device asks. '
+    + 'Install the app, open it, and log in with your service details.';
+  try {
+    const ctx = fakeCtx('how do i install the app on my iphone', { userId: 97821 });
+    await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+    const msg = ctx.sent.map((s) => s.msg).join('\n');
+    assert.doesNotMatch(msg, /aftv\.news|downloader|\bapk\b|unknown sources/i,
+      'Android sideload instructions reached an Apple device');
+    // Suppressing is only right because something better takes its place:
+    // the iOS entry, verbatim, which is the complete correct answer.
+    assert.match(msg, /Smarters Player Lite/i, 'the customer should get the real iOS instructions');
+
+    // The prompt should have told it so too, belt and braces.
+    assert.match(JSON.stringify(lastAiRequest), /iOS cannot sideload/,
+      'the model is told what the device can actually do');
+  } finally {
+    aiResponse = before;
+  }
+});
+
+// The same reply is correct for a Firestick, so the rule must key on the
+// device and not on the words.
+test('an Android or Firestick customer still gets the Downloader answer', async () => {
+  const before = aiResponse;
+  aiResponse = 'Install the Downloader app from the Amazon store, open it and enter 3793766, then press Go.';
+  try {
+    const ctx = fakeCtx('how do i install the app on my firestick please', { userId: 97822 });
+    await answer(ctx, ctx.message.text, { isDm: true, logId: null });
+    assert.match(ctx.sent.map((s) => s.msg).join('\n'), /downloader/i,
+      'the sideload answer is the right one here and must survive');
+  } finally {
+    aiResponse = before;
+  }
+});
+
+// "That's not the iOS guide" → "👍 No problem — shout here if it starts
+// playing up again and I'll flag it straight to the team."
+//
+// The customer had just been handed Android instructions for an iPhone and
+// said so. The message contains "not", PROBLEM_REPLY_WORDS matched, and a
+// complaint about a wrong answer was filed as "all sorted, cheers". A
+// correction is a second attempt at the original question, not a close.
+test('telling the bot its answer was wrong is not "all sorted"', async () => {
+  setSetting('bot.cooldownSeconds', 0);
+  setSetting('bot.problemAutoCloseMinutes', 60);
+  setSetting('bot.problemSoftCloseMessage', '👍 No problem — shout here if it starts playing up again.');
+  db.prepare('DELETE FROM problem_reports').run();
+  _resetProblemTriage();
+  _resetProblemQueue();
+  hub.api = { sendMessage: async () => ({ message_id: 1 }) };
+
+  // Get into the state the live chat was in: a case auto-closed, so the
+  // next neutral-sounding reply is a candidate for the soft close.
+  await handleDirectMessage(fakeCtx('itv keeps buffering for me', { userId: 97901 }));
+  db.prepare('UPDATE problem_reports SET ts = ts - 3700 WHERE tg_user_id = 97901').run();
+  await autoCloseSweep();
+
+  const ctx = fakeCtx("That's not the iOS guide", { userId: 97901 });
+  await handleDirectMessage(ctx);
+  const msg = ctx.sent.map((s) => s.msg).join('\n');
+  assert.doesNotMatch(msg, /playing up again|plays up again/i,
+    'a correction was treated as the problem being fixed');
+
+  // A genuine "yeah all good" still closes — warmly, since that is a clear
+  // resolution rather than a neutral drift. The point is telling the two
+  // apart, not stopping cases from closing.
+  const ok = fakeCtx('yeah all sorted cheers', { userId: 97901 });
+  await handleDirectMessage(ok);
+  assert.match(ok.sent.map((s) => s.msg).join('\n'), /glad it|playing up again/i,
+    'a real "it is fixed" must still close the case');
+
+  setSetting('bot.problemAutoCloseMinutes', 0);
+  hub.api = null;
+});

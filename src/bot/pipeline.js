@@ -9,7 +9,7 @@ import {
   sendChunked, logMessage, setLogSource, recordUnanswered, chatAllowed,
   isLikelyInScope, hasScopeSignal, recordProblem, extractProblemTopic, isAdminUser,
   isContentIssue, looksLikeLiveIssue, looksLikeLoginIssue, wrongCopyIssue, withAdminContact, linkedCustomer,
-  claimedFixes, ruledOutCauses, FIX_LABELS, namesFirestick, problemFamily, familyOfTopic,
+  claimedFixes, ruledOutCauses, FIX_LABELS, namesFirestick, namesApple, problemFamily, familyOfTopic,
 } from './helpers.js';
 import { alertAdmins } from './reports.js';
 import { embed, retrieveFaqs, embeddingsProven } from '../ai/embeddings.js';
@@ -1614,11 +1614,32 @@ function bumpCooldown(userId) {
 // problem, and everything else goes to normal answering.
 const PROBLEM_REPLY_WORDS = /\b(not|nope|no|havent|haven'?t|hasnt|hasn'?t|didnt|didn'?t|yet|tried|trying|checked|check|watched|watching|working|works|worked|fine|ok|okay|sorted|fixed|done|busy|later|today|tonight|tomorrow|morning|again|same|still|better|worse|good|great|cheers|thanks|ta)\b/i;
 
+// Telling the bot its last answer was wrong. "That's not the iOS guide" was
+// answered with "👍 No problem — shout here if it starts playing up again
+// and I'll flag it straight to the team": it contains "not", PROBLEM_REPLY_
+// WORDS matched, and a complaint about a wrong answer got filed as "all
+// sorted, cheers". The customer had just been handed Android instructions
+// for an iPhone and was told the matter was closed.
+//
+// A correction is never an answer to "is it sorted?" — it is a second
+// attempt at the original question, and belongs in normal answering where
+// the model gets another go with the correction in its history.
+const CORRECTS_THE_BOT = new RegExp(
+  '\\b(?:that(?:\'|’)?s|that\\s+is|this\\s+is|it(?:\'|’)?s)\\s+not\\s+(?:the|what|a|an|my|it|right|correct)\\b'
+  + '|\\bthat(?:\'|’)?s\\s+(?:the\\s+)?wrong\\b'
+  + '|\\bnot\\s+what\\s+i\\s+(?:asked|meant|said|wanted|need|needed)\\b'
+  + '|\\bwrong\\s+(?:guide|answer|app|link|code|one|thing|instructions|device|info)\\b'
+  + '|\\bdidn(?:\'|’)?t\\s+ask\\s+(?:for|about)\\b'
+  + '|\\bi\\s+(?:just\\s+)?ask(?:ed)?\\s+(?:you\\s+)?(?:for|about)\\b',
+  'i'
+);
+
 function answersIsItSorted(text) {
   const t = String(text || '');
   if (!t.trim()) return false;
   if (looksLikeGreeting(t) || mostlyGreeting(t)) return false;
   if (startsNewTopic(t)) return false;
+  if (CORRECTS_THE_BOT.test(t)) return false;
   return looksLikeAcknowledgement(t) || looksLikeThanks(t) || PROBLEM_REPLY_WORDS.test(t);
 }
 
@@ -2797,6 +2818,13 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
             || namesFirestick(getProblemState(ctx.from?.id)?.firstText || '')
             || history.some((h) => h.role === 'user' && namesFirestick(h.content));
 
+          // Same reasoning as the stick, and the same scope: said once in
+          // message two, still true in message five. "Bot can you send iOS
+          // guide" got the Android aftv.news link back, confidently.
+          const onApple = namesApple(question)
+            || namesApple(getProblemState(ctx.from?.id)?.firstText || '')
+            || history.some((h) => h.role === 'user' && namesApple(h.content));
+
           // One embedding per message, shared by the cache lookup and FAQ
           // retrieval below.
           const canCache = fullAi && cacheable({ history, grounding, playback, secondRound: deepen });
@@ -2882,6 +2910,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
                 alreadyTried,
                 tried: triedSoFar,
                 firestick: onFirestick,
+                apple: onApple,
                 sports,
               });
             } catch (err) {
