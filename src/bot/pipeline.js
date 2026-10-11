@@ -2726,6 +2726,31 @@ function bestServiceReply() {
 // The knowledge entry that actually applies to an iPhone. Found by content
 // rather than by a hardcoded question, so renaming the entry in the panel
 // does not quietly break this.
+// Clearing an app's data and installing it are different questions, and
+// naming the app was enough to swap one for the other. Live, from a
+// screenshot: "How to clear data on skyglass firestick" was answered with
+// Developer Options, unknown sources, and "return to the Downloader app
+// and continue the installation" — seven steps, none of which clear
+// anything. The app name outscored the verb, because the install entry's
+// own question says "Sky Glass" and the clear-data one does not.
+//
+// Keywords now cover most of it, but a question's wording can still carry
+// an install entry past this one on sheer similarity ("how do I wipe the
+// sky glass app on my firestick"). The verb decides, so it decides here.
+const ASKS_TO_CLEAR =
+  /\b(?:clear|clearing|cleared|wipe|wiping|reset|resetting|flush)\b[^.?!\n]{0,24}\b(?:data|cache|storage|app|everything)\b/i;
+const WANTS_IT_INSTALLED = /\b(?:install\w*|reinstall\w*|download\w*|set\s?up|code)\b/i;
+
+function clearDataEntry() {
+  try {
+    return db.prepare(`SELECT * FROM faqs WHERE enabled = 1
+      AND answer LIKE '%Clear data%' AND answer LIKE '%Settings%'
+      ORDER BY priority DESC, id LIMIT 1`).get() || null;
+  } catch {
+    return null;
+  }
+}
+
 function iosEntry() {
   try {
     return db.prepare(`SELECT * FROM faqs WHERE enabled = 1
@@ -2860,7 +2885,10 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
   // value, and a wrong one installs the wrong app — so it is sent by code or
   // not at all, exactly like the wallet address below. Live, the Purple code
   // sat in settings while the bot said "I'm not sure" five times running.
-  {
+  // "Clear data sky glass" names an app, and naming an app is how you ask
+  // for its code — so this branch answered it with the Downloader code.
+  // The verb says otherwise, and the verb wins.
+  if (!ASKS_TO_CLEAR.test(question) || WANTS_IT_INSTALLED.test(question)) {
     const gaveCode = recentlyGaveCode(ctx);
 
     // They have the code and it did not work. Sending it again — which is
@@ -3221,6 +3249,17 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
   // the right answer for a Firestick and impossible on an iPhone. Swap in
   // the iOS entry when there is one; otherwise let it fall through rather
   // than send instructions the device cannot follow.
+  // Asked to clear, answered with an install. Checked before the Apple
+  // swap so an iPhone asking to clear data still lands on clearing it.
+  // Enumerating what the WRONG answer looked like was too narrow: "reset
+  // the smarters app" landed on the which-app entry, which is not an
+  // install answer and was left alone. Asked to clear, answer about
+  // clearing, whatever else happened to score higher.
+  if (result.match && ASKS_TO_CLEAR.test(question) && !WANTS_IT_INSTALLED.test(question)) {
+    result.match = clearDataEntry() || result.match;
+    result.nearMiss = result.match ? result.nearMiss : null;
+  }
+
   if (onAppleDevice && result.match && offersSideloadToApple(result.match.answer)) {
     result.match = iosEntry() || null;
     result.nearMiss = result.match ? result.nearMiss : null;

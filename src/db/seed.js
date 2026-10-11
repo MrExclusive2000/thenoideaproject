@@ -5,7 +5,7 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 35;
+const SEED_VERSION = 36;
 
 export const STARTER_FAQS = [
   {
@@ -89,7 +89,16 @@ export const STARTER_FAQS = [
     // entry. The single-word forms carry the same meaning and claim
     // nothing that belongs to everyone else; the question text already
     // says "log back in".
-    keywords: 'clear, data, cache, clearing, storage, wipe, reset, relogin, logout, fresh, reinstall',
+    // The ACTION is the question, not the app. Naming the app flipped it:
+    // "clear data sky glass" and "how do I wipe the sky glass app on my
+    // firestick" both landed on the Sky Glass INSTALL entry, and the
+    // model dutifully walked a customer through Developer Options and
+    // "continue the installation" when all they wanted was to clear the
+    // app's data. Live, from a screenshot. The app and device names live
+    // here too now, so naming one cannot pull the question away — the
+    // install entries keep "install", "downloader" and the codes, which
+    // is what actually separates the two questions.
+    keywords: 'clear, data, cache, clearing, storage, wipe, reset, relogin, logout, fresh, reinstall, sky glass, skyglass, purple, smarters, player, firestick, fire stick, android, iphone, ipad, samsung',
   },
   {
     question: 'How do I enable Developer Options or allow apps from unknown sources on Firestick?',

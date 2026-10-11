@@ -504,3 +504,47 @@ test('a title that merely contains "and" is still a title', async () => {
   const msg = ctx.sent.join('\n');
   assert.doesNotMatch(msg, /live channel/i, 'never answered as a channel');
 });
+
+// Live, from a screenshot: "How to clear data on skyglass firestick" was
+// answered with Developer Options, allowing unknown sources, and "return
+// to the Downloader app and continue the installation" — seven steps,
+// none of which clear anything. Clearing an app's data and installing it
+// are different questions, and naming the app was enough to swap one for
+// the other: the install entry's own question says "Sky Glass" and the
+// clear-data one does not, so it won on similarity alone.
+//
+// Here rather than in pipeline.test.js because that file latches full-AI
+// mode, where a stubbed model answers everything and which entry was
+// chosen stops mattering. Keyword mode is what the live bot runs.
+test('asking to clear data is never answered with how to install', async () => {
+  aiResponse = '';
+  for (const asked of ['How to clear data on skyglass firestick',
+    'how do i wipe the sky glass app on my firestick', 'clear data sky glass',
+    'how do i clear the cache on purple', 'reset the smarters app']) {
+    const ctx = dmCtx(asked, 94100 + asked.length);
+    await handleDirectMessage(ctx);
+    const msg = ctx.sent.join('\n');
+    assert.match(msg, /Clearing app data/i, asked);
+    assert.doesNotMatch(msg, /Developer Options|unknown sources|aftv\.news/i,
+      `install steps for: ${asked}`);
+  }
+});
+
+// And the other way: asking to install still installs. "Clear data sky
+// glass" also used to reach the code branch, because naming an app is how
+// you ask for its code — so that had to learn the same distinction without
+// losing the codes.
+test('asking to install is still answered with how to install', async () => {
+  aiResponse = '';
+  for (const [asked, expect] of [
+    ['how do i install sky glass', /Downloader/i],
+    ['whats the sky glass code', /3793766|Downloader code/i],
+    ['how do i install it on firestick', /Downloader/i],
+    ['how do i reinstall the app', /Downloader/i],
+    ['how do i download purple', /Downloader/i],
+  ]) {
+    const ctx = dmCtx(asked, 94200 + asked.length);
+    await handleDirectMessage(ctx);
+    assert.match(ctx.sent.join('\n'), expect, asked);
+  }
+});
