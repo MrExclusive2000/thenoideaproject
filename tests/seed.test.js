@@ -425,3 +425,20 @@ test('clearing app data is covered, and says where the setting actually is', () 
   assert.match(hit.match?.question || '', /clear the app data/i,
     'the live question should land on it, not on the Sky Glass install entry');
 });
+
+// "My sub ran out" is the commonest way anybody says this, and it matched
+// nothing: in the group that meant total silence to a customer asking to
+// give us money. Found by simulating a busy room rather than one customer
+// at a time, which is where a message nobody answers actually shows up.
+test('a customer whose subscription has lapsed reaches the renewal entry', () => {
+  db.prepare('DELETE FROM faqs').run();
+  addStarterFaqs();
+  const faqs = db.prepare('SELECT * FROM faqs').all();
+  for (const said of ['my sub ran out', 'my sub ran out can someone sort me',
+    'my subscription ran out', 'my sub has expired', 'need to renew',
+    'my account expired today']) {
+    const { match } = matchFaq(said, faqs, 0.5);
+    assert.ok(match, `no match for: ${said}`);
+    assert.match(match.question, /renew/i, `"${said}" matched: ${match.question}`);
+  }
+});

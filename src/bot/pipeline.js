@@ -1621,6 +1621,33 @@ const ABUSE_FILLER = new Set([
 const NOT_HELPING =
   /\byou\s+(?:never|don'?t|dont|do not|aren'?t|arent|can'?t|cant|cannot)\s+(?:even\s+|ever\s+|seem to\s+)?(?:answer|understand|understood|listen|help|read|get)\b|\byou(?:'?re|\s+are)\s+not\s+(?:listening|helping|understanding|reading|answering)\b|\byou\s+keep\s+(?:saying|repeating|sending|giving)\s+(?:me\s+)?the\s+same\b|\bthat'?s\s+not\s+what\s+i\s+(?:asked|said|meant)\b|\bi\s+did\s?n'?t\s+ask\s+(?:for\s+)?(?:that|this)\b|\bnot\s+what\s+i\s+asked\b|\byou'?re\s+just\s+repeating\b/i;
 
+// Members answer each other constantly, and an entry match alone was enough
+// to talk over them. In a simulated busy group, five of nine perfectly
+// ordinary remarks scored as confident matches: "use the purple app"
+// (0.875), "nah sky glass is better" (0.642), "I've got the 4K Max"
+// (0.650), "try clearing the cache" (0.611), "just use smarters" (0.535).
+// None is a question, none is a fault, and none is addressed to us —
+// somebody was already helping and the bot cut across them.
+//
+// Only ever consulted to withhold the entry-match route. A question, a
+// fault, a lineup question, an angry message or a request for a person
+// still gets answered however it is phrased, so "you need to fix this"
+// and "sort it out mate" are untouched.
+const ADVISING_THE_ROOM = new RegExp([
+  '^\\s*(?:nah|nope|yeah|yep|yup|aye|no)\\b',
+  '^\\s*(?:just\\s+)?(?:use|try|get|download|install|grab|stick|buy)\\b',
+  '\\byou\\s+(?:need|want|gotta|have\\s+to)\\s+(?:a|an|the|to\\s+(?:use|try|get|download|install|buy|grab))\\b',
+  '^\\s*(?:mine|mines)\\b[^?]{0,30}\\b(?:fine|ok|okay|working|alright|good|grand)\\b',
+  "^\\s*i(?:'?ve|\\s+have)?\\s+(?:got|had)\\b",
+  '\\b(?:mate|pal|bro|lad|bud|fella)\\s*[.!]*$',
+].join('|'), 'i');
+
+function advisesTheRoom(text) {
+  return ADVISING_THE_ROOM.test(String(text || '').trim());
+}
+
+export const _advisesTheRoom = (t) => advisesTheRoom(t);
+
 function looksLikeFrustration(text) {
   const t = String(text || '');
   if (!t.trim()) return null;
@@ -3844,10 +3871,13 @@ export async function handleGroupMessage(ctx) {
     // is not a question, not a problem report and matches no entry, so the
     // group said nothing at all to somebody mid-complaint.
     const isUpset = Boolean(looksLikeFrustration(question));
+    // An entry match is the one route a member's aside can take, so it is
+    // the one route the advice shape closes.
+    const matchedEntry = () => !advisesTheRoom(question) && standaloneFaqMatch();
     shouldAnswer = repliesToOtherUser
-      ? (isProblem || isUpset || standaloneFaqMatch() || looksLikeHumanRequest(question))
+      ? (isProblem || isUpset || matchedEntry() || looksLikeHumanRequest(question))
       : (looksLikeQuestion(text) || isProblem || isUpset || asksAboutTheLineup
-        || looksLikeHumanRequest(question) || standaloneFaqMatch());
+        || looksLikeHumanRequest(question) || matchedEntry());
   }
 
   // Problem triage: fixes first, admin escalation only on confirmation.

@@ -211,7 +211,10 @@ export const STARTER_FAQS = [
   {
     question: 'How do I check or renew my subscription?',
     answer: 'To check your status and expiry date, or to renew, {admin}. We take crypto — Litecoin (LTC) or Bitcoin (BTC). Ask me for the payment guide and I’ll post the steps, and ask me for the wallet address when you’re ready — the admin confirms the exact amount.',
-    keywords: 'renew, renewal, expire, expiry, expired, subscription, sub, payment, pay, account',
+    // "My sub ran out" is the commonest way anybody says this and it
+    // matched nothing — in the group that meant total silence to a
+    // customer asking to give us money.
+    keywords: 'renew, renewal, renewing, expire, expiry, expired, expiring, subscription, sub, ran out, run out, runs out, lapsed, ended, finished, overdue, reactivate, extend, payment, pay, account',
   },
   {
     question: 'How do I pay with crypto?',

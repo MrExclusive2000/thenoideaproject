@@ -9,7 +9,7 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-test-'));
 
 const { db } = await import('../src/db/db.js');
 const { setSetting, getSetting } = await import('../src/settings.js');
-const { answer, handleDirectMessage, handleGroupMessage, replyContext, _resetProblemTriage, _resetSmallTalk, _resetUpset, _resetPendingTitle, _looksLikeHumanRequest, _looksLikeFrustration } = await import('../src/bot/pipeline.js');
+const { answer, handleDirectMessage, handleGroupMessage, replyContext, _resetProblemTriage, _resetSmallTalk, _resetUpset, _resetPendingTitle, _looksLikeHumanRequest, _looksLikeFrustration, _advisesTheRoom } = await import('../src/bot/pipeline.js');
 const { _aiQueueState, askAi, buildSystemPrompt } = await import('../src/ai/client.js');
 const { flushProblemAlerts, _resetProblemQueue, autoCloseSweep } = await import('../src/bot/problems.js');
 const { hub } = await import('../src/bot/hub.js');
@@ -6865,5 +6865,29 @@ test('a customer saying the bot is not listening is not making small talk', () =
   for (const fine of ['i paid yesterday when does it activate', 'can i pay by paypal',
     'you dont have sky sports do you', 'can you help me', "that's not what i asked, it's still buffering"]) {
     assert.notEqual(_looksLikeFrustration(fine), 'let-down', fine);
+  }
+});
+
+// Members answer each other constantly, and an entry match alone was
+// enough for the bot to talk over them. In a simulated busy group — eight
+// members and the admin, all typing at once — five of nine perfectly
+// ordinary remarks scored as confident matches: "use the purple app"
+// (0.875), "nah sky glass is better" (0.642), "I've got the 4K Max"
+// (0.650), "try clearing the cache" (0.611), "just use smarters" (0.535).
+// Somebody was already helping, and the bot cut across them.
+test('an aside between members is not a question for the bot', () => {
+  for (const aside of ['you need a firestick mate', 'just use smarters', 'try clearing the cache',
+    "ive got the 4k max", 'use the purple app', 'nah sky glass is better', 'mines been fine all day']) {
+    assert.equal(_advisesTheRoom(aside), true, aside);
+  }
+});
+
+// It may only ever WITHHOLD the entry-match route. A question, a fault, an
+// angry message or a request for a person still gets answered however it
+// is phrased — "you need to fix this" and "sort it out" are not asides.
+test('the advice shape never silences a real message', () => {
+  for (const real of ['you need to fix this', 'sort it out', 'my app wont open',
+    'i want a refund', 'my sub ran out']) {
+    assert.equal(_advisesTheRoom(real), false, real);
   }
 });
