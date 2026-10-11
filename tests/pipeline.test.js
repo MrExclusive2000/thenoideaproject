@@ -1853,7 +1853,11 @@ test('a bare off-topic fragment never reaches the AI (banter pass off)', async (
   setSetting('bot.offtopicMessage', 'App questions only please.');
   setSetting('bot.offtopicChatMinutes', 0); // isolate the scope gate from the banter free pass
   lastAiRequest = null;
-  const ctx = fakeCtx('Sausage', { userId: 5151 });
+  // A user we have not spoken to. 5151 is used by an earlier test, and DM
+  // conversation memory is per user: with an exchange already behind them
+  // the scope gate steps aside on purpose, so reusing the id would test the
+  // mid-conversation rule rather than the off-topic one.
+  const ctx = fakeCtx('Sausage', { userId: 51510 });
   const result = await answer(ctx, 'Sausage', { isDm: true, logId: null });
   assert.equal(result, 'offtopic');
   assert.equal(lastAiRequest, null, 'no AI call spent on junk');
@@ -3605,7 +3609,10 @@ test('a bare "can you send me the guide" follows the conversation', async () => 
 });
 
 test('an ambiguous guide request offers the list instead of guessing', async () => {
-  const ctx = fakeCtx('can you send me the guide please');
+  // Ambiguous means nothing to go on, so this needs a user with no history:
+  // the guide picker is deliberately given recent messages as context, and
+  // the default id has a conversation behind it by this point in the file.
+  const ctx = fakeCtx('can you send me the guide please', { userId: 36071 });
   const result = await answer(ctx, ctx.message.text, { isDm: true, logId: null });
   assert.equal(result, 'guide');
   assert.ok(ctx.sent[0].extra?.reply_markup, 'a menu of real guides');
@@ -4009,8 +4016,14 @@ test('with no library cached the bot says it cannot check rather than guessing',
   const ctx = fakeCtx('do you have Breaking Bad', { userId: 99322 });
   await handleDirectMessage(ctx, ctx.message.text);
   const msg = ctx.sent.map((s) => s.msg).join('\n');
-  assert.match(msg, /can't check the library/i);
+  assert.match(msg, /can't (?:see|check) the library/i);
   assert.doesNotMatch(msg, /is available|we have it|already on the service/i, 'no claim either way');
+  // The lead used to end "...so I've put it on the request list", and the
+  // ack straight after it opens "📝 Noted! X is on the request list" — the
+  // same sentence twice in one breath. Simulated as somebody asking for a
+  // film, which is the only way anybody ever sees this line.
+  assert.equal((msg.match(/on the request list/gi) || []).length, 1,
+    'the request list is mentioned once, not twice');
 });
 
 test('the model is told it does not know what is in the VOD library', () => {

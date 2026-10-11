@@ -36,6 +36,21 @@ const anyVodRequest = (t) => parseVodRequest(t) || parseNaturalVodRequest(t);
 // Per-user answer cooldowns and short DM conversation memory.
 const cooldowns = new Map();
 const dmHistory = new Map();
+// When each DM thread was last spoken in. The memory had no lifetime, so a
+// customer who asked something real once had the scope gate held open for
+// them forever: the off-topic check steps aside mid-conversation (a bare
+// "THM4821" has to reach the model with its context), and with no expiry
+// there was no such thing as not-mid-conversation. A fragment of junk from
+// someone who last spoke weeks ago spent an AI call.
+const dmHistoryAt = new Map();
+const DM_HISTORY_TTL_MS = 30 * 60 * 1000;
+
+function dmHistoryFor(ctx) {
+  const key = `${ctx?.chat?.id}:${ctx?.from?.id}`;
+  const at = dmHistoryAt.get(key) || 0;
+  if (!at || Date.now() - at > DM_HISTORY_TTL_MS) return [];
+  return dmHistory.get(key) || [];
+}
 
 // When the AI asks a clarifying question in a group ("Which device are you
 // on?"), remember it per user so their next bare answer ("firestick") gets
@@ -97,7 +112,7 @@ function namesOnlyADevice(text) {
 // which replyContext already stores for the 👎 button.
 function previousAsk(ctx, isDm) {
   if (isDm) {
-    const history = dmHistory.get(`${ctx.chat?.id}:${ctx.from?.id}`) || [];
+    const history = dmHistoryFor(ctx);
     return [...history].reverse().find((m) => m.role === 'user')?.content || null;
   }
   const repliedTo = ctx.message?.reply_to_message;
@@ -121,7 +136,23 @@ function previousAsk(ctx, isDm) {
 // It is the wrong thing when that entry has nothing to do with it: "my app
 // keeps crashing" then "firestick" lands on the install steps, for somebody
 // whose app is already installed.
+// "What channel" on its own names nothing to look up. It means "which
+// channel is THAT on", about whatever was just discussed — and it went to
+// the matcher as a standalone question, where the only entry sharing those
+// two words is the one about a channel that has stopped working. A customer
+// who had just been told what boxing was on asked "what channel" and got
+// troubleshooting steps for a dead stream.
+const BARE_CHANNEL_ASK =
+  /^\s*(?:(?:and|so|ok|okay|but|right)\s+)?(?:on\s+)?(?:wot|what|what'?s|which)\s+(?:channel|chanel|chan)\s*(?:is\s+(?:it|that|this|they)\s*(?:on)?)?\s*[?.!]*$/i;
+
 function withDeviceRefinement(ctx, text, isDm) {
+  // Nothing to look up at all: re-ask what they were asking about, which
+  // named the channel in its own answer the first time.
+  if (BARE_CHANNEL_ASK.test(text)) {
+    const before = previousAsk(ctx, isDm);
+    if (before && !BARE_CHANNEL_ASK.test(before)) return { question: before, refined: true };
+    return { question: text, refined: false };
+  }
   if (!namesOnlyADevice(text)) return { question: text, refined: false };
   const asked = previousAsk(ctx, isDm);
   // "How do I install on firestick" followed by "firestick" is someone
@@ -162,6 +193,30 @@ function rememberReply(chatId, messageId, data) {
     const first = replyContext.keys().next().value;
     replyContext.delete(first);
   }
+}
+
+// Everything the bot says in a DM joins the conversation memory — which is
+// what makes "is there an app" mean "on my iPhone", and "on firestick" mean
+// the question before it.
+//
+// There were two copies of this, on the canned-entry path and the model
+// path, and a THIRD way out with no copy at all: the stand-in, taken
+// whenever the model refuses or cannot be reached, which answers from an
+// entry and returns. Simulated as an iPhone customer, "how do I watch on my
+// iphone" was answered correctly through that path, remembered nothing, and
+// the follow-up "is there an app" came back with the Downloader code and
+// the Fire TV developer-options steps — because as far as the next turn was
+// concerned, nobody had mentioned an iPhone.
+function rememberDmTurn(ctx, isDm, question, reply) {
+  if (!isDm || !reply) return;
+  const key = `${ctx.chat?.id}:${ctx.from?.id}`;
+  dmHistory.set(key, [
+    ...dmHistoryFor(ctx),
+    { role: 'user', content: question },
+    { role: 'assistant', content: String(reply).slice(0, 1500) },
+  ].slice(-6));
+  dmHistoryAt.set(key, Date.now());
+  if (dmHistory.size > 1000) { dmHistory.clear(); dmHistoryAt.clear(); }
 }
 
 function feedbackKeyboard() {
@@ -1010,8 +1065,13 @@ async function answerAvailability(ctx, title, asked = '') {
     return { text: deduped ? head : head + maybeArmServiceAsk(ctx, requestId), poster };
   }
   // No library to check against. Say so rather than guessing either way.
+  // The lead used to end "...so I've put it on the request list", and the
+  // ack that follows it opens "📝 Noted! X is on the request list" — the
+  // same sentence twice in one breath, which is how it read to a customer
+  // asking for a film. The ack is the admin's own wording and owns that
+  // half; this line owns the part the ack cannot say.
   const { ack, requestId, deduped } = recordVodRequest(ctx, requestTitle);
-  const head = `I can't check the library from here, so I've put it on the request list — if we already have it the admin will say so. ${ack}`;
+  const head = `I can't see the library from here, so I can't tell you whether it's already in there — if it is, the admin will say so. ${ack}`;
   return { text: deduped ? head : head + maybeArmServiceAsk(ctx, requestId), poster };
 }
 
@@ -1671,8 +1731,21 @@ function looksLikeQuestion(text) {
   // pending "which service is that request for?" question swallow it and
   // file TNT Sports as the service the customer is on.
   const starters = /^(how|hows|what|whats|why|when|whens|where|wheres|which|who|whos|can|could|would|should|does|do|did|is|are|was|were|will|have|has|had|got|any|anybody|anyone|any1|am|shall|may|might|help|pls|please)\b/i;
-  return starters.test(text.trim());
+  // A question with a word in front of it is still a question. The starter
+  // list is anchored to the FIRST word, so "so what do i do" and "right how
+  // do i pay" both read as statements — and in a group that means total
+  // silence, because the gate that decides whether to speak asks this. A
+  // customer whose password had just been redacted asked "so what do i do"
+  // and got nothing back at all.
+  //
+  // Greetings are deliberately not in here. Stripping "hi" off "hi how are
+  // you" would turn a wave into a question the group feels obliged to
+  // answer, and the greeting branches already handle those properly.
+  return starters.test(text.trim().replace(LEAD_IN, ''));
 }
+
+const LEAD_IN =
+  /^(?:\s*(?:so|and|but|right|ok|okay|kk|well|now|then|anyway|anyways|also|plus|oh|erm|um|uh|hmm|actually|basically|sorry|mate|just|quickly)\b[\s,.!–—-]*)+/i;
 
 // Support groups mostly post problem STATEMENTS ("buffering on bbc1",
 // "purple not working") — treat those as requests for help too.
@@ -2059,6 +2132,33 @@ async function handleAdminCaseClose(ctx, text, logId) {
   await reply(lines.join('\n'));
   return true;
 }
+
+// Mid-case, "what do I do now" is not a new question — it is the customer
+// saying the fixes have not worked and asking for the next step. It matched
+// none of the still-broken wording, so a thread that had already been
+// nudged once answered it as though it were a stranger's first message
+// instead of flagging it to a person. Only ever consulted with a case open,
+// where it is the only thing it can mean.
+//
+// Anchored to the END of the message, not just the start. Unanchored, the
+// optional pieces let it backtrack into "what do you mean by clear the
+// cache?" — matching "what" and then the bare "do" — and a genuine
+// follow-up question got flagged to a human instead of answered.
+const ASKS_WHAT_NEXT = new RegExp(
+  "^\\s*(?:(?:so|ok|okay|and|but|right|well)\\s+)?(?:"
+  + "(?:what|wot|whats|what'?s)\\s+(?:do\\s+)?(?:i|we|u|you)?\\s*(?:do|try)"
+  + "|(?:what|wot|whats|what'?s)\\s+now"
+  + "|now\\s+what"
+  + "|(?:any|anything)\\s+(?:other\\s+)?(?:ideas?|suggestions?)"
+  + "|what\\s+else\\s+(?:can|could|should)\\s+(?:i|we)\\s+(?:do|try)"
+  + "|whats?\\s+next"
+  + ")\\s*(?:now|then|mate|please|plz)?\\s*[?.!]*$", 'i');
+
+function asksWhatNext(text) {
+  return ASKS_WHAT_NEXT.test(String(text || '').trim());
+}
+
+export const _asksWhatNext = (t) => asksWhatNext(t);
 
 function saysStillBroken(text) {
   // "No change" and "no joy" are how half of them say it, and neither was
@@ -2587,7 +2687,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
   // device never saw it. Simulated — "how do I watch on my iphone" was
   // answered correctly, and the bare follow-up "is there an app" came back
   // with the Downloader code and the Fire TV developer-options steps.
-  const earlyHistory = providedHistory ?? (isDm ? (dmHistory.get(`${ctx.chat?.id}:${ctx.from?.id}`) || []) : []);
+  const earlyHistory = providedHistory ?? (isDm ? dmHistoryFor(ctx) : []);
   const onAppleDevice = namesApple(question)
     || namesApple(getProblemState(ctx.from?.id)?.firstText || '')
     || earlyHistory.some((h) => h.role === 'user' && namesApple(h.content));
@@ -2723,8 +2823,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
   // access to it. Both were true from where it sat. Nothing here involves the
   // model, so it also works when the endpoint is down.
   if (looksLikeGuideRequest(question)) {
-    const historyKey = `${ctx.chat.id}:${ctx.from.id}`;
-    const recent = (providedHistory ?? (isDm ? (dmHistory.get(historyKey) || []) : []))
+    const recent = (providedHistory ?? (isDm ? dmHistoryFor(ctx) : []))
       .filter((m) => m.role === 'user')
       .map((m) => m.content)
       .reverse();
@@ -3040,16 +3139,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
     // the per-user URL flow is the only outlet for those.
     const faqAnswer = withAdminContact(redactServiceUrls(result.match.answer));
     setLogSource(logId, 'faq', faqAnswer);
-    // FAQ answers join the DM conversation memory too, so a bare follow-up
-    // ("THM4821" after the which-service FAQ) reaches the AI with context.
-    if (isDm) {
-      const historyKey = `${ctx.chat.id}:${ctx.from.id}`;
-      dmHistory.set(historyKey, [
-        ...(dmHistory.get(historyKey) || []),
-        { role: 'user', content: question },
-        { role: 'assistant', content: String(faqAnswer).slice(0, 1500) },
-      ].slice(-6));
-    }
+    rememberDmTurn(ctx, isDm, question, faqAnswer);
     const sent = await sendChunked(ctx.api, ctx.chat.id, withSuffix(faqAnswer), {
       ...replyParams,
       reply_markup: feedbackKeyboard(),
@@ -3066,8 +3156,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
       // Outside the try, so the finally that clears it can see it.
       let stopTyping = null;
       try {
-        const historyKey = `${ctx.chat.id}:${ctx.from.id}`;
-        const history = providedHistory ?? (isDm ? (dmHistory.get(historyKey) || []) : []);
+        const history = providedHistory ?? (isDm ? dmHistoryFor(ctx) : []);
         // A problem report, an FAQ near-miss, or plain app/device vocabulary
         // means we already KNOW this is on-topic — stop the model bailing to
         // OFFTOPIC on legit questions (e.g. "how do I enable developer options").
@@ -3303,8 +3392,19 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
             // firestick", answered with "I'm not sure about the Firestick
             // either". The bot had named the Firestick in its own previous
             // sentence.
+            //
+            // And the whole guard belongs to faults. It was built for one
+            // thing — "are you being dumb?" answered with the same six
+            // steps the customer had just said did not work — and outside
+            // that, repeating beats refusing. Simulated: "ok how do i send
+            // it", in a conversation about paying, got "I'm not totally
+            // sure on that one, message the admin" for a procedure written
+            // down in an entry. Nobody is stonewalled by being told how to
+            // pay twice.
             const lastSaid = [...history].reverse().find((m) => m.role === 'assistant')?.content;
-            if (reply && lastSaid && !refined && !channels && !sports && repeatsPreviousAnswer(reply, lastSaid)) {
+            const inAFault = deepen || looksLikeProblem(question) || Boolean(getProblemState(ctx.from?.id));
+            if (reply && lastSaid && inAFault && !refined && !channels && !sports
+                && repeatsPreviousAnswer(reply, lastSaid)) {
               setLogSource(logId, 'no-new-help');
               // Only `deepen` has a caller that catches this and escalates.
               // Gating on "no case open" instead left an angry customer's
@@ -3333,8 +3433,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
         if (reply) {
           setLogSource(logId, servedFromCache ? 'cache' : 'ai', reply);
           if (isDm) {
-            dmHistory.set(historyKey, [...history, { role: 'user', content: question }, { role: 'assistant', content: reply }].slice(-6));
-            if (dmHistory.size > 1000) dmHistory.clear();
+            rememberDmTurn(ctx, isDm, question, reply);
           }
           // A reply ending in "?" is the model's one allowed clarifying
           // question — remember it so the user's next bare answer combines.
@@ -3363,6 +3462,7 @@ export async function answer(ctx, question, { isDm, logId, history: providedHist
           db.prepare('UPDATE faqs SET hit_count = hit_count + 1 WHERE id = ?').run(standIn.id);
           const standInText = withAdminContact(redactServiceUrls(standIn.answer));
           setLogSource(logId, 'faq', standInText);
+          rememberDmTurn(ctx, isDm, question, standInText);
           recordUnanswered(question, ctx, 'ai-refused', standIn.id);
           const sent = await sendChunked(ctx.api, ctx.chat.id, withSuffix(standInText), {
             ...replyParams,
@@ -3689,9 +3789,14 @@ export async function handleGroupMessage(ctx) {
     // the tell: the room was the only difference.
     const asksAboutTheLineup = looksLikeFixtureQuestion(question)
       || looksLikeChannelCategoryQuestion(question);
+    // Asking for a person is the clearest signal a customer can send that
+    // the bot is not going to be enough, and ignoring it is the one reply
+    // worse than a wrong one. "Forget it, I'll speak to the admin" was
+    // handed over properly in a DM and met with silence in the group.
     shouldAnswer = repliesToOtherUser
-      ? (isProblem || standaloneFaqMatch())
-      : (looksLikeQuestion(text) || isProblem || asksAboutTheLineup || standaloneFaqMatch());
+      ? (isProblem || standaloneFaqMatch() || looksLikeHumanRequest(question))
+      : (looksLikeQuestion(text) || isProblem || asksAboutTheLineup
+        || looksLikeHumanRequest(question) || standaloneFaqMatch());
   }
 
   // Problem triage: fixes first, admin escalation only on confirmation.
@@ -3830,6 +3935,7 @@ export async function handleGroupMessage(ctx) {
         negatesFixes(text) ||
         hasTimeDetail(text) ||
         Boolean(upset) ||
+        asksWhatNext(text) ||
         // Pushing back on the diagnosis — see the DM path.
         ruledOutCauses(text).length > 0 ||
         // After an auto-close ("assuming it's sorted?") the default flips:
@@ -4133,7 +4239,7 @@ async function handleDmProblemReply(ctx, text, logId) {
       const b = extractProblemTopic(st.firstText || '');
       return Boolean(a && b && a === b);
     })();
-    if (saysStillBroken(text) || negatesFixes(text) || sameTopic) {
+    if (saysStillBroken(text) || negatesFixes(text) || asksWhatNext(text) || sameTopic) {
       const note = withCaseNumber(await spoken('bot.problemAlreadyFlaggedNote', text), caseNumberFor(ctx, st));
       if (note) {
         setProblemState(ctx.from.id, { at: Date.now() });
@@ -4151,7 +4257,7 @@ async function handleDmProblemReply(ctx, text, logId) {
       text.trim().split(/\s+/).length <= 8;
     isConfirmation =
       isProblem || saysStillBroken(text) || negatesFixes(text) || hasTimeDetail(text) ||
-      Boolean(upset) ||
+      Boolean(upset) || asksWhatNext(text) ||
       // "It's not my wifi, I get 500mb down" is them pushing back on the
       // diagnosis with a case open. It is not a new subject and it is not
       // nothing: it means the fault is still there and one of our guesses

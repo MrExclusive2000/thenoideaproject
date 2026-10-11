@@ -445,3 +445,31 @@ test('a bare sport follow-up is answered in the group, typo and all', async () =
     assert.equal(looksLikeFixtureQuestion(chatter), false, chatter);
   }
 });
+
+// There were two copies of the DM-memory write, on the canned-entry path
+// and the model path, and a third way out with no copy at all: the
+// stand-in, taken whenever the model refuses or cannot be reached, which
+// answers from an entry and returns. So a whole class of answers was
+// forgotten the moment it was sent.
+//
+// Simulated as an iPhone customer, which is where it shows: "how do i
+// watch on my iphone" was answered correctly through that path, remembered
+// nothing, and the bare follow-up "is there an app" came back with the
+// Downloader code and the Fire TV developer-options steps — because as far
+// as the next turn was concerned nobody had mentioned an iPhone. The
+// guardrail that catches sideload advice only ever sees model output, and
+// a matched entry is sent as the answer, so nothing else was going to stop
+// it either.
+test('an answer the model did not write is still remembered', async () => {
+  aiResponse = '';
+  const first = dmCtx('how do i watch on my iphone', 93401);
+  await handleDirectMessage(first);
+  assert.match(first.sent.join('\n'), /Smarters Player Lite/i, 'the iOS entry answered');
+
+  const second = dmCtx('is there an app', 93401);
+  await handleDirectMessage(second);
+  const followUp = second.sent.join('\n');
+  assert.match(followUp, /Smarters Player Lite/i, 'the follow-up knows they are on an iPhone');
+  assert.doesNotMatch(followUp, /Downloader|aftv\.news|unknown sources/i,
+    'and never sideload steps an Apple device cannot follow');
+});
