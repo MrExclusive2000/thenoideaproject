@@ -1,7 +1,7 @@
 import { db, now } from '../db/db.js';
 import { getSetting, setSettings } from '../settings.js';
 import { hub } from './hub.js';
-import { isContentIssue, isAdminUser } from './helpers.js';
+import { isContentIssue, isAdminUser, isGenericTopic } from './helpers.js';
 import { audit } from '../util.js';
 
 // Problem reports are batched into one admin DM per short window: a burst of
@@ -136,9 +136,16 @@ export function maybeAutoDegrade() {
     .filter((r) => !isContentIssue(r.text));
   if (!recent.length) return false;
 
+  // This label goes into a sentence customers read: "We're seeing several
+  // reports of X problems and are looking into it." The catch-all topics
+  // are the shape of a sentence rather than a symptom — "cant get", "wont
+  // play", "doesnt work" — and they came out as "several reports of cant
+  // get problems". They are useful on the panel, where they group rows;
+  // they cannot be dropped into English. Simulated, and it reached a
+  // customer twice in one run.
   const describe = (rows) => {
     const counts = {};
-    for (const r of rows) if (r.topic) counts[r.topic] = (counts[r.topic] || 0) + 1;
+    for (const r of rows) if (r.topic && !isGenericTopic(r.topic)) counts[r.topic] = (counts[r.topic] || 0) + 1;
     const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
     return top ? `${top} problems` : 'playback problems';
   };

@@ -442,3 +442,42 @@ test('a customer whose subscription has lapsed reaches the renewal entry', () =>
     assert.match(match.question, /renew/i, `"${said}" matched: ${match.question}`);
   }
 });
+
+// Both of these are a buying customer asking whether to trust us, and both
+// got banter: "is it safe" (mid-conversation about paying) came back "Ha,
+// you've lost me there 😄 Streaming's my thing", and "is my card details
+// safe" got "I'm not totally sure on that one". That is the worst possible
+// moment to say nothing useful.
+test('a customer asking whether to trust us gets a straight answer', () => {
+  db.prepare('DELETE FROM faqs').run();
+  addStarterFaqs();
+  const faqs = db.prepare('SELECT * FROM faqs').all();
+
+  for (const [asked, expect] of [
+    ['is it safe', /safe to pay/i],
+    ['is my card details safe', /safe to pay/i],
+    ['is this a scam', /safe to pay/i],
+    ['can i trust you', /safe to pay/i],
+    ['is this legal', /legal/i],
+    ['could i get in trouble', /legal/i],
+    ['will i get caught', /legal/i],
+    // and none of it steals from the entries next door
+    ['can i pay by card', /payment methods/i],
+    ['how do i pay with crypto', /crypto/i],
+    ['do you offer refunds', /refunds/i],
+    ['can i use a vpn', /VPN/i],
+  ]) {
+    const { match } = matchFaq(asked, faqs, 0.5);
+    assert.ok(match, `no match for: ${asked}`);
+    assert.match(match.question, expect, `"${asked}" matched: ${match.question}`);
+  }
+
+  // The legal one must not claim anything either way — it declines and
+  // hands over, which is the only honest answer a support bot has.
+  const legal = faqs.find((f) => /could I get in trouble/i.test(f.question));
+  assert.match(legal.answer, /not able to give legal advice/i);
+  assert.doesNotMatch(legal.answer, /\b(?:is legal|perfectly legal|completely legal|illegal)\b/i);
+  // And the card one says the true thing: the card never reaches us.
+  const safe = faqs.find((f) => /do you get my card details/i.test(f.question));
+  assert.match(safe.answer, /never give us card details/i);
+});

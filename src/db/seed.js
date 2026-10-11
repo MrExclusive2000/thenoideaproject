@@ -5,7 +5,7 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 34;
+const SEED_VERSION = 35;
 
 export const STARTER_FAQS = [
   {
@@ -240,6 +240,25 @@ export const STARTER_FAQS = [
     question: 'Can I use a VPN with the app?',
     answer: "Yes. If your internet provider blocks or throttles streams, a VPN often fixes buffering and 'stream not available' errors — connect to a nearby server and restart the app. If a stream only fails WITH the VPN on, switch VPN servers or turn it off for that stream.",
     keywords: 'vpn, blocked, isp, provider, throttling, nord, express',
+  },
+  {
+    // "Is it safe?" in a conversation about paying got the banter
+    // brush-off, and "is my card details safe" got "I'm not totally sure".
+    // Both are a buying customer asking whether to trust us, which is the
+    // worst possible moment to say nothing useful. The answer is simply
+    // true: the card never touches us.
+    question: 'Is it safe to pay — do you get my card details?',
+    answer: "You never give us card details, and we could not see them if you tried. You buy the crypto yourself inside your own wallet (Exodus), and its payment partner handles the card — we only ever receive the coin you send from your wallet to ours. Nothing on our side stores card numbers, and I never need your password either.\nIf you would rather arrange something different, {admin}.",
+    keywords: 'safe, safely, safety, secure, security, scam, scammed, trust, trustworthy, legit, dodgy, risky, ripped off, card safe, details safe',
+  },
+  {
+    // "Is this legal" and "could I get in trouble" both got banter — "Ha,
+    // you've lost me there 😄". A guess either way would be worse than the
+    // brush-off, so this declines plainly and hands them to a person
+    // instead of pretending the question was not asked.
+    question: 'Is this legal — could I get in trouble?',
+    answer: "I'm not able to give legal advice, and I would rather say so than guess at it. What I can tell you is that the service is used entirely at your own discretion. If it is something you want to weigh up before you sign up, have a word with the admin first: {admin}.",
+    keywords: 'legal, legality, illegal, law, lawful, trouble, caught, police, prosecuted, allowed, banned',
   },
   {
     question: 'Do you offer refunds?',

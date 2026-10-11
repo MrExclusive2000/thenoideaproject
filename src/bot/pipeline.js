@@ -1423,7 +1423,23 @@ function looksLikeNoise(text) {
   return NOISE_ONLY.test(t) || THINKING_NOISE.test(t);
 }
 
+// Emoji carrying no words. A thumbs-up is "got it", a 🙏 is thanks, and
+// neither is a question — but with no letters in them they matched nothing
+// at all and went to the off-topic path, so "👍" was answered with "Ha,
+// you've lost me there 😄 Streaming's my thing". The angry ones are the
+// exception and are read as frustration a few lines down; everything else
+// letterless is a nod, and a nod wants no reply.
+const ANGRY_EMOJI = /[\u{1F621}\u{1F620}\u{1F624}\u{1F92C}\u{1F44E}\u{1F612}\u{1F629}\u{1F62D}]/u;
+const HAS_A_LETTER = /[a-z\u00C0-\u024F\u0400-\u04FF\u0600-\u06FF]/i;
+
+function emojiOnly(text) {
+  const t = String(text || '').trim();
+  if (!t || t.length > 24) return false;
+  return !HAS_A_LETTER.test(t) && !/\d/.test(t) && /\p{Extended_Pictographic}/u.test(t);
+}
+
 function looksLikeAcknowledgement(text) {
+  if (emojiOnly(text) && !ANGRY_EMOJI.test(String(text))) return true;
   if (looksLikeNoise(text)) return true;
   const w = plainWords(text);
   if (!w.length || w.length > 3) return false;
@@ -1665,6 +1681,9 @@ function looksLikeFrustration(text) {
   // scored "waste of time" as service vocabulary on the strength of "time".
   if (looksLikeProblem(t)) return null;
   if (NOT_HELPING.test(t)) return 'let-down';
+  // "😡" on its own is a complaint with no words in it. It matched nothing
+  // and got the banter brush-off.
+  if (emojiOnly(t) && ANGRY_EMOJI.test(t)) return 'abuse';
   const givingUp = GIVING_UP_RE.test(t);
   // The giving-up phrase itself is removed before the strictness test — what
   // is LEFT has to be filler, or the message has content of its own.
