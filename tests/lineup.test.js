@@ -473,3 +473,34 @@ test('an answer the model did not write is still remembered', async () => {
   assert.doesNotMatch(followUp, /Downloader|aftv\.news|unknown sources/i,
     'and never sideload steps an Apple device cannot follow');
 });
+
+// "Do you have sky sports and tnt" is two questions in one. Every word has
+// to appear in a single channel name for a hit, and nothing is called "Sky
+// Sports and TNT" — so the whole phrase was taken for a film title, found
+// in no library, and filed on the request list. Both channels were sitting
+// in the lineup. Simulated as a customer sizing the service up before
+// buying, which is when people list what they want.
+test('a question naming two channels answers for both', async () => {
+  setLineup([
+    [951, 'Sky Sports Main Event FHD', 'UK | SPORTS'],
+    [952, 'TNT SPORTS 1 HD', 'UK | SPORTS'],
+    [953, 'BBC ONE FHD', 'UK | Entertainment'],
+  ]);
+  const ctx = dmCtx('do you have sky sports and tnt', 93501);
+  await handleDirectMessage(ctx);
+  const msg = ctx.sent.join('\n');
+  assert.match(msg, /Sky Sports Main Event/i, 'named the first one');
+  assert.match(msg, /TNT SPORTS 1/i, 'and the second');
+  assert.doesNotMatch(msg, /request list/i, 'not filed as a film nobody has');
+});
+
+// Only when EVERY side resolves. One side missing could mean a film —
+// "Beauty and the Beast" must still reach the VOD path rather than being
+// told we do not carry the Beast.
+test('a title that merely contains "and" is still a title', async () => {
+  setLineup([[954, 'BBC ONE FHD', 'UK | Entertainment']]);
+  const ctx = dmCtx('do you have beauty and the beast', 93502);
+  await handleDirectMessage(ctx);
+  const msg = ctx.sent.join('\n');
+  assert.doesNotMatch(msg, /live channel/i, 'never answered as a channel');
+});

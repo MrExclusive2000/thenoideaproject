@@ -5,7 +5,7 @@ import { getSetting, setSetting } from '../settings.js';
 // Starter content for the support group. Bump SEED_VERSION whenever the packs
 // change: on the next boot, new entries are added and any entry the admin has
 // NOT edited is upgraded in place. Edited content is never touched.
-const SEED_VERSION = 33;
+const SEED_VERSION = 34;
 
 export const STARTER_FAQS = [
   {
@@ -83,7 +83,13 @@ export const STARTER_FAQS = [
     // circles looking for buttons that are not there.
     question: 'How do I clear the app data and log back in?',
     answer: 'Clearing app data is done in your DEVICE settings, not inside the app — there is no "clear data" button in Purple, Sky Glass, XC or Smarters. It wipes the login and the cached guide, so have your username and password to hand before you start.\n📺 Firestick / Fire TV: Settings > Applications > Manage Installed Applications > pick the app > Clear data (then Clear cache too), then open it and log in again.\n📱 Android phone or tablet: Settings > Apps > pick the app > Storage > Clear storage (or Clear data), then open it and log in again.\n🍏 iPhone / iPad: there is no clear-data option — delete the app, reinstall it from the App Store and log in again.\n📺 Samsung / LG smart TV: uninstall the app and reinstall it from the TV\'s app store.\nIf you have lost your password, don\'t send it to me — {admin} and they will reset it.',
-    keywords: 'clear, data, cache, clearing, storage, wipe, reset, relogin, re-login, log back in, logout, log out, fresh, start again, reinstall',
+    // Keywords are tokenised, so "log back in" and "log out" handed this
+    // entry the bare words "back", "in" and "out" — and "sort it out or
+    // give me my money back" scored two hits here and beat the refunds
+    // entry. The single-word forms carry the same meaning and claim
+    // nothing that belongs to everyone else; the question text already
+    // says "log back in".
+    keywords: 'clear, data, cache, clearing, storage, wipe, reset, relogin, logout, fresh, reinstall',
   },
   {
     question: 'How do I enable Developer Options or allow apps from unknown sources on Firestick?',
@@ -235,7 +241,10 @@ export const STARTER_FAQS = [
   {
     question: 'Do you offer refunds?',
     answer: "All services are used at your own discretion, and refunds may not be available once a service has been activated. If something isn't working, talk to us first — we're always happy to help fix it. {admin} and the team will look after you.",
-    keywords: 'refund, refunds, money, back, cancel, guarantee, chargeback',
+    // "back" on its own was the whole overlap with the clear-data entry
+    // ("log back in"), and it won: "sort it out or give me my money back"
+    // was answered with how to clear your app data.
+    keywords: 'refund, refunds, refunded, money back, my money, cancel, cancellation, guarantee, chargeback, compensation, reimburse, waste of money',
   },
 ];
 

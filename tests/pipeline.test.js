@@ -9,7 +9,7 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-test-'));
 
 const { db } = await import('../src/db/db.js');
 const { setSetting, getSetting } = await import('../src/settings.js');
-const { answer, handleDirectMessage, handleGroupMessage, replyContext, _resetProblemTriage, _resetSmallTalk, _resetUpset, _resetPendingTitle } = await import('../src/bot/pipeline.js');
+const { answer, handleDirectMessage, handleGroupMessage, replyContext, _resetProblemTriage, _resetSmallTalk, _resetUpset, _resetPendingTitle, _looksLikeHumanRequest, _looksLikeFrustration } = await import('../src/bot/pipeline.js');
 const { _aiQueueState, askAi, buildSystemPrompt } = await import('../src/ai/client.js');
 const { flushProblemAlerts, _resetProblemQueue, autoCloseSweep } = await import('../src/bot/problems.js');
 const { hub } = await import('../src/bot/hub.js');
@@ -6823,3 +6823,47 @@ test('a competition late in the synonym list is still found', async () => {
   db.prepare('DELETE FROM xc_channels').run();
 });
 
+
+// Asking for a person is the clearest signal a customer can send that the
+// bot is not going to be enough, and half the ordinary phrasings missed:
+// the get/put branch insisted on a preposition. "Just get me a human" came
+// back "Ha, you've lost me there 😄 Streaming's my thing" — banter, to the
+// one message that means we have already failed.
+test('every ordinary way of asking for a person is one', () => {
+  for (const ask of ['just get me a human', 'get me a human', 'get me the admin',
+    'get the admin', 'is there a human i can talk to', 'can someone else look at this',
+    'can you get the admin to look at it', 'can the admin look at it',
+    'i want to speak to the admin', 'human please', 'can you ask the admin']) {
+    assert.equal(_looksLikeHumanRequest(ask), true, ask);
+  }
+  // "Can someone help me" is a plea for help, not for a human — the bot IS
+  // someone, and the help-ask reply ("Course 👍 What's up?") is better. And
+  // an admin APP or PANEL is a thing, not a person.
+  for (const notOne of ['can someone help me', 'i need help', 'need a hand', 'i need assistance',
+    'how do i get the app', 'can you get me the firestick code', 'wheres the admin panel',
+    'i cant get the admin app to work']) {
+    assert.equal(_looksLikeHumanRequest(notOne), false, notOne);
+  }
+});
+
+// The bot itself is the complaint. These name no symptom, carry no service
+// vocabulary and match no entry, so they fell to the banter free pass — and
+// a customer saying "you never answer anything properly" was told "Can't
+// complain, thanks for asking." The correction cases matter most: "that's
+// not what I asked" is the moment to stop guessing and hand over.
+test('a customer saying the bot is not listening is not making small talk', () => {
+  for (const said of ['you never answer anything properly', "that's not what i asked",
+    'you are not listening', 'you dont understand', "i didn't ask that",
+    'you keep saying the same thing', "you're not helping"]) {
+    assert.equal(_looksLikeFrustration(said), 'let-down', said);
+  }
+  // Invoking what they paid, which names no symptom either: "I'VE PAID GOOD
+  // MONEY FOR THIS" got total silence in the group.
+  assert.equal(_looksLikeFrustration('ive paid good money for this'), 'let-down');
+
+  // Ordinary questions that merely share the vocabulary.
+  for (const fine of ['i paid yesterday when does it activate', 'can i pay by paypal',
+    'you dont have sky sports do you', 'can you help me', "that's not what i asked, it's still buffering"]) {
+    assert.notEqual(_looksLikeFrustration(fine), 'let-down', fine);
+  }
+});

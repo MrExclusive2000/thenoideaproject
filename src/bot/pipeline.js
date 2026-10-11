@@ -851,12 +851,32 @@ function alreadyInLineup(ctx, title, asked = '') {
   // now — the answer comes from the cache either way.
   const usable = candidates.filter((n) => channelCount(n) > 0);
   if (!usable.length) return null;
-  for (const n of usable) {
-    const hits = channelsCarrying(title, n);
-    if (!hits.length) continue;
+  const say = (hits) => {
     const names = [...new Set(hits.map((h) => h.name))].slice(0, 4);
     const list = names.length > 1 ? `\n${names.map((x) => `• ${x}`).join('\n')}` : ` "${names[0]}"`;
     return `✅ Yes — that's a live channel on the service${list}\n\nIt's in the TV guide in your app. If it won't play, say so and I'll get it looked at.`;
+  };
+  for (const n of usable) {
+    const hits = channelsCarrying(title, n);
+    if (hits.length) return say(hits);
+  }
+
+  // "Do you have sky sports and tnt" is two questions in one. Every word has
+  // to appear in a single channel name for a hit, and no channel is called
+  // "Sky Sports and TNT" — so the whole thing was taken for a film title,
+  // found in no library, and filed on the request list. Both of those
+  // channels are right there in the lineup.
+  //
+  // Only answered when EVERY side resolves to a channel we carry. One side
+  // missing could mean a film ("Beauty and the Beast"), and saying "we don't
+  // have the Beast" to that is worse than letting the VOD path have it.
+  const parts = String(title).split(/\s*(?:\band\b|&|\+|,|\bplus\b)\s*/i)
+    .map((x) => x.trim()).filter((x) => x.length > 1);
+  if (parts.length > 1 && parts.length <= 3) {
+    for (const n of usable) {
+      const each = parts.map((part) => channelsCarrying(part, n));
+      if (each.every((hits) => hits.length)) return say(each.flat());
+    }
   }
   return null;
 }
@@ -1286,8 +1306,15 @@ function asksIfBot(text) {
 // insulting to someone who has just said they want a human. It is also where
 // phone calls belong: we do not have a phone, and the honest version of that
 // is "the admin, here, by message", not banter.
+//
+// Half the ordinary phrasings missed, because the get/put branch insisted
+// on a preposition: "just get me a human" matched nothing and came back
+// "Ha, you've lost me there 😄 Streaming's my thing" — to the one message
+// that means the bot has already failed. So did "get the admin", "is there
+// a human I can talk to", "can someone else look at this" and "can you get
+// the admin to look at it".
 const WANTS_A_HUMAN =
-  /\b(?:speak|talk|chat|spk)\b[^.?!\n]{0,20}\b(?:to|with)\b[^.?!\n]{0,15}\b(?:a\s+)?(?:human|person|someone|somebody|real person|agent|advisor|manager|owner|admin|boss|staff)\b|\b(?:get|put)\b[^.?!\n]{0,15}\b(?:me\s+)?(?:through|onto|on)\b[^.?!\n]{0,15}\b(?:a\s+)?(?:human|person|someone|admin|agent)\b|\b(?:can|could|will|would)\s+(?:you|u|someone|somebody)\b[^.?!\n]{0,12}\b(?:ring|call|phone)\s+me\b|\b(?:i want|i need|id like|i'd like|gimme)\b[^.?!\n]{0,15}\b(?:a\s+)?(?:human|real person|person to talk)\b|\bhuman (?:please|pls)\b|\breal (?:person|human) please\b|\b(?:pass|send|escalate|forward|bump|raise|report)\s+(?:it|this|that)\s+(?:on\s+)?(?:to|up)\b|\bescalate\s+(?:it|this|that)\b|\bwhoever\s+(?:runs|looks after|manages|owns)\b|\bsomeone\s+(?:technical|higher|senior|in charge)\b|\bget\s+(?:this|it)\s+to\s+(?:the\s+)?(?:team|admin|techs?|engineers?)\b|\bcan\s+(?:you|u)\s+just\s+(?:pass|send|forward|escalate)\b/i;
+  /\b(?:speak|talk|chat|spk)\b[^.?!\n]{0,20}\b(?:to|with)\b[^.?!\n]{0,15}\b(?:a\s+)?(?:human|person|someone|somebody|real person|agent|advisor|manager|owner|admin|boss|staff)\b|\b(?:get|put)\b[^.?!\n]{0,15}\b(?:me\s+)?(?:through|onto|on)\b[^.?!\n]{0,15}\b(?:a\s+)?(?:human|person|someone|admin|agent)\b|\b(?:can|could|will|would)\s+(?:you|u|someone|somebody)\b[^.?!\n]{0,12}\b(?:ring|call|phone)\s+me\b|\b(?:i want|i need|id like|i'd like|gimme)\b[^.?!\n]{0,15}\b(?:a\s+)?(?:human|real person|person to talk)\b|\bhuman (?:please|pls)\b|\breal (?:person|human) please\b|\b(?:pass|send|escalate|forward|bump|raise|report)\s+(?:it|this|that)\s+(?:on\s+)?(?:to|up)\b|\bescalate\s+(?:it|this|that)\b|\bwhoever\s+(?:runs|looks after|manages|owns)\b|\bsomeone\s+(?:technical|higher|senior|in charge)\b|\bget\s+(?:this|it)\s+to\s+(?:the\s+)?(?:team|admin|techs?|engineers?)\b|\b(?:get|put|fetch|grab)\s+(?:me\s+)?(?:a|an|the)?\s*(?:human|person|someone|somebody|admin|agent|manager|owner|boss|real\s+person)\b(?!\s+(?:app|apps|panel|password|code|link|page|bot|account|settings|section))|\bis\s+there\s+(?:a|an|any)\s+(?:human|person|someone|somebody|admin|agent|real\s+person)\b|\bcan\s+(?:someone|somebody)\s+else\s+(?:look|help|check|sort|deal|take)\b|\bcan\s+(?:a\s+human|the\s+admin|the\s+owner)\s+(?:look|help|check|sort|deal|take)\b|\bcan\s+(?:you|u)\s+get\s+(?:the\s+)?(?:admin|owner|boss|a\s+human|someone)\b|\bcan\s+(?:you|u)\s+(?:ask|tell)\s+(?:the\s+)?(?:admin|owner|boss)\b|\bcan\s+(?:you|u)\s+just\s+(?:pass|send|forward|escalate)\b/i;
 
 function looksLikeHumanRequest(text) {
   const t = String(text || '').trim();
@@ -1538,8 +1565,14 @@ const WALKING_OUT =
 // patience is running out over a fault that keeps coming back — you want to
 // know, and you want to know it is THAT rather than a threat, because what
 // you say to them is different.
+//
+// "I've paid good money for this" belongs here too. It names no symptom
+// and asks nothing, so in the group it was not a question, not a problem
+// report and matched no entry — total silence, to a paying customer in the
+// middle of a complaint. A plain "I paid yesterday, when does it activate"
+// is NOT this: that is an ordinary question with an ordinary answer.
 const LET_DOWN =
-  /\b(?:second|third|fourth|fifth|3rd|4th|2nd)\s+time\s+(?:this|in a)\s+(?:week|month|fortnight)\b|\b(?:happens|happening|been)\s+(?:every|all the)\s+(?:week|day|night)\b|\bkeeps?\s+happening\b|\byou\s+(?:told|said)\s+me\b[^.?!\n]{0,24}\b(?:fixed|sorted|working|done)\b|\b(?:was|were)\s+(?:meant|supposed)\s+to\s+be\s+(?:fixed|sorted)\b|\bagain\s+already\b/i;
+  /\b(?:second|third|fourth|fifth|3rd|4th|2nd)\s+time\s+(?:this|in a)\s+(?:week|month|fortnight)\b|\b(?:happens|happening|been)\s+(?:every|all the)\s+(?:week|day|night)\b|\bkeeps?\s+happening\b|\byou\s+(?:told|said)\s+me\b[^.?!\n]{0,24}\b(?:fixed|sorted|working|done)\b|\b(?:was|were)\s+(?:meant|supposed)\s+to\s+be\s+(?:fixed|sorted)\b|\bagain\s+already\b|\bpaid\s+(?:good\s+|decent\s+|real\s+)?money\b|\bpaying\s+(?:good\s+)?money\b|\bpaying\s+for\s+(?:this|it)\b[^.?!\n]{0,24}\b(?:not|dont|doesnt|cant|wont)\b|\bfor\s+what\s+i(?:'?m)?\s+pay\w*\b/i;
 
 export const _refusesSteps = (t) => REFUSES_STEPS.test(String(t || ''));
 export const _walkingOut = (t) => WALKING_OUT.test(String(t || ''));
@@ -1575,6 +1608,19 @@ const ABUSE_FILLER = new Set([
   'app', 'apps',
 ]);
 
+// The bot itself is the complaint. "You never answer anything properly" and
+// "that's not what I asked" name no symptom, carry no service vocabulary and
+// match no entry, so they fell to the banter free pass — which answered a
+// customer telling us we are not listening with "Can't complain, thanks for
+// asking." The second one matters most: it is a customer correcting a wrong
+// answer, which is the moment to stop guessing and hand over.
+//
+// Checked AFTER the symptom test below, on purpose: "that's not what I
+// asked, it's still buffering" has something real in it and belongs to the
+// model.
+const NOT_HELPING =
+  /\byou\s+(?:never|don'?t|dont|do not|aren'?t|arent|can'?t|cant|cannot)\s+(?:even\s+|ever\s+|seem to\s+)?(?:answer|understand|understood|listen|help|read|get)\b|\byou(?:'?re|\s+are)\s+not\s+(?:listening|helping|understanding|reading|answering)\b|\byou\s+keep\s+(?:saying|repeating|sending|giving)\s+(?:me\s+)?the\s+same\b|\bthat'?s\s+not\s+what\s+i\s+(?:asked|said|meant)\b|\bi\s+did\s?n'?t\s+ask\s+(?:for\s+)?(?:that|this)\b|\bnot\s+what\s+i\s+asked\b|\byou'?re\s+just\s+repeating\b/i;
+
 function looksLikeFrustration(text) {
   const t = String(text || '');
   if (!t.trim()) return null;
@@ -1591,6 +1637,7 @@ function looksLikeFrustration(text) {
   // hasScopeSignal, which is a deliberately loose one-fuzzy-hit test and
   // scored "waste of time" as service vocabulary on the strength of "time".
   if (looksLikeProblem(t)) return null;
+  if (NOT_HELPING.test(t)) return 'let-down';
   const givingUp = GIVING_UP_RE.test(t);
   // The giving-up phrase itself is removed before the strictness test — what
   // is LEFT has to be filler, or the message has content of its own.
@@ -3793,9 +3840,13 @@ export async function handleGroupMessage(ctx) {
     // the bot is not going to be enough, and ignoring it is the one reply
     // worse than a wrong one. "Forget it, I'll speak to the admin" was
     // handed over properly in a DM and met with silence in the group.
+    // An angry customer is never ignored. "I'VE PAID GOOD MONEY FOR THIS"
+    // is not a question, not a problem report and matches no entry, so the
+    // group said nothing at all to somebody mid-complaint.
+    const isUpset = Boolean(looksLikeFrustration(question));
     shouldAnswer = repliesToOtherUser
-      ? (isProblem || standaloneFaqMatch() || looksLikeHumanRequest(question))
-      : (looksLikeQuestion(text) || isProblem || asksAboutTheLineup
+      ? (isProblem || isUpset || standaloneFaqMatch() || looksLikeHumanRequest(question))
+      : (looksLikeQuestion(text) || isProblem || isUpset || asksAboutTheLineup
         || looksLikeHumanRequest(question) || standaloneFaqMatch());
   }
 
